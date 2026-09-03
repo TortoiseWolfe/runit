@@ -1,0 +1,60 @@
+{
+  "name": "runit",
+  "version": "0.1.0",
+  "private": true,
+  "main": "expo-router/entry",
+  "scripts": {
+    "start": "expo start",
+    "ios": "expo start --ios",
+    "android": "expo start --android",
+    "web": "expo start --web",
+    "render:canvas": "node tools/render-canvas.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "jest",
+    "audit:styles": "node tools/audit-native-styles.mjs",
+    "export:web": "EXPO_PUBLIC_FIDELITY=1 expo export --platform web --output-dir dist --clear",
+    "shots": "node tools/shoot-app.mjs"
+  },
+  "dependencies": {
+    "expo": "~57.0.19",
+    "expo-constants": "~57.0.17",
+    "expo-linking": "~57.0.9",
+    "expo-router": "~57.0.18",
+    "expo-status-bar": "~57.0.1",
+    "expo-system-ui": "~57.0.3",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-gesture-handler": "~2.32.0",
+    "react-native-reanimated": "4.5.1",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-screens": "~4.26.2",
+    "react-native-svg": "15.15.4",
+    "react-native-web": "^0.21.2"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0",
+    "@testing-library/react-native": "^14.0.1",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^26.4.1",
+    "@types/react": "^19.2.18",
+    "eslint": "^9.39.5",
+    "eslint-config-expo": "^57.0.2",
+    "jest": "^30.5.1",
+    "jest-expo": "^57.0.5",
+    "prettier": "^3.9.6",
+    "test-renderer": "^1.2.0",
+    "typescript": "^5.9.3"
+  },
+  "jest": {
+    "preset": "jest-expo",
+    "transformIgnorePatterns": [
+      "node_modules/(?!(?:.pnpm/)?((jest-)?react-native|@react-native(-community)?|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@sentry/react-native|native-base|react-native-svg))"
+    ]
+  },
+  "pnpm": {
+    "overrides": {
+      "minimatch@3>brace-expansion": "^1.1.12"
+    }
+  }
+}

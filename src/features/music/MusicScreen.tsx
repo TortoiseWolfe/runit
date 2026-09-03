@@ -1,0 +1,204 @@
+import { useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+
+import { EventHeader } from '@/features/chat/EventHeader';
+import { useMusicActions } from '@/state/actions';
+import { useMyRequest, useMyVotes, useNowPlaying, useQueue } from '@/state/hooks';
+import type { SongRequest, SongRequestStatus } from '@/data/types';
+import { alpha, border, eyebrow, fade, radius, useTheme, weight } from '@/theme';
+
+/**
+ * The canvas's `statusText` map has no `declined` key, so a declined request
+ * renders `undefined` -- and its `live` filter drops declined rows from the
+ * queue, so the guest's request silently vanishes. FIDELITY note C.
+ */
+const STATUS_TEXT: Record<SongRequestStatus, string> = {
+  pending: 'Waiting for DJ',
+  accepted: 'Accepted ✓',
+  played: 'Played',
+  declined: 'Not this time',
+};
+
+function QueueRow({ request, rank, mine }: { request: SongRequest; rank: number; mine: boolean }) {
+  const { tokens } = useTheme();
+  const votes = useMyVotes();
+  const { vote } = useMusicActions();
+  const voted = votes.has(request.id);
+
+  return (
+    <View
+      style={[
+        s.row,
+        { borderColor: tokens.base300, backgroundColor: mine ? tokens.base200 : 'transparent' },
+      ]}
+    >
+      <Text style={[s.rank, { color: alpha(tokens.baseContent, fade.faint) }]}>{rank}</Text>
+      <View style={s.rowBody}>
+        <Text style={[s.rowTitle, { color: tokens.baseContent }]} numberOfLines={1}>
+          {request.title}
+        </Text>
+        <Text style={[s.rowSub, { color: alpha(tokens.baseContent, fade.muted) }]} numberOfLines={1}>
+          {request.artist} · {request.requestedByName}
+        </Text>
+      </View>
+      <Pressable
+        onPress={() => vote(request.id, !voted)}
+        accessibilityRole="button"
+        accessibilityLabel={`${voted ? 'Remove vote from' : 'Vote for'} ${request.title}`}
+        accessibilityState={{ selected: voted }}
+        testID={`vote-${request.id}`}
+        style={[
+          s.voteButton,
+          {
+            borderColor: tokens.base300,
+            backgroundColor: voted ? tokens.primary : 'transparent',
+          },
+        ]}
+      >
+        <Text style={[s.voteText, { color: voted ? tokens.primaryContent : tokens.baseContent }]}>
+          ▲ {request.voteCount}
+        </Text>
+      </Pressable>
+    </View>
+  );
+}
+
+export function MusicScreen() {
+  const { tokens } = useTheme();
+  const queue = useQueue();
+  const nowPlaying = useNowPlaying();
+  const mine = useMyRequest();
+  const { request } = useMusicActions();
+  const [draft, setDraft] = useState('');
+
+  const submit = async () => {
+    await request(draft);
+    setDraft('');
+  };
+
+  return (
+    <View style={s.wrap}>
+      <EventHeader eyebrow="Requests" />
+      <ScrollView style={s.scroll} contentContainerStyle={s.content} testID="music-queue">
+        {nowPlaying && (
+          <View style={[s.nowPlaying, { backgroundColor: tokens.neutral }]}>
+            <View style={[s.art, { backgroundColor: tokens.base300 }]} />
+            <View style={s.npText}>
+              <Text style={[s.npEyebrow, { color: alpha(tokens.neutralContent, fade.body) }]}>
+                Now playing
+              </Text>
+              <Text style={[s.npTitle, { color: tokens.neutralContent }]} numberOfLines={1}>
+                {nowPlaying.title}
+              </Text>
+              <Text style={[s.npArtist, { color: alpha(tokens.neutralContent, 0.75) }]} numberOfLines={1}>
+                {nowPlaying.artist}
+              </Text>
+            </View>
+          </View>
+        )}
+
+        {mine && (
+          <View style={[s.mineStrip, { backgroundColor: tokens.secondary }]}>
+            <Text style={[s.mineText, { color: tokens.secondaryContent }]}>
+              Your request is <Text style={s.mineRank}>#{mine.rank}</Text> in the queue
+            </Text>
+            <Text style={[s.mineStatus, { color: alpha(tokens.secondaryContent, 0.8) }]}>
+              {STATUS_TEXT[mine.request.status]}
+            </Text>
+          </View>
+        )}
+
+        <View style={s.sectionHead}>
+          <Text style={[s.sectionTitle, { color: alpha(tokens.baseContent, fade.muted) }]}>
+            Queue · ranked by votes
+          </Text>
+          <Text style={[s.sectionCount, { color: alpha(tokens.baseContent, fade.faint) }]}>
+            {queue.length} requests
+          </Text>
+        </View>
+
+        {queue.map((r, i) => (
+          <QueueRow
+            key={r.id}
+            request={r}
+            rank={i + 1}
+            mine={mine?.request.id === r.id}
+          />
+        ))}
+      </ScrollView>
+
+      <View style={[s.composer, { borderTopColor: tokens.base300 }]}>
+        <TextInput
+          value={draft}
+          onChangeText={setDraft}
+          onSubmitEditing={submit}
+          placeholder="Song – artist"
+          placeholderTextColor={alpha(tokens.baseContent, fade.faint)}
+          accessibilityLabel="Song and artist"
+          testID="request-input"
+          style={[
+            s.input,
+            { borderColor: tokens.base300, backgroundColor: tokens.base200, color: tokens.baseContent },
+          ]}
+        />
+        <Pressable
+          onPress={submit}
+          accessibilityRole="button"
+          testID="request-submit"
+          style={[s.requestButton, { backgroundColor: tokens.primary }]}
+        >
+          <Text style={[s.requestText, { color: tokens.primaryContent }]}>Request</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+const s = StyleSheet.create({
+  wrap: { flex: 1 },
+  scroll: { flex: 1 },
+  content: { paddingVertical: 16, paddingHorizontal: 20, gap: 12 },
+
+  nowPlaying: { borderRadius: radius.box, padding: 18, flexDirection: 'row', alignItems: 'center', gap: 14 },
+  art: { width: 64, height: 64, borderRadius: 12 },
+  npText: { flex: 1, minWidth: 0 },
+  npEyebrow: { ...eyebrow.card },
+  npTitle: { fontSize: 17, fontWeight: weight.semibold, marginTop: 2 },
+  npArtist: { fontSize: 13 },
+
+  mineStrip: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+    paddingVertical: 12, paddingHorizontal: 14, borderRadius: radius.selector,
+  },
+  mineText: { fontSize: 14, flexShrink: 1 },
+  mineRank: { fontWeight: weight.bold },
+  mineStatus: { fontSize: 12 },
+
+  sectionHead: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginTop: 4 },
+  sectionTitle: { ...eyebrow.list },
+  sectionCount: { fontSize: 12 },
+
+  row: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingVertical: 10, paddingHorizontal: 12,
+    borderRadius: radius.selector, borderWidth: border,
+  },
+  rank: { width: 22, fontSize: 13, textAlign: 'center' },
+  rowBody: { flex: 1, minWidth: 0 },
+  rowTitle: { fontSize: 15, fontWeight: weight.medium },
+  rowSub: { fontSize: 12 },
+  voteButton: {
+    height: 36, minWidth: 56, paddingHorizontal: 10,
+    borderRadius: radius.pill, borderWidth: border,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  voteText: { fontSize: 13, fontWeight: weight.semibold },
+
+  composer: {
+    flexDirection: 'row', gap: 8, borderTopWidth: border,
+    paddingTop: 12, paddingBottom: 10, paddingHorizontal: 20,
+  },
+  input: { flex: 1, height: 46, borderRadius: radius.field, borderWidth: border, paddingHorizontal: 14, fontSize: 15 },
+  requestButton: { height: 46, paddingHorizontal: 18, borderRadius: radius.field, alignItems: 'center', justifyContent: 'center' },
+  requestText: { fontSize: 15, fontWeight: weight.semibold },
+});

@@ -1,0 +1,35 @@
+{
+  "expo": {
+    "name": "Runit",
+    "slug": "runit",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "runit",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.turtlewolfe.runit"
+    },
+    "android": {
+      "package": "com.turtlewolfe.runit",
+      "edgeToEdgeEnabled": true
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single"
+    },
+    "plugins": [
+      [
+        "expo-router",
+        {
+          "root": "./src/app"
+        }
+      ],
+      "expo-status-bar"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
