@@ -4,6 +4,17 @@ module.exports = [
   ...expoConfig,
   { ignores: ['dist/*', 'design/*', '.expo/*', 'node_modules/*'] },
   {
+    // tools/ are Node scripts, not app code: they get Node globals and are
+    // exempt from the React Native rules the app config applies.
+    files: ['tools/**/*.mjs'],
+    languageOptions: {
+      globals: {
+        Buffer: 'readonly', process: 'readonly', console: 'readonly',
+        __dirname: 'readonly', URL: 'readonly', setTimeout: 'readonly',
+      },
+    },
+  },
+  {
     // The seam that makes "Supabase drops in without touching the UI" a checked
     // property rather than an intention: screens may not reach past the
     // repository interface into a concrete implementation.
