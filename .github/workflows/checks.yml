@@ -16,6 +16,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The image runs as uid 1000 so that locally, dist/ and
+      # design/screenshots/ come back owned by the developer rather than root.
+      # GitHub runners check out as uid 1001, so the bind-mounted workspace is
+      # unwritable by the container and pnpm fails with EACCES before it can
+      # write its first temp file. Align the two.
+      - name: Align workspace ownership with the container user
+        run: sudo chown -R 1000:1000 .
+
       - name: Build the check image
         run: docker compose build checks
 
