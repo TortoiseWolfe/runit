@@ -130,6 +130,16 @@ for (const scheme of ['dark', 'light']) {
   await page.waitForSelector('[data-testid="pricing"]', { timeout: 30_000 });
   await shot('04-pricing');
 
+  // 04b The same screen as a guest actually reaches it -- turned away by a
+  // limit, with the denial headline in place of the marketing blurb and the
+  // tier that lifts it ringed. The gating is the product; a ladder screenshot
+  // with no denial on it does not show the product working.
+  await page.goto(`${base}/pricing?reason=limit&detail=guests&highlight=event`, {
+    waitUntil: 'networkidle',
+  });
+  await page.waitForSelector('[data-testid="pricing"]', { timeout: 30_000 });
+  await shot('04-pricing-paywall');
+
   if (errors.length) {
     console.log(`  [${scheme}] ${errors.length} page error(s):`);
     for (const e of [...new Set(errors)].slice(0, 5)) console.log('    ', e.slice(0, 200));
