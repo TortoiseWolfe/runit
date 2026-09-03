@@ -2,6 +2,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePathname, useRouter } from 'expo-router';
 
+import { RoleSwitch } from '@/components/ui/RoleSwitch';
 import { useIncoming, usePendingPhotos, useSession } from '@/state/hooks';
 import { border, insetDelta, radius, useTheme, weight } from '@/theme';
 
@@ -40,6 +41,7 @@ export function HostConsoleChrome() {
     >
       <View style={s.titleRow}>
         <Text style={[s.title, { color: tokens.baseContent }]}>Host</Text>
+        <RoleSwitch />
         {session.kind === 'host' && (
           <View style={[s.rolePill, { backgroundColor: tokens.secondary }]}>
             <Text style={[s.roleText, { color: tokens.secondaryContent }]}>
@@ -75,7 +77,7 @@ export function HostConsoleChrome() {
 
 const s = StyleSheet.create({
   header: { paddingHorizontal: 20, paddingBottom: 10, gap: 12, borderBottomWidth: border },
-  titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
   title: { fontSize: 19, fontWeight: weight.semibold },
   rolePill: { paddingVertical: 4, paddingHorizontal: 10, borderRadius: radius.pill },
   roleText: { fontSize: 12 },

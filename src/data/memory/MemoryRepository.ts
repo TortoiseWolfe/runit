@@ -204,6 +204,14 @@ export class MemoryRepository implements RunitRepository {
         kind: 'host', hostId: h.id, displayName: h.displayName, role: h.role, roleLabel: h.roleLabel,
       });
     },
+    becomeGuest: async () => {
+      const s = this.sigSession.get();
+      this.sigSession.set({
+        kind: 'guest',
+        guestId: this.myGuestId,
+        nickname: s.kind === 'guest' ? s.nickname : 'you',
+      });
+    },
     leave: async () => {
       this.sigSession.set({ kind: 'anonymous' });
     },

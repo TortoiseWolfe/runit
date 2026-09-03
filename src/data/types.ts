@@ -47,7 +47,17 @@ export interface RunitEvent {
   activeFolderId: FolderId;
   /** The run-of-show cursor. */
   nowScheduleItemId: ScheduleItemId | null;
+  /**
+   * How many people are in the room right now -- the "{n} here" pill.
+   * The canvas moves this 172 -> 173 when you join.
+   */
   guestCount: number;
+  /**
+   * How many were invited -- what a host is addressing when they broadcast.
+   * The canvas hardcodes 180 into "Send to 180 guests" while its guestCount
+   * pill says 172, so these are two genuinely different numbers.
+   */
+  invitedCount: number;
 }
 
 export interface Guest {

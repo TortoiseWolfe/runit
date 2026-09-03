@@ -19,6 +19,15 @@ describe('the seed is the canvas seed', () => {
     expect(r.music.nowPlaying.get()).toMatchObject({ title: 'September' });
   });
 
+  it('keeps "invited" and "here" as separate numbers, as the canvas does', async () => {
+    // The canvas hardcodes "Send to 180 guests" while its pill reads "172 here".
+    // Collapsing them would make a host think 8 people missed the announcement.
+    const r = make();
+    expect(r.event.current.get()).toMatchObject({ invitedCount: 180, guestCount: 172 });
+    await r.session.joinAsGuest({ code: 'SR1017', nickname: 'Ada' });
+    expect(r.event.current.get()).toMatchObject({ invitedCount: 180, guestCount: 173 });
+  });
+
   it('puts the run-of-show cursor on Dinner + toasts', () => {
     const r = make();
     const now = r.schedule.items.get().find((s) => s.id === r.event.current.get()?.nowScheduleItemId);

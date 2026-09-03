@@ -104,6 +104,24 @@ for (const scheme of ['dark', 'light']) {
     await shot(name);
   }
 
+  // 03 Host console. The canvas puts guest and host on one sheet; the app needs
+  // an explicit switch, which is also how the harness reaches these artboards.
+  await page.click('[data-testid="tab-chat"]');
+  await page.click('[data-testid="role-switch"]');
+  await page.waitForSelector('[data-testid="host-broadcast"]', { timeout: 30_000 });
+  await shot('03-host-broadcast');
+
+  for (const [seg, name] of [['dj', '03-host-dj'], ['photos', '03-host-photos']]) {
+    await page.click(`[data-testid="host-segment-${seg}"]`);
+    await page.waitForSelector(`[data-testid="host-${seg}"]`, { timeout: 30_000 });
+    await shot(name);
+  }
+
+  // 04 Pricing
+  await page.goto(`${base}/pricing`, { waitUntil: 'networkidle' });
+  await page.waitForSelector('[data-testid="pricing"]', { timeout: 30_000 });
+  await shot('04-pricing');
+
   if (errors.length) {
     console.log(`  [${scheme}] ${errors.length} page error(s):`);
     for (const e of [...new Set(errors)].slice(0, 5)) console.log('    ', e.slice(0, 200));

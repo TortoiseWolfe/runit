@@ -29,6 +29,7 @@ export const housePartySeed: Seed = {
     activeFolderId: 'fld_all',
     nowScheduleItemId: 'sch_h2',
     guestCount: 3,
+    invitedCount: 8,
   },
   hosts: [{ id: 'hst_sam', displayName: 'Sam', role: 'host', roleLabel: 'Host' }],
   broadcasts: [

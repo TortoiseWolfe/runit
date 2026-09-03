@@ -16,6 +16,17 @@ import type { Seed } from '../MemoryRepository';
 const DAY = '2026-10-17';
 const at = (hhmm: string) => `${DAY}T${hhmm}:00.000Z`;
 
+/**
+ * The canvas is internally inconsistent about time: the event is dated in the
+ * future ("Sat, Oct 17") while its content is mid-reception ("3 min ago").
+ * It gets away with that because every timestamp is a hardcoded string.
+ *
+ * Broadcast and schedule times stay absolute -- they are wall-clock labels and
+ * read the same whenever you look. The approval queue is genuinely relative, so
+ * it is anchored to real time; otherwise every row reads "just now".
+ */
+const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
+
 export const weddingSeed: Seed = {
   event: {
     id: 'evt_wedding',
@@ -28,6 +39,7 @@ export const weddingSeed: Seed = {
     activeFolderId: 'fld_reception',
     nowScheduleItemId: 'sch_4',
     guestCount: 172,
+    invitedCount: 180,
   },
   hosts: [
     { id: 'hst_riley', displayName: 'Riley', role: 'host', roleLabel: 'Bride' },
@@ -93,9 +105,9 @@ export const weddingSeed: Seed = {
     createdAt: at('19:0' + ((i % 9) + 0)),
   })),
   pendingPhotos: [
-    { id: 'pho_1', folderId: 'fld_reception', uploadedByGuestId: 'gst_priya', uploadedByName: 'Priya', status: 'pending', hue: 30, storagePath: null, createdAt: at('19:12') },
-    { id: 'pho_2', folderId: 'fld_reception', uploadedByGuestId: 'gst_tom', uploadedByName: 'Tom', status: 'pending', hue: 200, storagePath: null, createdAt: at('19:11') },
-    { id: 'pho_3', folderId: 'fld_reception', uploadedByGuestId: 'gst_lou', uploadedByName: 'Grandpa Lou', status: 'pending', hue: 120, storagePath: null, createdAt: at('19:09') },
+    { id: 'pho_1', folderId: 'fld_reception', uploadedByGuestId: 'gst_priya', uploadedByName: 'Priya', status: 'pending', hue: 30, storagePath: null, createdAt: minutesAgo(0) },
+    { id: 'pho_2', folderId: 'fld_reception', uploadedByGuestId: 'gst_tom', uploadedByName: 'Tom', status: 'pending', hue: 200, storagePath: null, createdAt: minutesAgo(1) },
+    { id: 'pho_3', folderId: 'fld_reception', uploadedByGuestId: 'gst_lou', uploadedByName: 'Grandpa Lou', status: 'pending', hue: 120, storagePath: null, createdAt: minutesAgo(3) },
   ],
   /** Canvas: nextPending starts at 4, and hue = (nextPending * 67) % 360. */
   nextPhotoSeq: 4,

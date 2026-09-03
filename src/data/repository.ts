@@ -49,8 +49,10 @@ export interface RunitRepository {
   session: {
     current: Observable<Session>;
     joinAsGuest(input: { code: string; nickname: string }): Promise<void>;
-    /** Dev/demo affordance: the canvas shows host and guest side by side. */
+    /** Demo affordance: the canvas shows host and guest side by side. */
     becomeHost(hostId: string): Promise<void>;
+    /** The other direction, without re-running the join validation. */
+    becomeGuest(): Promise<void>;
     leave(): Promise<void>;
   };
 

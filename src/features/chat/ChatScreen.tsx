@@ -2,6 +2,7 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { useFeed } from '@/state/hooks';
 import { alpha, border, fade, useTheme } from '@/theme';
+import { RoleSwitch } from '@/components/ui/RoleSwitch';
 import { BroadcastBubble } from './BroadcastBubble';
 import { EventHeader } from './EventHeader';
 import { NowNextCard } from './NowNextCard';
@@ -34,6 +35,7 @@ export function ChatScreen() {
         <Text style={[s.footerText, { color: alpha(tokens.baseContent, fade.faint) }]}>
           Announcements only · hosts post here
         </Text>
+        <RoleSwitch />
       </View>
     </View>
   );
@@ -43,6 +45,9 @@ const s = StyleSheet.create({
   wrap: { flex: 1 },
   scroll: { flex: 1 },
   content: { paddingVertical: 16, paddingHorizontal: 20, gap: 14 },
-  footer: { paddingTop: 10, paddingBottom: 8, paddingHorizontal: 20, borderTopWidth: border },
-  footerText: { fontSize: 12, textAlign: 'center' },
+  footer: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+    paddingTop: 10, paddingBottom: 8, paddingHorizontal: 20, borderTopWidth: border,
+  },
+  footerText: { flex: 1, fontSize: 12, textAlign: 'center' },
 });
