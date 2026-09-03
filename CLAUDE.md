@@ -17,8 +17,19 @@ before changing any screen.
 ## Stack
 
 Expo SDK 57 · React Native 0.86.3 · React 19.2.3 · expo-router 57 · pnpm.
-No NativeWind (see below). No Docker — mobile is exempt from the workspace
-Docker-first rule, as ScanDo is.
+No NativeWind (see below).
+
+**Docker runs the checks; the host runs the app.** The workspace Docker-first
+rule targets the web projects, and ScanDo is already marked as an exception —
+but that exception only needs to cover the parts a container genuinely makes
+worse. Metro's file watching, device pairing and hot reload are those parts.
+Everything else (tsc, eslint, jest, the style audit, expo export, the Playwright
+harness) is pure Node and runs containerised.
+
+```
+pnpm start                      # host  — Metro, devices, hot reload
+docker compose run --rm checks  # container — everything a CI job would do
+```
 
 ## The constraint everything is shaped by
 
@@ -43,13 +54,32 @@ green on a broken app.
 ## Commands
 
 ```
-pnpm start                # Expo dev server
-pnpm test                 # jest
-pnpm typecheck            # tsc --noEmit
-pnpm audit:styles         # Lane A: the RN colour-parser gate
-pnpm render:canvas        # regenerate design/renders/ from the design canvas
-pnpm export:web && pnpm shots   # Lane B: screenshot the app at 402x874
+pnpm start                      # host: Expo dev server
+
+pnpm checks:docker              # container: every gate, in one run
+pnpm checks:shell               # container: a bash shell in the same image
+
+pnpm test                       # jest
+pnpm typecheck                  # tsc --noEmit
+pnpm audit:styles               # Lane A: the RN colour-parser gate
+pnpm export:web && pnpm shots   # Lane B: screenshots at 402x874 + colour gate
+pnpm render:canvas              # regenerate design/renders/ from the canvas
 ```
+
+`pnpm checks` runs the same sequence directly, without Docker, when you are
+already inside the container or want it on the host.
+
+### How the container is wired
+
+- Base is `mcr.microsoft.com/playwright:v1.55.0-noble` — **the same version as
+  the repo's `@playwright/test` pin**, so its bundled chromium is the one the
+  harness expects and no browser is downloaded at run time. If you ever bump
+  `@playwright/test`, bump the image tag in `docker/checks.Dockerfile` with it.
+- Runs as **uid 1000**, so `dist/` and `design/screenshots/` come back through
+  the bind mount owned by you rather than by root.
+- `node_modules` is a **named volume**, not the bind mount, so the container's
+  install never fights the host's — which `pnpm start` still needs.
+- The pnpm store is a named volume too, so repeat runs don't re-download.
 
 ## Verification lanes
 

@@ -17,14 +17,11 @@ import { extname, join, resolve } from 'node:path';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-// Local devDependency first; fall back to the sibling ScriptHammer install so
-// this runs before `pnpm install` has happened in a fresh clone.
 let chromium;
-for (const spec of ['playwright', '@playwright/test',
-                    '/home/TurtleWolfe/repos/ScriptHammer/node_modules/@playwright/test']) {
+for (const spec of ['playwright', '@playwright/test']) {
   try { ({ chromium } = require(spec)); break; } catch {}
 }
-if (!chromium) { console.error('No playwright available. pnpm add -D @playwright/test'); process.exit(1); }
+if (!chromium) { console.error('No playwright available. Run: pnpm install'); process.exit(1); }
 
 const ROOT = resolve(import.meta.dirname, '..');
 const DESIGN = join(ROOT, 'design');

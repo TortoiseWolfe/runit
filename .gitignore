@@ -13,3 +13,6 @@ expo-env.d.ts
 design/screenshots/
 test-results/
 playwright-report/
+
+# pnpm writes its store beside the project; in Docker this is a volume.
+.pnpm-store/

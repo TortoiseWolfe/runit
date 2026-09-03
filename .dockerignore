@@ -1,0 +1,13 @@
+# The check image builds from an empty context -- the source arrives via bind
+# mount at run time. Keep the daemon from ingesting half a gigabyte for nothing.
+node_modules
+dist
+.expo
+.export-check
+design/renders
+design/screenshots
+test-results
+playwright-report
+.git
+*.log
+.pnpm-store
