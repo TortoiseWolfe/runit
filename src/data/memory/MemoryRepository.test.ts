@@ -200,6 +200,47 @@ describe('entitlements are enforced in the repository, not the button', () => {
     await expect(r.music.accept('req_2')).rejects.toBeInstanceOf(EntitlementError);
   });
 
+  // markPlayed and playNext were ungated until an audit noticed that markPlayed
+  // is a strictly stronger decline -- it moves a request out of Incoming with
+  // no tier behind it, so the whole djQueue gate was one method call wide.
+  it('blocks every DJ-queue write on the free tier, not just accept/decline', async () => {
+    const r = make();
+    await r.event.setTier('house_party');
+    await expect(r.music.decline('req_2')).rejects.toBeInstanceOf(EntitlementError);
+    await expect(r.music.markPlayed('req_2')).rejects.toBeInstanceOf(EntitlementError);
+    await expect(r.music.playNext()).rejects.toBeInstanceOf(EntitlementError);
+  });
+
+  it('leaves the queue untouched when a free tier is refused a DJ write', async () => {
+    const r = make();
+    await r.event.setTier('house_party');
+    const before = r.music.queue.get().map((q) => `${q.id}:${q.status}`);
+    await r.music.markPlayed('req_2').catch(() => {});
+    await r.music.playNext().catch(() => {});
+    expect(r.music.queue.get().map((q) => `${q.id}:${q.status}`)).toEqual(before);
+  });
+
+  // upload() reads photoModeration to decide pending-vs-approved, so the queue
+  // it creates has to be gated by the same feature or a free tier moderates a
+  // queue it was never sold.
+  it('blocks photo moderation on the free tier', async () => {
+    const r = make();
+    await r.event.setTier('house_party');
+    await expect(r.photos.approve('pho_1')).rejects.toBeInstanceOf(EntitlementError);
+    await expect(r.photos.hide('pho_1')).rejects.toBeInstanceOf(EntitlementError);
+  });
+
+  it('names the tier that lifts a refused DJ write, so the paywall can highlight it', async () => {
+    const r = make();
+    await r.event.setTier('house_party');
+    await r.music.markPlayed('req_2').catch((e: EntitlementError) => {
+      expect(e.denial.kind).toBe('feature');
+      expect(e.denial).toMatchObject({ feature: 'djQueue' });
+      expect(e.denial.upgradeTo).toBeTruthy();
+    });
+    expect.hasAssertions();
+  });
+
   it('blocks a non-host role below the tier that offers roles', async () => {
     const r = make();
     await r.event.setTier('party');

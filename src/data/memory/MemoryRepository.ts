@@ -410,11 +410,20 @@ export class MemoryRepository implements RunitRepository {
     },
 
     markPlayed: async (id: SongRequestId) => {
+      // Gated identically to accept/decline: all three are the DJ console, and
+      // an ungated markPlayed is a strictly stronger decline -- it moves a
+      // request out of Incoming without the tier that sells the queue.
+      const e = this.entitlements();
+      const gate = checkFeature(e, 'djQueue');
+      if (!gate.allowed) throw new EntitlementError(gate.denial);
       this.patchRequest(id, { status: 'played' });
       this.recompute();
     },
 
     playNext: async () => {
+      const e = this.entitlements();
+      const gate = checkFeature(e, 'djQueue');
+      if (!gate.allowed) throw new EntitlementError(gate.denial);
       const next = this.sigAccepted.get()[0];
       if (!next) return;
       this.patchRequest(next.id, { status: 'played' });
@@ -466,6 +475,12 @@ export class MemoryRepository implements RunitRepository {
     },
 
     approve: async (id: PhotoId) => {
+      // upload() already reads this feature to decide whether a photo lands
+      // pending or approved; the queue it creates has to be gated by the same
+      // one, or a free tier can moderate a queue it is not sold.
+      const e = this.entitlements();
+      const gate = checkFeature(e, 'photoModeration');
+      if (!gate.allowed) throw new EntitlementError(gate.denial);
       const p = this.photoList.find((x) => x.id === id);
       if (!p || p.status === 'approved') return;
       this.photoList = this.photoList.map((x) =>
@@ -480,6 +495,9 @@ export class MemoryRepository implements RunitRepository {
     hide: async (id: PhotoId) => {
       // The canvas deletes the row outright, losing it. "Hide" and "delete
       // forever" are different, and moderation needs an audit trail.
+      const e = this.entitlements();
+      const gate = checkFeature(e, 'photoModeration');
+      if (!gate.allowed) throw new EntitlementError(gate.denial);
       this.photoList = this.photoList.map((x) =>
         x.id === id ? { ...x, status: 'hidden' as const } : x,
       );

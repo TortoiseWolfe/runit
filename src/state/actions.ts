@@ -82,8 +82,8 @@ export function useMusicActions() {
       },
       accept: (id: SongRequestId) => guarded(() => repo.music.accept(id)),
       decline: (id: SongRequestId) => guarded(() => repo.music.decline(id)),
-      markPlayed: (id: SongRequestId) => repo.music.markPlayed(id),
-      playNext: () => repo.music.playNext(),
+      markPlayed: (id: SongRequestId) => guarded(() => repo.music.markPlayed(id)),
+      playNext: () => guarded(() => repo.music.playNext()),
     }),
     [repo, show, guarded],
   );
@@ -102,8 +102,8 @@ export function usePhotoActions() {
         const ok = await guarded(() => repo.photos.upload({ localUri: null }));
         if (ok) show(`Uploaded to ${folderName} · awaiting host approval`);
       },
-      approve: (id: PhotoId) => repo.photos.approve(id),
-      hide: (id: PhotoId) => repo.photos.hide(id),
+      approve: (id: PhotoId) => guarded(() => repo.photos.approve(id)),
+      hide: (id: PhotoId) => guarded(() => repo.photos.hide(id)),
       addFolder: (name: string) => guarded(() => repo.photos.addFolder({ name })),
       selectFolder: (id: FolderId) => repo.event.setActiveFolder(id),
     }),

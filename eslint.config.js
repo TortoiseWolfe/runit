@@ -18,7 +18,17 @@ module.exports = [
     // The seam that makes "Supabase drops in without touching the UI" a checked
     // property rather than an intention: screens may not reach past the
     // repository interface into a concrete implementation.
-    files: ['src/app/**/*.{ts,tsx}', 'src/features/**/*.{ts,tsx}', 'src/components/**/*.{ts,tsx}'],
+    // src/state is in this list deliberately, and it is the one that matters:
+    // every screen reaches the repository through state/hooks + state/actions,
+    // so it is the layer most likely to reach for a concrete adapter and the
+    // only one whose doing so would be invisible from a screen.
+    files: [
+      'src/app/**/*.{ts,tsx}',
+      'src/features/**/*.{ts,tsx}',
+      'src/components/**/*.{ts,tsx}',
+      'src/state/**/*.{ts,tsx}',
+      'src/domain/**/*.{ts,tsx}',
+    ],
     rules: {
       'no-restricted-imports': ['error', {
         patterns: [{
