@@ -139,3 +139,20 @@ Two lessons, both encoded in the tooling:
   behaviour. Verify what a warning is doing before you quiet it.
 
 Native never had this problem: there is no pre-render step, so no mismatch.
+
+## G. A percentage width that works on the web and renders nothing on device
+`design/device/android-photos-album.BROKEN-before-fix.png` is the album grid on
+Android with `width: '32.4%'` on the tiles. It is empty. The identical screen in
+`design/screenshots/02-guest-photos.dark.png` shows nine tiles.
+
+In Yoga, a percentage width inside a `flexWrap` row that also sets `gap` has no
+determinate basis; the browser resolves it anyway. Tile size is now computed
+from `useWindowDimensions()` — see `src/features/photos/PhotosScreen.tsx`.
+
+**This is the case for Lane C.** Neither of the automated gates could see it:
+- Lane A checks colours through the RN parser. This was a layout bug.
+- Lane B runs through react-native-web — the very renderer that gets it right.
+
+Nine months of green CI would not have caught an empty album. Only running it on
+a device did. Treat "it passes Lane B" as evidence about layout *logic*, never
+about native layout.

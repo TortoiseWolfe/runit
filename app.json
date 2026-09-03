@@ -12,8 +12,7 @@
       "bundleIdentifier": "com.turtlewolfe.runit"
     },
     "android": {
-      "package": "com.turtlewolfe.runit",
-      "edgeToEdgeEnabled": true
+      "package": "com.turtlewolfe.runit"
     },
     "web": {
       "bundler": "metro",
