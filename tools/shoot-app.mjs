@@ -13,6 +13,7 @@ import { readFile } from 'node:fs/promises';
 import { existsSync, mkdirSync } from 'node:fs';
 import { extname, join, resolve } from 'node:path';
 import { createRequire } from 'node:module';
+import { pixelAt } from './px.mjs';
 
 const require = createRequire(import.meta.url);
 let chromium;
@@ -36,8 +37,12 @@ const MIME = {
 const server = createServer(async (req, res) => {
   const path = decodeURIComponent(req.url.split('?')[0]);
   const candidates = [join(DIST, path), join(DIST, `${path}.html`), join(DIST, path, 'index.html')];
-  const file = candidates.find((f) => f.startsWith(DIST) && existsSync(f) && extname(f));
-  if (!file) { res.writeHead(404).end('not found'); return; }
+  // SPA fallback: web.output is "single", so every route is served by the one
+  // index.html and resolved client-side. See design/FIDELITY.md note F for why
+  // this is not "static".
+  const file = candidates.find((f) => f.startsWith(DIST) && existsSync(f) && extname(f))
+    ?? join(DIST, 'index.html');
+  if (!existsSync(file)) { res.writeHead(404).end('not found'); return; }
   res.writeHead(200, { 'content-type': MIME[extname(file)] ?? 'application/octet-stream' });
   res.end(await readFile(file));
 });
@@ -47,6 +52,7 @@ console.log('serving', base);
 
 const browser = await chromium.launch();
 let wrote = 0;
+const shots = [];
 
 for (const scheme of ['dark', 'light']) {
   const ctx = await browser.newContext({
@@ -80,7 +86,9 @@ for (const scheme of ['dark', 'light']) {
     await settled();
     await toastGone();
     await page.waitForTimeout(150);
-    await page.screenshot({ path: join(OUT, `${name}.${scheme}.png`) });
+    const file = join(OUT, `${name}.${scheme}.png`);
+    await page.screenshot({ path: file });
+    shots.push({ file, scheme, name });
     wrote++; console.log('  wrote', `${name}.${scheme}`);
   };
 
@@ -132,3 +140,23 @@ for (const scheme of ['dark', 'light']) {
 await browser.close();
 server.close();
 console.log(`\n${wrote} screenshots -> design/screenshots/`);
+
+/**
+ * COLOUR GATE.
+ *
+ * Read the painted background back out of each PNG and check it is the right
+ * theme's base-100. This is not belt-and-braces: a static web export served
+ * light-themed HTML that React never repainted, so every dark screenshot came
+ * out light while the app's own state said "dark". The DOM lied; only the
+ * pixels told the truth.
+ */
+const BASE100 = { dark: '#1A1A2E', light: '#F5F0EB' };
+const wrong = shots.filter((s) => pixelAt(s.file, 20, 1400) !== BASE100[s.scheme]);
+if (wrong.length) {
+  console.error(`\nFAIL: ${wrong.length} screenshot(s) painted the wrong theme:`);
+  for (const s of wrong) {
+    console.error(`  ${s.name}.${s.scheme}: ${pixelAt(s.file, 20, 1400)}, expected ${BASE100[s.scheme]}`);
+  }
+  process.exit(1);
+}
+console.log(`colour gate: all ${shots.length} screenshots painted the expected base-100`);

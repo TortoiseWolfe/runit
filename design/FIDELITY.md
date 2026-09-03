@@ -114,3 +114,28 @@ waits until the app's own resolved scheme (exposed as `scheme-probe`, only in
 `EXPO_PUBLIC_FIDELITY=1` builds) matches the scheme the browser context asked
 for. A 350ms sleep silently produced light screenshots for dark runs, and the
 pixel probe is what caught it.
+
+## F. The web export is a SPA, not a static render
+`app.json` sets `web.output: "single"` deliberately.
+
+With `"static"`, Expo pre-renders each route in Node — where there is no
+`matchMedia`, so the HTML is always light-themed. React hydration **does not
+patch style mismatches**, so on a hard load every element kept its light styles
+permanently, even though the provider's own state said `dark`. The DOM reported
+dark (an effect had painted `<body>`), individual elements were light, and
+nothing ever corrected it.
+
+It hid behind a second bug for a while. An un-gated debug probe was writing the
+scheme into the static HTML, which produced a hydration *text* mismatch (React
+#418) — and that error made React discard the server markup and re-render the
+whole tree on the client, accidentally repainting the theme correctly. Silencing
+the warning removed the accidental fix and exposed the real one.
+
+Two lessons, both encoded in the tooling:
+- **The pixels are the source of truth.** `tools/shoot-app.mjs` ends with a
+  colour gate that reads base-100 back out of every PNG. The DOM said dark while
+  the screen was light; only sampling the image caught it.
+- **A console warning can be load-bearing.** Silencing one changed rendering
+  behaviour. Verify what a warning is doing before you quiet it.
+
+Native never had this problem: there is no pre-render step, so no mismatch.
