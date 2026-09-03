@@ -70,7 +70,7 @@ const s = StyleSheet.create({
     right: toastMetrics.insetHorizontal,
     paddingVertical: 12,
     paddingHorizontal: 16,
-    borderRadius: radius.field,
+    borderRadius: radius.selector, // canvas: .75rem
     boxShadow: '0px 10px 30px rgba(0, 0, 0, 0.3)',
   },
   text: { fontSize: 14, textAlign: 'center' },

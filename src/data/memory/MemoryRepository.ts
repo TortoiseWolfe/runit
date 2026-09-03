@@ -31,6 +31,8 @@ export interface Seed {
   nowPlaying: NowPlaying | null;
   folders: Folder[];
   pendingPhotos: Photo[];
+  /** Optional: already-moderated photos, so the album grid has content. */
+  approvedPhotos?: Photo[];
   nextPhotoSeq: number;
 }
 
@@ -92,7 +94,7 @@ export class MemoryRepository implements RunitRepository {
     this.scheduleList = [...seed.schedule];
     this.requestList = [...seed.requests];
     this.folderList = [...seed.folders];
-    this.photoList = [...seed.pendingPhotos];
+    this.photoList = [...seed.pendingPhotos, ...(seed.approvedPhotos ?? [])];
     this.votes = new Set(seed.myVotes);
     this.myGuestId = seed.myGuestId;
     this.nextPhotoSeq = seed.nextPhotoSeq;

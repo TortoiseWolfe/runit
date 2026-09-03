@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Text } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
@@ -31,9 +31,15 @@ const FIDELITY_METRICS: Metrics = {
 
 function Chrome() {
   const { isDark, tokens, scheme } = useTheme();
+  // Mount-gated so the server renders nothing here. Rendering the scheme during
+  // static export would emit "light" into the HTML and then "dark" on the
+  // client, which is a hydration text mismatch (React #418) -- a warning of our
+  // own making, in the console where real errors need to be visible.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   return (
     <>
-      {process.env.EXPO_PUBLIC_FIDELITY === '1' && (
+      {mounted && process.env.EXPO_PUBLIC_FIDELITY === '1' && (
         <Text testID="scheme-probe" style={{ position: 'absolute', opacity: 0 }}>{scheme}</Text>
       )}
       <StatusBar style={isDark ? 'light' : 'dark'} />

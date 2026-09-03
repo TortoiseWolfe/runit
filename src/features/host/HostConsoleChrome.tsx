@@ -79,7 +79,7 @@ const s = StyleSheet.create({
   title: { fontSize: 19, fontWeight: weight.semibold },
   rolePill: { paddingVertical: 4, paddingHorizontal: 10, borderRadius: radius.pill },
   roleText: { fontSize: 12 },
-  track: { flexDirection: 'row', gap: 4, padding: 4, borderRadius: radius.field },
+  track: { flexDirection: 'row', gap: 4, padding: 4, borderRadius: radius.selector }, // .75rem
   segment: {
     flex: 1,
     height: 34,

@@ -70,8 +70,15 @@ for (const scheme of ['dark', 'light']) {
       { timeout: 30_000 },
     );
 
+  // The join toast lives 2.2s and survives a tab switch, so without this every
+  // subsequent screenshot carries a stale toast over the composer.
+  const toastGone = () =>
+    page.waitForSelector('[data-testid="toast"]', { state: 'detached', timeout: 6000 })
+      .catch(() => {});
+
   const shot = async (name) => {
     await settled();
+    await toastGone();
     await page.waitForTimeout(150);
     await page.screenshot({ path: join(OUT, `${name}.${scheme}.png`) });
     wrote++; console.log('  wrote', `${name}.${scheme}`);

@@ -76,6 +76,22 @@ export const weddingSeed: Seed = {
     { id: 'fld_ceremony', name: 'Ceremony', position: 2, photoCount: 112 },
     { id: 'fld_reception', name: 'Reception', position: 3, photoCount: 97 },
   ],
+  /**
+   * The canvas draws nine album tiles from `Array.from({length: 9})` -- they are
+   * not photos, just coloured squares, and its state holds no approved photo
+   * records at all. Nine real approved rows are seeded here so the album grid
+   * has something true to render. Reception's 97 includes them.
+   */
+  approvedPhotos: [30, 200, 120, 280, 60, 340, 170, 20, 240].map((hue, i) => ({
+    id: `phoa_${i + 1}`,
+    folderId: 'fld_reception',
+    uploadedByGuestId: null,
+    uploadedByName: ['Priya', 'Tom', 'Maya', 'Aunt Jo', 'Grandpa Lou', 'Nia', 'Sam', 'Riley', 'Jordan'][i]!,
+    status: 'approved' as const,
+    hue,
+    storagePath: null,
+    createdAt: at('19:0' + ((i % 9) + 0)),
+  })),
   pendingPhotos: [
     { id: 'pho_1', folderId: 'fld_reception', uploadedByGuestId: 'gst_priya', uploadedByName: 'Priya', status: 'pending', hue: 30, storagePath: null, createdAt: at('19:12') },
     { id: 'pho_2', folderId: 'fld_reception', uploadedByGuestId: 'gst_tom', uploadedByName: 'Tom', status: 'pending', hue: 200, storagePath: null, createdAt: at('19:11') },
