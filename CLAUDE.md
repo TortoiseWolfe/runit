@@ -142,6 +142,24 @@ pnpm android           # builds the dev client and installs to a running emulato
 ADB_LIBUSB=0           # REQUIRED on WSL2 -- see below
 ```
 
+**The AVD ships with `hw.keyboard = no`.** Host keystrokes are silently dropped:
+you click into a field, type, and nothing happens — the app looks broken and is
+not. Gboard also comes up in floating mode, which makes it look like the field
+itself is dead. Fix it in `~/.android/avd/<name>.avd/config.ini`:
+
+```
+hw.keyboard = yes        # then restart the emulator; `dumpsys input` should
+                         # list "AT Translated Set 2 keyboard"
+```
+
+**Driving the emulator from a script — two traps.** `adb shell am start` with a
+dev-client URL is **swallowed if the app is already foregrounded**; always
+`am force-stop` first or the launch silently no-ops and you debug the wrong
+thing. And `adb exec-out screencap` frequently returns a **stale frame** just
+after navigation, so a screenshot can show the previous screen while the app has
+already moved on. Confirm state with `uiautomator dump` — it reads the live
+hierarchy — and treat a screenshot as illustration, not proof.
+
 **`adb` hangs on WSL2 without `ADB_LIBUSB=0`.** `adb start-server` and even
 `adb nodaemon server` produce no output at all and never return, because adb
 blocks enumerating USB. Export `ADB_LIBUSB=0` and it starts instantly. This costs
