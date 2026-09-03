@@ -11,7 +11,9 @@
     "render:canvas": "node tools/render-canvas.mjs",
     "typecheck": "tsc --noEmit",
     "test": "jest",
-    "audit:styles": "node tools/audit-native-styles.mjs"
+    "audit:styles": "node tools/audit-native-styles.mjs",
+    "export:web": "EXPO_PUBLIC_FIDELITY=1 expo export --platform web --output-dir dist --clear",
+    "shots": "node tools/shoot-app.mjs"
   },
   "dependencies": {
     "expo": "~57.0.19",
@@ -28,11 +30,10 @@
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.26.2",
     "react-native-svg": "15.15.4",
-    "react-native-web": "^0.21.2",
-    "zustand": "^5.0.15"
+    "react-native-web": "^0.21.2"
   },
   "devDependencies": {
-    "@playwright/test": "^1.62.1",
+    "@playwright/test": "^1.55.0",
     "@testing-library/react-native": "^14.0.1",
     "@types/jest": "^30.0.0",
     "@types/node": "^26.4.1",

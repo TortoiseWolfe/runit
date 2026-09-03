@@ -29,6 +29,7 @@ export function ThemeProvider({
   const [name, setName] = useState<ThemeName>(initial);
   const system = useColorScheme();
 
+
   // Match the canvas exactly. Its renderVals() reads
   //   theme === 'system' ? (mq ? mq.matches : true) : theme === 'dark'
   // so an UNKNOWN system preference resolves to DARK, not light.

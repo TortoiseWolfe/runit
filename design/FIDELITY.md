@@ -102,3 +102,15 @@ queue, so a guest's request silently disappears with no explanation. We add a
   `setState` reads fresh state — the toast can name the wrong folder.
 - `sendBroadcast` drops the `pin` flag (`pin: false` in the same `setState`), so
   pinning an announcement does nothing.
+
+## E. The web export flashes light before hydrating
+Static rendering pre-renders in Node, where there is no `matchMedia`, so the
+served HTML is always light-themed; hydration corrects it a beat later. A
+dark-mode viewer of the **web export** sees one light frame. This does not
+affect native, which has no pre-render step.
+
+Consequence for Lane B: never screenshot on a fixed sleep. `tools/shoot-app.mjs`
+waits until the app's own resolved scheme (exposed as `scheme-probe`, only in
+`EXPO_PUBLIC_FIDELITY=1` builds) matches the scheme the browser context asked
+for. A 350ms sleep silently produced light screenshots for dark runs, and the
+pixel probe is what caught it.

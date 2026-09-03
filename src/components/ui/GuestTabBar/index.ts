@@ -1,0 +1,1 @@
+export { GuestTabBar } from './GuestTabBar';

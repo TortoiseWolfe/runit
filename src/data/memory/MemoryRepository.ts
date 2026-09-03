@@ -110,6 +110,10 @@ export class MemoryRepository implements RunitRepository {
     this.sigPending = new Signal<Photo[]>([]);
     this.sigApproved = new Signal<Photo[]>([]);
     this.sigHosts = new Signal<{ id: string; displayName: string; role: HostRole }[]>([]);
+    // Class field initialisers (session = {...}, chat = {...}, ...) run BEFORE
+    // this constructor body, so their `current`/`feed` slots are still empty at
+    // that point. Wiring happens here, once every signal exists.
+    this.wire();
     this.recompute();
   }
 
@@ -473,8 +477,8 @@ export class MemoryRepository implements RunitRepository {
     );
   }
 
-  /** Wire the observables onto the public groups. Called from the factory. */
-  private wire(): this {
+  /** Attach the signals to the public groups. See the note in the constructor. */
+  private wire(): void {
     this.session.current = this.sigSession;
     this.event.current = this.sigEvent;
     this.chat.feed = this.sigFeed;
@@ -488,11 +492,9 @@ export class MemoryRepository implements RunitRepository {
     this.photos.pending = this.sigPending;
     this.photos.approved = this.sigApproved;
     this.hosts.all = this.sigHosts;
-    return this;
   }
 
   static create(seed: Seed, opts: { now?: () => string } = {}): MemoryRepository {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return (new MemoryRepository(seed, opts) as any).wire();
+    return new MemoryRepository(seed, opts);
   }
 }
