@@ -1,0 +1,15 @@
+node_modules/
+.expo/
+dist/
+web-build/
+*.log
+.DS_Store
+.env*.local
+.export-check/
+expo-env.d.ts
+
+# Fidelity harness output. renders/ IS committed (it is the reference);
+# screenshots/ is regenerated app output and is not.
+design/screenshots/
+test-results/
+playwright-report/
