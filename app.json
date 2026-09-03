@@ -30,6 +30,15 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {
+        "root": "./src/app"
+      },
+      "eas": {
+        "projectId": "dfd69389-363f-47c7-af25-f7b70c294302"
+      }
+    },
+    "owner": "turtlewolfe"
   }
 }
