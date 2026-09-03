@@ -1,0 +1,37 @@
+# Containerised checks. The app itself still runs on the host:
+#
+#   pnpm start                 <- Metro, device pairing, hot reload. Host.
+#   docker compose run --rm checks   <- everything a CI job would do. Container.
+#
+# node_modules lives in a named volume rather than the bind mount, so the
+# container's install never fights with the host's (which `pnpm start` needs).
+services:
+  checks:
+    build:
+      context: .
+      dockerfile: docker/checks.Dockerfile
+    image: runit-checks:local
+    init: true
+    working_dir: /app
+    user: "1000:1000"
+    volumes:
+      - .:/app
+      - runit-node-modules:/app/node_modules
+      - runit-pnpm-store:/app/.pnpm-store
+    environment:
+      CI: "1"
+      # Real iPhone 16 Pro geometry for the screenshot harness; on the web
+      # react-native-safe-area-context otherwise reports zeros.
+      EXPO_PUBLIC_FIDELITY: "1"
+    command: ["./docker/run-checks.sh"]
+
+  # One-off shell for poking at a failure inside the same image.
+  shell:
+    extends: checks
+    command: ["bash"]
+    stdin_open: true
+    tty: true
+
+volumes:
+  runit-node-modules:
+  runit-pnpm-store:

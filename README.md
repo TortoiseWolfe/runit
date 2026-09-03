@@ -20,7 +20,22 @@ pnpm install
 pnpm start          # then press i / a, or scan with Expo Go
 ```
 
+The dev server runs on the host — Metro's file watching and device pairing are
+what containers make painful. The checks run in Docker; see below.
+
 ## Checks
+
+Everything a CI job would do, in a container:
+
+```bash
+pnpm checks:docker
+```
+
+That runs install, typecheck, lint, the native style audit, the tests, an iOS
+bundle check, and the screenshot harness with its colour gate. Screenshots land
+in `design/screenshots/` on the host.
+
+Individually, on the host:
 
 ```bash
 pnpm test           # unit + component tests
