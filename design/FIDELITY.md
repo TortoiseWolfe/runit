@@ -1,0 +1,104 @@
+# Fidelity: permanent deviations
+
+Places where React Native cannot match the web canvas, decided once so they are
+not re-litigated every session. If you find yourself about to "fix" one of
+these, read the entry first.
+
+## 1. No device chrome
+The canvas wraps every artboard in `<IOSDevice>` from `ios-frame.jsx`, drawing a
+bezel, Dynamic Island, status bar and home indicator. None of it ships — the OS
+provides all of it.
+
+**Consequence:** the artboards' `padding-top: 66px` (guest/host headers),
+`padding-top: 70px` (join) and `padding-bottom: 28px` (tab bar) are inflated by
+chrome we do not render. Measured from `ios-frame.jsx`: the fake status bar is
+`21 + 22 + 19 = 62px` and the home-indicator zone is `34px` — exactly the
+iPhone 16 Pro insets. So the real values are `insets.top + 4`, `insets.top + 8`,
+and `max(insets.bottom, 12)`. See `src/theme/layout.ts`.
+**Copying 66/70/28 verbatim is a bug, not fidelity.**
+
+## 2. iOS pixels are unverified locally
+There is no Mac in this environment (`xcrun` absent, WSL2). iOS is verified by
+Lane A + Lane B + review, or by EAS Build onto a physical device. A green
+Android check does **not** mean iOS is fine.
+
+## 3. Pricing re-lays out
+The canvas draws pricing as `grid-template-columns: repeat(4, minmax(0,1fr))` at
+~1240px. That cannot survive 402pt. Vertical stack; every internal card metric
+(radius 24, padding 24, gap 14, the 34px price, the 40px min-height `who` line)
+is preserved exactly.
+
+## 4. Canvas sections 00 and 05 are not screens
+The sheet header with its anchor pills, and the six open-source evaluation
+cards, are notes to the reader *inside* the canvas. Porting them as app screens
+would be misreading the document. The research is summarised in `OSS-NOTES.md`.
+
+## 5. `align-items: baseline` becomes `flex-end`
+Yoga treats a `View`'s baseline as its bottom edge, so the canvas's five
+baseline rows (each pairing a large number with a small label) need
+`alignItems: 'flex-end'` plus matched `lineHeight`.
+
+## 6. System font per platform
+The canvas asks for `ui-sans-serif, system-ui, -apple-system`. That resolves to
+SF Pro on iOS, Roboto on Android, and DejaVu Sans in the Linux Chromium that
+generates `renders/`. **The three are not glyph-identical**, which is exactly why
+Lane B gates on geometry (bounding boxes) rather than on glyph pixels.
+
+## 7. Letter-spacing is frozen
+The canvas uses `em`; RN's `letterSpacing` is absolute points. `tracking(em, px)`
+converts at the design's font size, so tracking will not scale with Dynamic
+Type. Under `EXPO_PUBLIC_FIDELITY=1` set `allowFontScaling={false}` so
+screenshots stay stable.
+
+## 8. `boxShadow` requires the New Architecture
+Pinned on in `app.json`. There is no `elevation` fallback because `elevation`
+cannot express `0 20px 40px rgba(0,0,0,.25)` — the shutter button's shadow.
+
+## 9. Text opacity is baked into colour alpha
+The canvas leans on CSS `opacity` for its whole type hierarchy (.85/.7/.6/.55/
+.5/.45). RN's `opacity` composites the entire node, so nested opacities multiply
+and a parent's fade drags its children along. We use `alpha(token, n)` instead.
+Where the canvas nests them (schedule past rows: a `.45` row inside a `.7`
+label) the product is pre-multiplied. Same result, explicit arithmetic.
+
+## 10. Dashed borders
+`borderStyle: 'dashed'` renders with a platform-chosen dash pattern that is not
+configurable and differs from the browser's. Accepted on the one empty state
+("All caught up.").
+
+## 11. Glyphs stay glyphs
+`▲ ✕ ✓ ▶ —` are text in the design and stay text. Revisit only if `▲` breaks the
+vote button's `minWidth: 56`.
+
+## 12. `hint-placeholder-count` is scaffolding
+Those attributes tell the canvas editor how many placeholder rows to draw. The
+real counts come from the `state` block: 3 broadcasts, 6 song requests,
+6 schedule items, 3 folders, 3 pending photos.
+
+---
+
+# Intentional improvements
+
+Not deviations forced by the platform — places where the canvas has a genuine
+defect that we fix rather than reproduce.
+
+## A. The schedule time column wraps
+At `width: 64` the host run-of-show wraps "11:30 PM" onto two lines. Visible in
+`renders/03-host-broadcast.*.png`. We widen the column so times stay on one line.
+
+## B. The run-of-show header crowds its label
+In the guest Chat "Now / Next" card the summary text runs into the
+"Full schedule" affordance at 402pt. Visible in `renders/02-guest-chat.*.png`.
+The left text gets `flex: 1` with the label `flex: 0`.
+
+## C. Declined requests currently vanish
+The canvas's `statusText` map has no `declined` key, so a declined request
+renders `undefined`; and its `live` filter drops declined rows from the guest
+queue, so a guest's request silently disappears with no explanation. We add a
+`declined` status label and keep the row visible to its requester.
+
+## D. Two real bugs not to reproduce
+- `capture()` reads `activeFolder` from a stale closure for its toast while its
+  `setState` reads fresh state — the toast can name the wrong folder.
+- `sendBroadcast` drops the `pin` flag (`pin: false` in the same `setState`), so
+  pinning an announcement does nothing.
