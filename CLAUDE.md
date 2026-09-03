@@ -16,15 +16,32 @@ before changing any screen.
 
 ## Stack
 
-Expo SDK 57 · React Native 0.86.3 · React 19.2.3 · expo-router 57 · pnpm.
+Expo SDK 57 · React Native 0.86.3 · **Node 24.13.0** · pnpm 10.33.0 · expo-router 57.
 No NativeWind (see below).
 
-**Docker runs the checks; the host runs the app.** The workspace Docker-first
-rule targets the web projects, and ScanDo is already marked as an exception —
-but that exception only needs to cover the parts a container genuinely makes
-worse. Metro's file watching, device pairing and hot reload are those parts.
-Everything else (tsc, eslint, jest, the style audit, expo export, the Playwright
-harness) is pure Node and runs containerised.
+**One Node version, declared by the repo and obeyed by everything.**
+`.nvmrc` is the source of truth. `engines.node` is `24.x` — a single major, not a
+range — and `.npmrc` sets `engine-strict=true`, so a wrong Node fails
+`pnpm install` instead of warning. `docker/checks.Dockerfile` installs that exact
+Node over the base image's own, and `run-checks.sh` asserts the two match before
+running anything.
+
+This is deliberate and it is the second attempt. The first arrangement let the
+Playwright base image choose: checks ran on **v22.18.0** while development ran on
+**v24.13.0**, and nothing said a word. Copying the sibling repos' `engines: ">=22"`
+would not have caught it either — that range accepts both. If you bump
+`@playwright/test`, bump `NODE_VERSION` + `NODE_SHA256` with it, or the assertion
+fails loudly. That is the intended behaviour.
+
+**Docker runs the checks; the host runs the app** — because native device
+pairing and EAS live outside a container, not because a container cannot serve
+Metro here. Measured on this machine: `.wslconfig` sets `networkingMode=mirrored`
+and `eth0` is a real LAN address, so a published container port *is* reachable
+from a phone; and the bind mount is native ext4 on a block device, so inotify
+works and no polling watcher is needed. Do not repeat the folklore — if you ever
+want Metro in a container here, the only real obstacle is that it advertises its
+container-internal IP in the QR payload, which `REACT_NATIVE_PACKAGER_HOSTNAME`
+fixes.
 
 ```
 pnpm start                      # host  — Metro, devices, hot reload
@@ -74,7 +91,11 @@ already inside the container or want it on the host.
 - Base is `mcr.microsoft.com/playwright:v1.55.0-noble` — **the same version as
   the repo's `@playwright/test` pin**, so its bundled chromium is the one the
   harness expects and no browser is downloaded at run time. If you ever bump
-  `@playwright/test`, bump the image tag in `docker/checks.Dockerfile` with it.
+  `@playwright/test`, bump the image tag in `docker/checks.Dockerfile` with it —
+  **and its `NODE_VERSION`/`NODE_SHA256`**, because a new base ships a new Node.
+- The image's own Node is shadowed by an explicitly pinned one installed to
+  `/usr/local` (checksum-verified against nodejs.org). The repo picks the
+  runtime; the base image does not.
 - Runs as **uid 1000**, so `dist/` and `design/screenshots/` come back through
   the bind mount owned by you rather than by root.
 - `node_modules` is a **named volume**, not the bind mount, so the container's
@@ -141,6 +162,9 @@ that lives in a button handler is bypassed by the second caller.
   `setState` inside an effect. Both rejections were correct.
 - TypeScript is pinned to 5.9 (typescript-eslint does not support TS 7) and
   ESLint to 9 (10 breaks eslint-plugin-react).
+- `engine-strict=true` means a wrong Node **fails** `pnpm install`. Run
+  `nvm use` first; `.nvmrc` has the version.
+- The Playwright image has no `xz`, so the pinned Node is fetched as `.tar.gz`.
 - The demo wedding sits on the Event tier where nothing is capped, so the
   gating layer is invisible against it. Use the `housePartySeed` fixture to see
   it work.

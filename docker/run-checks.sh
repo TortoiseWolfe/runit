@@ -4,6 +4,20 @@ set -euo pipefail
 
 step() { printf '\n\033[1m── %s\033[0m\n' "$1"; }
 
+# The image's Node must be the Node this repo declares. Without this assertion
+# the Playwright base tag silently selects the runtime: the checks ran on
+# v22.18.0 while development ran on v24.13.0, and nothing said a word.
+step "node version matches .nvmrc"
+want="$(tr -d '[:space:]' < .nvmrc)"
+have="$(node -p 'process.versions.node')"
+if [ "$want" != "$have" ]; then
+  printf '\033[31mFAIL\033[0m: .nvmrc wants Node %s, this container has %s.\n' "$want" "$have" >&2
+  printf 'Bump NODE_VERSION and NODE_SHA256 in docker/checks.Dockerfile to match .nvmrc,\n' >&2
+  printf 'or change .nvmrc. Do not let the base image decide.\n' >&2
+  exit 1
+fi
+echo "  Node $have (matches .nvmrc)"
+
 step "install (frozen lockfile)"
 pnpm install --frozen-lockfile
 

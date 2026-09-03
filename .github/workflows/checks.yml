@@ -1,0 +1,33 @@
+# The checks container, enforced on every push rather than remembered.
+#
+# It runs the same image and the same script as `pnpm checks:docker` locally, so
+# a green run here means exactly what a green run on a laptop means. That is the
+# whole point of the container -- see CLAUDE.md.
+name: checks
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the check image
+        run: docker compose build checks
+
+      - name: Run every gate
+        run: docker compose run --rm checks
+
+      # The screenshot harness is the slowest gate and the one whose output is
+      # worth looking at when it fails.
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: design/screenshots/
+          if-no-files-found: ignore

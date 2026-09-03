@@ -16,9 +16,14 @@ specification for every screen.
 ## Running it
 
 ```bash
+nvm use             # .nvmrc pins Node 24.13.0
 pnpm install
 pnpm start          # then press i / a, or scan with Expo Go
 ```
+
+`engine-strict` is on, so `pnpm install` **fails** rather than warns if you are on
+the wrong Node. That is deliberate: the checks container and the dev server used
+to run different Node majors without anyone noticing.
 
 The dev server runs on the host — Metro's file watching and device pairing are
 what containers make painful. The checks run in Docker; see below.
