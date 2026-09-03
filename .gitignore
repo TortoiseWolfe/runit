@@ -16,3 +16,10 @@ playwright-report/
 
 # pnpm writes its store beside the project; in Docker this is a volume.
 .pnpm-store/
+
+# Continuous Native Generation: android/ and ios/ are OUTPUT of `expo prebuild`,
+# derived from app.json and the config plugins. Committing them means hand-edits
+# there silently survive a regeneration and drift from the config that is
+# supposed to be the source of truth. Regenerate with `expo prebuild --clean`.
+/android
+/ios

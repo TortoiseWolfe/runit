@@ -1,4 +1,4 @@
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { EventHeader } from '@/features/chat/EventHeader';
 import { usePhotoActions } from '@/state/actions';
@@ -12,8 +12,29 @@ import { albumTileColor, alpha, border, fade, radius, tracking, useTheme, weight
  * product states, not mockup toggles: a full-bleed shutter when the album is
  * empty, the grid once it is not. Driven off the data here rather than a prop.
  */
+/** Screen padding and inter-tile gap, from the canvas. */
+const GRID_PADDING = 20;
+const GRID_GAP = 3;
+const GRID_COLUMNS = 3;
+
 export function PhotosScreen() {
   const { tokens, isDark } = useTheme();
+  const { width } = useWindowDimensions();
+
+  // Tile size is computed, not a percentage.
+  //
+  // `width: '32.4%'` renders correctly in react-native-web -- the browser
+  // resolves the percentage against the wrapping row -- and renders NOTHING on
+  // a real device, because in Yoga a percentage width inside a `flexWrap` row
+  // that also sets `gap` has no determinate basis. The album came up empty on
+  // Android while every web screenshot showed nine tiles.
+  //
+  // This is the exact failure class the style audit and the colour gate exist
+  // for, and neither could see it: it is a layout bug, not a colour, and Lane B
+  // runs through the browser that gets it right.
+  const tileSize = Math.floor(
+    (width - GRID_PADDING * 2 - GRID_GAP * (GRID_COLUMNS - 1)) / GRID_COLUMNS,
+  );
   const folders = useFolders();
   const active = useActiveFolder();
   const approved = useApprovedPhotos();
@@ -98,7 +119,10 @@ export function PhotosScreen() {
             <View
               key={p.id}
               testID={`tile-${p.id}`}
-              style={[s.tile, { backgroundColor: albumTileColor(p.hue, isDark) }]}
+              style={[
+                s.tile,
+                { width: tileSize, height: tileSize, backgroundColor: albumTileColor(p.hue, isDark) },
+              ]}
             />
           ))}
         </View>
@@ -148,9 +172,15 @@ const s = StyleSheet.create({
   chips: { gap: 8, paddingTop: 14, paddingBottom: 6, paddingHorizontal: 20 },
   chip: { paddingVertical: 7, paddingHorizontal: 12, borderRadius: radius.pill, borderWidth: border },
   chipText: { fontSize: 13 },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 3, paddingVertical: 8, paddingHorizontal: 20 },
-  // 3 columns with 3px gaps inside a 402pt screen minus 20pt padding each side.
-  tile: { width: '32.4%', aspectRatio: 1, borderRadius: 6 },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: GRID_GAP,
+    paddingVertical: 8,
+    paddingHorizontal: GRID_PADDING,
+  },
+  // Width and height are supplied at the call site -- see the note above.
+  tile: { borderRadius: 6 },
 
   albumBar: { alignItems: 'center', paddingTop: 14, paddingBottom: 10, borderTopWidth: border },
   shutterSmall: {

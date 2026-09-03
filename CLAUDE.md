@@ -114,8 +114,25 @@ colour, copy and the state machine. Ends with a **colour gate** that reads
 base-100 back out of every PNG — added because the DOM once reported dark while
 the screen was light, and only the pixels caught it.
 
-**C — Android emulator.** `/dev/kvm` is available and the `consemble` AVD
-exists. Not wired up yet.
+**C — Android emulator** (`pnpm android`). Wired up and **load-bearing**. This is
+the only *native* rendering evidence obtainable without a Mac, and it earned its
+place immediately: it caught an album grid that renders nine tiles on the web and
+nothing at all on a device (see `design/FIDELITY.md` note G). Lane A could not see
+it because it is not a colour; Lane B could not see it because Lane B runs
+through the renderer that gets it right.
+
+```
+pnpm android           # builds the dev client and installs to a running emulator
+ADB_LIBUSB=0           # REQUIRED on WSL2 -- see below
+```
+
+**`adb` hangs on WSL2 without `ADB_LIBUSB=0`.** `adb start-server` and even
+`adb nodaemon server` produce no output at all and never return, because adb
+blocks enumerating USB. Export `ADB_LIBUSB=0` and it starts instantly. This costs
+an hour if you do not know it.
+
+Device screenshots live in `design/device/`, including the pre-fix broken album
+kept deliberately as evidence.
 
 **D — the eye.** Read `design/renders/<screen>.png` and
 `design/screenshots/<screen>.png` in the same message and walk the regions in

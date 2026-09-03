@@ -8,13 +8,13 @@
   "packageManager": "pnpm@10.33.0",
   "main": "expo-router/entry",
   "scripts": {
-    "android": "expo start --android",
+    "android": "expo run:android",
     "audit:styles": "node tools/audit-native-styles.mjs",
     "checks": "./docker/run-checks.sh",
     "checks:docker": "docker compose run --rm checks",
     "checks:shell": "docker compose run --rm shell",
     "export:web": "EXPO_PUBLIC_FIDELITY=1 expo export --platform web --output-dir dist --clear",
-    "ios": "expo start --ios",
+    "ios": "expo run:ios",
     "render:canvas": "node tools/render-canvas.mjs",
     "shots": "node tools/shoot-app.mjs",
     "start": "expo start",
@@ -25,6 +25,7 @@
   "dependencies": {
     "expo": "~57.0.19",
     "expo-constants": "~57.0.17",
+    "expo-dev-client": "~57.0.18",
     "expo-linking": "~57.0.9",
     "expo-router": "~57.0.18",
     "expo-status-bar": "~57.0.1",
