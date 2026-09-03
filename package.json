@@ -2,6 +2,10 @@
   "name": "runit",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": "24.x"
+  },
+  "packageManager": "pnpm@10.33.0",
   "main": "expo-router/entry",
   "scripts": {
     "android": "expo start --android",
