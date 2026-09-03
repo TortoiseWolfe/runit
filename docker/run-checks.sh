@@ -25,7 +25,7 @@ step "typecheck"
 pnpm typecheck
 
 step "lint"
-pnpm exec eslint src tools
+pnpm exec eslint src tools tests
 
 step "native style audit  (colours React Native cannot parse)"
 pnpm audit:styles
@@ -40,5 +40,12 @@ rm -rf .export-check
 step "web export + screenshots + colour gate"
 EXPO_PUBLIC_FIDELITY=1 pnpm exec expo export --platform web --output-dir dist --clear
 pnpm shots
+
+# Reuses the dist/ built directly above -- and depends on it having been built
+# with EXPO_PUBLIC_FIDELITY=1, because the `scheme-probe` element every test
+# waits on only renders under that flag (src/app/_layout.tsx:48). Exporting
+# without it produces a bundle whose every test times out on the first await.
+step "end-to-end journeys  (Playwright, 402x874, dark + light)"
+pnpm exec playwright test
 
 printf '\n\033[32mAll checks passed.\033[0m\n'

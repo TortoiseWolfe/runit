@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Screen } from '@/components/ui/Screen';
+import { Toast } from '@/components/ui/Toast';
 import { useEvent } from '@/state/hooks';
 import { useJoinActions } from '@/state/actions';
 import { alpha, border, eyebrow, fade, radius, tracking, useTheme, weight } from '@/theme';
@@ -91,6 +92,14 @@ export function JoinScreen() {
       <Text style={[s.footer, { color: alpha(tokens.baseContent, fade.faint) }]}>
         Runit · Event plan
       </Text>
+
+      {/* join() reports both outcomes through the toast -- the welcome on the
+          way to Chat, and "That code doesn't match an event." when it doesn't.
+          The guest and host layouts each mount a <Toast>, but /join sits
+          outside both, so the rejection message had nowhere to render and a bad
+          code failed silently. Mounted here so the failure is visible on the
+          screen that causes it. */}
+      <Toast />
     </Screen>
   );
 }

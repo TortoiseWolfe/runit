@@ -80,6 +80,7 @@ pnpm test                       # jest
 pnpm typecheck                  # tsc --noEmit
 pnpm audit:styles               # Lane A: the RN colour-parser gate
 pnpm export:web && pnpm shots   # Lane B: screenshots at 402x874 + colour gate
+pnpm test:e2e                   # Lane B: 106 Playwright journeys, dark + light
 pnpm render:canvas              # regenerate design/renders/ from the canvas
 ```
 
@@ -109,10 +110,25 @@ colour RN cannot parse. Has a coverage floor: if it audits fewer literals than
 expected it fails, because a matcher that stops matching passes having measured
 nothing.
 
-**B — web export → Playwright at 402×874** (`pnpm shots`). Validates layout,
-colour, copy and the state machine. Ends with a **colour gate** that reads
-base-100 back out of every PNG — added because the DOM once reported dark while
-the screen was light, and only the pixels caught it.
+**B — web export → Playwright at 402×874.** Two halves over one `dist/`.
+
+`pnpm shots` walks the screens and writes PNGs, ending with a **colour gate**
+that reads base-100 back out of every one — added because the DOM once reported
+dark while the screen was light, and only the pixels caught it.
+
+`pnpm test:e2e` runs 106 journey tests (`tests/e2e/`) across both colour
+schemes: join and its rejection path, the three guest tabs, the host console,
+the pricing ladder and every denial it can render, and the painted theme
+tokens. Each spec was written against the canvas and then attacked by a critic
+whose only brief was to find assertions that would pass on a broken app; 35
+were cut for exactly that. Where an assertion cannot prove what it looks like
+it proves, the file says so in its docblock rather than implying coverage it
+does not have — `join.spec.ts` is the worked example.
+
+**Both halves need a `dist/` built with `EXPO_PUBLIC_FIDELITY=1`** (`pnpm
+export:web` sets it). It injects the iPhone safe-area insets a browser reports
+as zero, and renders the `scheme-probe` element every test waits on. Export
+without it and the whole suite times out without naming the reason.
 
 **C — Android emulator** (`pnpm android`). Wired up and **load-bearing**. This is
 the only *native* rendering evidence obtainable without a Mac, and it earned its
@@ -182,6 +198,13 @@ that lives in a button handler is bypassed by the second caller.
 - `engine-strict=true` means a wrong Node **fails** `pnpm install`. Run
   `nvm use` first; `.nvmrc` has the version.
 - The Playwright image has no `xz`, so the pinned Node is fetched as `.tar.gz`.
+- `MemoryRepository.id()` shares one counter across every prefix, and it is
+  seeded past the highest number in the fixture (`highestSeedSeq`). It counted
+  from zero until an e2e critic caught it: the first guest-submitted song was
+  minted `req_1`, which is already Dancing Queen, so two rows rendered the same
+  testID and `patchRequest` — which matches by id — patched both. Removing a
+  vote from the new song pulled the seeded one down with it. If you add a seed,
+  you inherit the fix; if you replace the id scheme, keep the property.
 - The demo wedding sits on the Event tier where nothing is capped, so the
   gating layer is invisible against it. Use the `housePartySeed` fixture to see
   it work.

@@ -54,6 +54,41 @@ class Signal<T> implements Observable<T> {
   }
 }
 
+/**
+ * The highest number any id in the seed ends with.
+ *
+ * Generated ids share one counter, so `id('req')` can never collide with
+ * `id('pho')`. What they CAN collide with is the seed, whose ids end in numbers
+ * too -- and a counter starting at 0 mints `req_1` and `pho_1`, both already
+ * taken by fixtures/wedding.ts. The damage was silent: two rows rendering the
+ * same testID, duplicate React keys, and `patchRequest` matching by id patching
+ * BOTH rows, so removing a vote from a newly requested song dragged a seeded
+ * song's tally down with it (Dancing Queen 41 -> 40 while Dreams rose 1 -> 40).
+ *
+ * Walking the seed rather than hardcoding a floor keeps this correct for seeds
+ * written later, including the `housePartySeed` fixture and any a fork adds.
+ */
+function highestSeedSeq(seed: Seed): number {
+  let high = 0;
+  const walk = (node: unknown): void => {
+    if (Array.isArray(node)) {
+      node.forEach(walk);
+      return;
+    }
+    if (node === null || typeof node !== 'object') return;
+    for (const [key, value] of Object.entries(node)) {
+      if (typeof value === 'string' && (key === 'id' || key.endsWith('Id'))) {
+        const tail = /_(\d+)$/.exec(value);
+        if (tail) high = Math.max(high, Number(tail[1] ?? 0));
+      } else {
+        walk(value);
+      }
+    }
+  };
+  walk(seed);
+  return high;
+}
+
 const byVotesDesc = (a: SongRequest, b: SongRequest) =>
   b.voteCount - a.voteCount || a.createdAt.localeCompare(b.createdAt);
 
@@ -68,7 +103,7 @@ export class MemoryRepository implements RunitRepository {
   private votes: Set<SongRequestId>;
   private myGuestId: string;
   private nextPhotoSeq: number;
-  private seq = 0;
+  private seq: number;
   /** Injectable so tests are deterministic. */
   private now: () => string;
 
@@ -98,6 +133,9 @@ export class MemoryRepository implements RunitRepository {
     this.votes = new Set(seed.myVotes);
     this.myGuestId = seed.myGuestId;
     this.nextPhotoSeq = seed.nextPhotoSeq;
+    // Start above every number the seed uses, so a minted id can never
+    // collide with a seeded one. See highestSeedSeq.
+    this.seq = highestSeedSeq(seed);
 
     this.sigSession = new Signal<Session>({ kind: 'anonymous' });
     this.sigEvent = new Signal<RunitEvent | null>(this.ev);

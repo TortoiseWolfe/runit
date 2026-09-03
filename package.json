@@ -16,9 +16,13 @@
     "export:web": "EXPO_PUBLIC_FIDELITY=1 expo export --platform web --output-dir dist --clear",
     "ios": "expo run:ios",
     "render:canvas": "node tools/render-canvas.mjs",
+    "serve:dist": "node tools/serve-dist.mjs",
     "shots": "node tools/shoot-app.mjs",
     "start": "expo start",
     "test": "jest",
+    "test:e2e": "playwright test",
+    "test:e2e:report": "playwright show-report",
+    "test:e2e:ui": "playwright test --ui",
     "typecheck": "tsc --noEmit",
     "web": "expo start --web"
   },
@@ -58,6 +62,11 @@
     "preset": "jest-expo",
     "transformIgnorePatterns": [
       "node_modules/(?!(?:.pnpm/)?((jest-)?react-native|@react-native(-community)?|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@sentry/react-native|native-base|react-native-svg))"
+    ],
+    "testPathIgnorePatterns": [
+      "<rootDir>/tests/e2e/",
+      "<rootDir>/node_modules/",
+      "<rootDir>/dist/"
     ]
   },
   "pnpm": {
