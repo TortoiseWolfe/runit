@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
-import { ready, TOKENS } from './helpers';
+import { joinAsGuest, ready, switchToHost, TOKENS } from './helpers';
 
 /**
  * Artboard 04 -- the pricing ladder.
@@ -455,3 +455,31 @@ test.describe('Pricing — arriving from a paywall', () => {
     expect(none).toEqual([]);
   });
 });
+
+test.describe('Pricing — reaching it the way a host does', () => {
+  test('the folder cap routes to the paywall when tapped, which is the only in-app route there is', async ({
+    page,
+  }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await joinAsGuest(page, scheme);
+    await switchToHost(page);
+    await page.getByTestId('host-segment-photos').click();
+    await expect(page.getByTestId('host-photos')).toBeVisible();
+
+    // Event tier allows 10 folders and the seed has 3. Fill the remaining 7.
+    for (let i = 0; i < 7; i++) await page.getByTestId('add-folder').click();
+    await expect(page.getByTestId('add-folder')).toContainText('10 · Upgrade');
+
+    // THE POINT. This control used to carry `disabled={atFolderCap}`, so at the
+    // cap it read "Upgrade" and did nothing at all when tapped -- and since no
+    // other screen links to /pricing, that made the entire paywall unreachable
+    // outside a deep link. Every pricing test in this file navigates by URL, so
+    // none of them could see it.
+    await page.getByTestId('add-folder').click();
+    await expect(page.getByTestId('pricing')).toBeVisible();
+
+    // And it arrives carrying the denial that caused it, not a bare price list.
+    await expect(page.getByTestId('pricing')).toContainText('folder');
+  });
+});
+

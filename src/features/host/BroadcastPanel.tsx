@@ -57,9 +57,12 @@ export function BroadcastPanel() {
             {pinned ? 'Pinned ✓' : 'Pin to top'}
           </Text>
         </Pressable>
-        <View style={[s.pill, { borderColor: tokens.base300 }]}>
-          <Text style={[s.pillText, { color: tokens.baseContent }]}>Push notification · on</Text>
-        </View>
+        {/* The canvas draws a "Push notification · on" pill here. Removed until
+            push exists: expo-notifications is not a dependency, and the
+            repository's `push` argument is discarded (`void canPush`). A badge
+            telling a host their announcement will buzz 180 phones, over a code
+            path that does nothing, is the most expensive kind of lie in this
+            app -- they would rely on it. FIDELITY note O. */}
       </View>
 
       <Pressable

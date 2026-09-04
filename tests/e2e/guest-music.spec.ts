@@ -15,8 +15,10 @@ const SEEDED: readonly { title: string; votes: number; voted: boolean }[] = [
   { title: 'Dancing Queen', votes: 41, voted: false },
   { title: 'Mr. Brightside', votes: 37, voted: false },
   { title: 'Levitating', votes: 29, voted: false },
-  // The demo guest owns this one AND is seeded as having voted for it.
-  { title: 'Yeah!', votes: 18, voted: true },
+  // Devon's. The seed used to make this the guest's OWN request with a pre-cast
+  // vote, which told a guest who had just typed their nickname that they had
+  // requested a song by Usher. Nothing is seeded as theirs any more.
+  { title: 'Yeah!', votes: 18, voted: false },
   { title: 'Sweet Caroline', votes: 12, voted: false },
   { title: 'Espresso', votes: 9, voted: false },
 ];
@@ -172,7 +174,7 @@ test.describe('Guest · Music', () => {
     // An odd number of presses leaves the vote on, so the neighbours it did
     // not pass must be untouched -- a vote is not a global increment.
     expect(await voteState(page, 'Mr. Brightside')).toEqual({ votes: 37, voted: false });
-    expect(await voteState(page, 'Yeah!')).toEqual({ votes: 18, voted: true });
+    expect(await voteState(page, 'Yeah!')).toEqual({ votes: 18, voted: false });
   });
 
   test('a fast double-press settles back where it started and moves no other row', async ({ page }, testInfo) => {
@@ -200,46 +202,59 @@ test.describe('Guest · Music', () => {
     expect(await voteState(page, 'Dancing Queen')).toEqual({ votes: 41, voted: false });
   });
 
-  test('the row the guest already voted for starts filled, and un-voting gives the tally back', async ({ page }, testInfo) => {
+  test('a voted row is filled, and un-voting gives the tally back', async ({ page }, testInfo) => {
     const scheme = testInfo.project.name as 'dark' | 'light';
     await openMusic(page, scheme);
 
+    // The vote is CAST here. It used to be seeded -- which also meant a guest who
+    // had just typed their nickname arrived having apparently voted for a song by
+    // Usher. Casting it makes the test walk the whole transition instead of
+    // starting halfway through it.
     const button = voteButton(page, 'Yeah!');
-    expect(await readButton(button)).toEqual({ votes: 18, voted: true });
+    expect(await readButton(button)).toEqual({ votes: 18, voted: false });
+    await button.click();
+    await expect.poll(() => readButton(button)).toEqual({ votes: 19, voted: true });
 
-    // The seeded vote must be visible, not merely announced: a voted button is
-    // filled with the primary token, an unvoted one is not filled at all.
-    // Asserting the painted colour keeps this out of class-name territory, and
-    // is the one claim here that differs between the dark and light projects.
+    // The vote must be VISIBLE, not merely announced: a voted button is filled
+    // with the primary token, an unvoted one is not filled at all. Asserting the
+    // painted colour keeps this out of class-name territory, and is the one claim
+    // here that differs between the dark and light projects.
     await expect(button).toHaveCSS('background-color', TOKENS[scheme].primary);
 
     await button.click();
-    await expect.poll(() => readButton(button)).toEqual({ votes: 17, voted: false });
+    await expect.poll(() => readButton(button)).toEqual({ votes: 18, voted: false });
     await expect(button).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
 
     await button.click();
-    await expect.poll(() => readButton(button)).toEqual({ votes: 18, voted: true });
+    await expect.poll(() => readButton(button)).toEqual({ votes: 19, voted: true });
     await expect(button).toHaveCSS('background-color', TOKENS[scheme].primary);
   });
 
-  test("the banner names the rank of the guest's own request, and keeps naming the best-placed one", async ({ page }, testInfo) => {
+  test("the banner appears only once the guest has a request, and names its rank", async ({ page }, testInfo) => {
     const scheme = testInfo.project.name as 'dark' | 'light';
     await openMusic(page, scheme);
 
-    const rows = await queueRows(page);
-    // Not a hardcoded 4 alone: the banner's number has to agree with where the
-    // guest's song actually sits, so a stale or off-by-one rank fails.
-    expect(await myRequestRank(page)).toBe(4);
-    expect(rows.findIndex((r) => r.title === 'Yeah!') + 1).toBe(4);
-    // Yeah! is pending, so the DJ has not accepted it yet.
-    await expect(page.getByText('Waiting for DJ', { exact: true })).toBeVisible();
+    // NOTHING is seeded as the guest's, so the banner is absent on arrival. It
+    // used to be present, telling someone who had just typed their nickname that
+    // their request was #4 in the queue -- for a song by Usher.
+    expect(await myRequestRank(page)).toBeNull();
 
-    // A newer request from the same guest sits at the bottom on one vote. The
-    // banner must keep pointing at the guest's best-placed request rather than
-    // following the newest one down the list.
+    // One request, landing last on a single vote.
     await submitRequest(page, 'Dreams – Fleetwood Mac');
     await expect.poll(() => queueRows(page).then((r) => r.length)).toBe(SEEDED.length + 1);
-    expect(await myRequestRank(page)).toBe(4);
+    const rows = await queueRows(page);
+    const rank = rows.findIndex((r) => r.title === 'Dreams') + 1;
+    // Not a hardcoded number: the banner has to agree with where the song
+    // actually sits, so a stale or off-by-one rank fails.
+    expect(await myRequestRank(page)).toBe(rank);
+    await expect(page.getByText('Waiting for DJ', { exact: true })).toBeVisible();
+
+    // A second request that outranks the first. The banner must keep pointing at
+    // the guest's BEST-placed request rather than following the newest one.
+    await submitRequest(page, 'Africa – Toto');
+    await expect.poll(() => queueRows(page).then((r) => r.length)).toBe(SEEDED.length + 2);
+    const best = (await queueRows(page)).findIndex((r) => r.title === 'Dreams' || r.title === 'Africa') + 1;
+    expect(await myRequestRank(page)).toBe(best);
   });
 
   test('submitting "Song – Artist" adds a row credited to the guest and clears the composer', async ({ page }, testInfo) => {

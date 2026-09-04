@@ -78,12 +78,21 @@ export function PhotoApprovalsPanel() {
 
       <View style={s.sectionHead}>
         <Text style={[s.section, { color: alpha(tokens.baseContent, fade.muted) }]}>Folders</Text>
+        {/* NOT disabled at the cap. The label says "Upgrade", and a control that
+            says Upgrade and then does nothing when tapped is worse than no
+            control -- it was also the only route to /pricing in the whole UI, so
+            disabling it made the entire paywall unreachable outside a deep link.
+            `addFolder` already goes through useGuardedAction, and the repository
+            throws EntitlementError at the cap, so pressing it here routes to the
+            pricing screen with the denial that caused it. */}
         <Pressable
           onPress={() => addFolder(`Folder ${folders.length + 1}`)}
-          disabled={atFolderCap}
           accessibilityRole="button"
-          accessibilityState={{ disabled: atFolderCap }}
-          accessibilityHint={atFolderCap ? `Your plan allows ${folderCap} folders` : undefined}
+          accessibilityHint={
+            atFolderCap
+              ? `Your plan allows ${folderCap} folders. Opens upgrade options.`
+              : undefined
+          }
           // ~15pt of text, under SC 2.5.8's 24x24 AA minimum. Isolated control,
           // so slop has no sibling to overlap.
           hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}

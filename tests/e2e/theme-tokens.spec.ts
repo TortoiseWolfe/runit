@@ -205,16 +205,21 @@ test.describe('painted theme tokens', () => {
     await page.getByTestId('tab-music').click();
     await expect(page.getByTestId('music-queue')).toBeVisible();
 
-    // req_4 ("Yeah!", 18 votes) is the demo guest's own request and the fixture
-    // seeds myVotes with it; req_2 ("Mr. Brightside", 37) is somebody else's.
-    // Neither vote changes a row's rank here, so the queue order holds still and
-    // the testIDs keep pointing at the same songs.
+    // Nothing is seeded as the guest's, so the vote is CAST here rather than
+    // assumed. That is a better test than the one it replaces: it walks the whole
+    // transition unpainted -> painted -> unpainted instead of starting halfway
+    // through it. Neither vote changes a row's rank, so the queue order holds
+    // still and the testIDs keep pointing at the same songs.
     expect(await voteCount(page, 'req_4')).toBe(18);
-    expect(await fillOf(page.getByTestId('vote-req_4'))).toBe(TOKENS[scheme].primary);
+    expect(await fillOf(page.getByTestId('vote-req_4'))).toBe(UNPAINTED);
     expect(await fillOf(page.getByTestId('vote-req_2'))).toBe(UNPAINTED);
 
     await page.getByTestId('vote-req_4').click();
-    await expect.poll(() => voteCount(page, 'req_4')).toBe(17);
+    await expect.poll(() => voteCount(page, 'req_4')).toBe(19);
+    expect(await fillOf(page.getByTestId('vote-req_4'))).toBe(TOKENS[scheme].primary);
+
+    await page.getByTestId('vote-req_4').click();
+    await expect.poll(() => voteCount(page, 'req_4')).toBe(18);
     // The count moving is what proves the fill dropped because the vote was
     // withdrawn, rather than because the button stopped painting anything at all.
     expect(await fillOf(page.getByTestId('vote-req_4'))).toBe(UNPAINTED);

@@ -62,9 +62,22 @@ describe('music queue', () => {
     expect(votes()).toBe(37);
   });
 
-  it('seeds the demo guest as owner of Yeah!, matching `mine: true`', () => {
+  it('gives an arriving guest no requests and no votes, because they have done nothing', () => {
     const r = make();
+    // The canvas seeds `mine: true` on Yeah!. Honouring that meant a guest who had
+    // just typed their nickname was told "Your request is #4 in the queue" for a
+    // song by Usher. Both states are reachable by acting; neither is seeded.
+    expect(r.music.myVotes.get().size).toBe(0);
+    expect(r.music.queue.get().some((q) => q.requestedByGuestId === 'gst_me')).toBe(false);
+  });
+
+  it('and both states arrive the moment the guest acts', async () => {
+    const r = make();
+    await r.session.joinAsGuest({ code: 'SR1017', nickname: 'Ada' });
+    await r.music.setVote('req_4', true);
     expect(r.music.myVotes.get().has('req_4')).toBe(true);
+    await r.music.request({ title: 'Dreams', artist: 'Fleetwood Mac' });
+    expect(r.music.queue.get().some((q) => q.requestedByGuestId === 'gst_me')).toBe(true);
   });
 
   it('lets one guest hold several requests', async () => {

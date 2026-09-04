@@ -145,13 +145,25 @@ export const weddingSeed: Seed = {
     { id: 'req_1', title: 'Dancing Queen', artist: 'ABBA', requestedByName: 'Priya', requestedByGuestId: 'gst_priya', status: 'accepted', voteCount: 41, createdAt: at('19:05') },
     { id: 'req_2', title: 'Mr. Brightside', artist: 'The Killers', requestedByName: 'Tom', requestedByGuestId: 'gst_tom', status: 'pending', voteCount: 37, createdAt: at('19:06') },
     { id: 'req_3', title: 'Levitating', artist: 'Dua Lipa', requestedByName: 'Aunt Jo', requestedByGuestId: 'gst_jo', status: 'pending', voteCount: 29, createdAt: at('19:07') },
-    { id: 'req_4', title: 'Yeah!', artist: 'Usher', requestedByName: 'you', requestedByGuestId: 'gst_me', status: 'pending', voteCount: 18, createdAt: at('19:08') },
+    { id: 'req_4', title: 'Yeah!', artist: 'Usher', requestedByName: 'Devon', requestedByGuestId: 'gst_devon', status: 'pending', voteCount: 18, createdAt: at('19:08') },
     { id: 'req_5', title: 'Sweet Caroline', artist: 'Neil Diamond', requestedByName: 'Grandpa Lou', requestedByGuestId: 'gst_lou', status: 'pending', voteCount: 12, createdAt: at('19:09') },
     { id: 'req_6', title: 'Espresso', artist: 'Sabrina Carpenter', requestedByName: 'Maya', requestedByGuestId: 'gst_maya', status: 'pending', voteCount: 9, createdAt: at('19:10') },
   ],
-  /** The canvas seeds `mine: true` on Yeah! -- so the demo guest owns req_4. */
+  /**
+   * The demo guest arrives having done NOTHING, because that is what arriving is.
+   *
+   * The canvas seeds `mine: true` on Yeah!, and this used to honour that with
+   * `requestedByName: 'you'` and a pre-cast vote. The result was that a guest who
+   * joined as "Ada" was immediately shown "Your request is #4 in the queue" and a
+   * filled vote button for a song by Usher she had never heard of. For a demo that
+   * is confusing; for a first impression of a photo-sharing app it reads as
+   * "this thing has other people's data in it".
+   *
+   * Both states are still reachable -- by requesting a song and by voting, which
+   * is how a guest reaches them in reality. FIDELITY note O.
+   */
   myGuestId: 'gst_me',
-  myVotes: ['req_4'],
+  myVotes: [],
   nowPlaying: { title: 'September', artist: 'Earth, Wind & Fire', fromRequestId: null, startedAt: at('19:00') },
   folders: [
     { id: 'fld_getting_ready', name: 'Getting ready', position: 1, photoCount: 38 },

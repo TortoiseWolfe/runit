@@ -382,3 +382,33 @@ loses the session, the nickname and every vote.
 The chips now render in **both** branches. The e2e that recorded this as expected
 behaviour (*"that is also why there is no way back via a chip"*) has been inverted to
 assert the escape exists, and fails if the chips are removed again.
+
+## O. The UI stops claiming what the code cannot do
+Four places where the app asserted something untrue. A beta-readiness audit found
+them by asking what a tester actually meets, which is a different question from
+what the tests cover — all four were green.
+
+**"Push notification · on" is removed.** The canvas draws the pill; the repository
+discards the argument (`void canPush`) and `expo-notifications` is not a
+dependency. A badge telling a host their announcement will buzz 180 phones, over a
+code path that does nothing, is the most expensive lie here — they would rely on
+it. Restore the pill when push exists, not before.
+
+**Nothing is seeded as the guest's own.** `requestedByName: 'you'` with
+`myVotes: ['req_4']` meant a guest who had just typed their nickname was shown
+*"Your request is #4 in the queue"* and a filled vote button for a song by Usher
+they had never heard of. For a demo that is confusing; as a first impression of a
+photo-sharing app it reads as "this has other people's data in it". req_4 belongs
+to Devon now, and `myVotes` is empty. **Both states are still reachable — by
+voting and by requesting**, which is how a guest reaches them in reality, and the
+tests now do exactly that rather than asserting a seeded shortcut.
+
+**The capped folder control is no longer `disabled`.** It reads "10 of 10 ·
+Upgrade" and did nothing when tapped, because `disabled` means `onPress` never
+fires. It was also the *only* route to `/pricing` in the entire UI, so the whole
+paywall was unreachable outside a deep link. It now routes through
+`useGuardedAction` to the pricing screen carrying the denial that caused it.
+
+**The README no longer claims QR scanning.** No scanner exists in `src/`; the join
+screen's "Scanned the QR?" copy sits above a pre-filled field, which is a
+reasonable stand-in, but the README stated it as shipped.
