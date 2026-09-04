@@ -7,6 +7,8 @@ import 'react-native-url-polyfill/auto';
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
+import type { Database } from './database.types';
+
 import { secureSessionStorage } from './secureSessionStorage';
 
 /**
@@ -42,8 +44,10 @@ function requireEnv(name: string, value: string | undefined): string {
   return value;
 }
 
-export function createRunitClient(): SupabaseClient {
-  return createClient(
+export type RunitClient = SupabaseClient<Database>;
+
+export function createRunitClient(): RunitClient {
+  return createClient<Database>(
     requireEnv('EXPO_PUBLIC_SUPABASE_URL', url),
     requireEnv('EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY', key),
     {
@@ -75,9 +79,9 @@ export function createRunitClient(): SupabaseClient {
  * outside `src/data/supabase/` may import this -- the ESLint no-restricted-imports
  * rule that guards the seam is what makes swapping adapters a checked property.
  */
-let client: SupabaseClient | null = null;
+let client: RunitClient | null = null;
 
-export function supabase(): SupabaseClient {
+export function supabase(): RunitClient {
   client ??= createRunitClient();
   return client;
 }
