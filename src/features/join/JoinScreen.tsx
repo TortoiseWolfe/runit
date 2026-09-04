@@ -6,6 +6,9 @@ import { Screen } from '@/components/ui/Screen';
 import { Toast } from '@/components/ui/Toast';
 import { useEvent } from '@/state/hooks';
 import { useJoinActions } from '@/state/actions';
+import { useToast } from '@/state/ToastProvider';
+import { icsFilename, icsFor } from '@/lib/invite';
+import { shareIcs } from '@/lib/share';
 import { alpha, border, eyebrow, radius, tracking, useTheme, weight } from '@/theme';
 
 /**
@@ -19,6 +22,7 @@ export function JoinScreen() {
   const { tokens, fade } = useTheme();
   const event = useEvent();
   const { join } = useJoinActions();
+  const { show } = useToast();
 
   /**
    * `?code=` FIRST, and the order matters more than it looks.
@@ -41,6 +45,15 @@ export function JoinScreen() {
   const [nickname, setNickname] = useState('');
   const [hostKey, setHostKey] = useState('');
   const [joined, setJoined] = useState(false);
+
+  const onAddToCalendar = async () => {
+    if (!event) return;
+    const shared = await shareIcs(icsFilename(event), icsFor(event));
+    // Reporting the outcome rather than assuming it. On a desktop browser there is no
+    // share sheet at all, and a button that silently does nothing is the failure this
+    // pill spent months demoted to a View to avoid.
+    show(shared ? 'Calendar file ready.' : 'Calendar export needs the app on a phone.');
+  };
 
   const onJoin = async () => {
     const ok = await join(code, nickname, hostKey);
@@ -77,17 +90,25 @@ export function JoinScreen() {
             {event.guestCount} already here
           </Text>
         ) : null}
-        {/* A View, not a Pressable, until calendar export exists. It was a
-            Pressable with no onPress, no role and no label -- it looked and felt
-            like a button and did nothing, which is worse than not offering it.
-            The canvas draws this affordance, so the pixels stay; the lie does
-            not. Wire it back up when expo-calendar lands (CLAUDE.md, "Not built
-            yet") and restore the Pressable with a real handler. */}
-        <View style={[s.calendarPill, { borderColor: tokens.base300 }]}>
+        {/* PRESSABLE AT LAST. This was a View with the comment "wire it back up when
+            expo-calendar lands" -- and it turns out expo-calendar was the wrong target.
+            Handing over an .ics needs no calendar permission, works with whatever app the
+            guest actually uses, and is a string plus a temp file. FIDELITY note K makes
+            the same argument about the microphone: do not ask for a permission the
+            feature does not need. */}
+        <Pressable
+          onPress={onAddToCalendar}
+          disabled={!event}
+          accessibilityRole="button"
+          accessibilityLabel="Add this event to your calendar"
+          hitSlop={8}
+          style={[s.calendarPill, { borderColor: tokens.base300 }]}
+          testID="join-add-calendar"
+        >
           <Text style={[s.calendarText, { color: alpha(tokens.baseContent, fade.muted) }]}>
             + Add to calendar
           </Text>
-        </View>
+        </Pressable>
       </View>
 
       <View style={[s.card, { backgroundColor: tokens.base200 }]}>

@@ -71,6 +71,9 @@ pnpm shots
 # with EXPO_PUBLIC_FIDELITY=1, because the `scheme-probe` element every test
 # waits on only renders under that flag (src/app/_layout.tsx:48). Exporting
 # without it produces a bundle whose every test times out on the first await.
+step "QR decode  (the only check that reads what the QR actually encodes)"
+node tools/verify-qr.mjs
+
 step "end-to-end journeys  (Playwright, 402x874, dark + light)"
 pnpm exec playwright test
 

@@ -27,6 +27,7 @@
     "test:e2e:ui": "playwright test --ui",
     "typecheck": "tsc --noEmit",
     "verify:policies": "node tools/verify-policies.mjs",
+    "verify:qr": "node tools/verify-qr.mjs",
     "web": "expo start --web"
   },
   "dependencies": {
@@ -48,6 +49,7 @@
     "react-dom": "19.2.3",
     "react-native": "0.86.3",
     "react-native-gesture-handler": "~2.32.0",
+    "react-native-qrcode-svg": "^6.3.22",
     "react-native-reanimated": "4.5.1",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.26.2",
@@ -61,12 +63,15 @@
     "@types/jest": "^30.0.0",
     "@types/node": "^26.4.1",
     "@types/pg": "^8.23.1",
+    "@types/pngjs": "^6.0.5",
     "@types/react": "^19.2.18",
     "eslint": "^9.39.5",
     "eslint-config-expo": "^57.0.2",
     "jest": "^30.5.1",
     "jest-expo": "^57.0.5",
+    "jsqr": "^1.4.0",
     "pg": "^8.23.0",
+    "pngjs": "^7.0.0",
     "prettier": "^3.9.6",
     "test-renderer": "^1.2.0",
     "typescript": "^5.9.3"

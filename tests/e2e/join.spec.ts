@@ -368,3 +368,22 @@ test.describe('Join · arriving from a link', () => {
     await expect(page.getByTestId('join-code')).toHaveValue(WEDDING.code);
   });
 });
+
+test.describe('Join · add to calendar', () => {
+  /**
+   * This pill was a `View` with no onPress for months, deliberately -- the canvas draws
+   * the affordance and the code could not honour it, so it was demoted rather than left
+   * lying. It is a Pressable again because an .ics needs no calendar permission, which
+   * `expo-calendar` would have.
+   */
+  test('the pill is a real button now, and says something either way', async ({ page }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await open(page, scheme);
+    const pill = page.getByTestId('join-add-calendar');
+    await expect(pill).toBeVisible();
+    await pill.click();
+    // On web there is no share sheet, so the honest outcome is a message naming why --
+    // not silence, and not a claim that something was added.
+    await expect(page.getByTestId('toast')).toContainText(/calendar/i);
+  });
+});

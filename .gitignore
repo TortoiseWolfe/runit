@@ -30,3 +30,6 @@ playwright-report/
 # App Store screenshots: regenerated on demand, and NOT part of the Lane D
 # render-vs-screenshot comparison -- they are shot at a different viewport.
 /design/appstore
+
+# Transient, written and deleted by tools/verify-qr.mjs.
+.qr-verify.png

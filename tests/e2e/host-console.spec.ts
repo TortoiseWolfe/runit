@@ -400,3 +400,53 @@ test.describe('host console · entitlement denials', () => {
     await expect(page.getByTestId('add-folder')).toHaveText(before ?? '');
   });
 });
+
+test.describe('host console · handing out the code', () => {
+  /**
+   * Until this shipped there was no way for a guest to GET a code except being told it
+   * out loud -- no share sheet, no clipboard, no QR anywhere -- while the canvas had said
+   * "Scanned the QR? Your code is filled in" since the first artboard.
+   *
+   * These run on web, where there is no share sheet at all, so what they can prove is the
+   * CALLER's behaviour: the controls exist, they are reachable, the QR encodes the right
+   * thing, and a browser with no sheet is told the code rather than left with a button
+   * that did nothing. Whether the OS sheet opens is a device question.
+   */
+  test('the QR is hidden until asked for, and shows the code beside it', async ({ page }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await joinAsGuest(page, scheme);
+    await switchToHost(page);
+
+    await expect(page.getByTestId('event-qr')).toHaveCount(0);
+    await page.getByTestId('host-qr-toggle').click();
+    await expect(page.getByTestId('event-qr')).toBeVisible();
+
+    // The human-readable fallback is not decoration: the custom scheme only resolves on a
+    // phone that already has Runit, so everyone else needs something to read.
+    await expect(page.getByTestId('event-qr-code')).toHaveText(WEDDING.code);
+  });
+
+  test('the toggle closes it again, and says which it will do', async ({ page }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await joinAsGuest(page, scheme);
+    await switchToHost(page);
+
+    await expect(page.getByTestId('host-qr-toggle')).toHaveText('Show QR');
+    await page.getByTestId('host-qr-toggle').click();
+    await expect(page.getByTestId('host-qr-toggle')).toHaveText('Hide QR');
+    await page.getByTestId('host-qr-toggle').click();
+    await expect(page.getByTestId('event-qr')).toHaveCount(0);
+  });
+
+  test('sharing with no share sheet tells you the code instead of failing silently', async ({
+    page,
+  }, testInfo) => {
+    // Headless Chromium has no navigator.share. A button that quietly does nothing is
+    // exactly what the calendar pill was demoted to a View for months to avoid.
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await joinAsGuest(page, scheme);
+    await switchToHost(page);
+    await page.getByTestId('host-share').click();
+    await expect(page.getByTestId('toast')).toContainText(WEDDING.code);
+  });
+});

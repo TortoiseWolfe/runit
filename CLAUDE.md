@@ -221,6 +221,17 @@ kept deliberately as evidence.
 order. Programmatic probes catch a different class of thing; neither substitutes
 for the other.
 
+**F — QR decode** (`pnpm verify:qr`). The only check that reads what the QR actually
+ENCODES. It drives the web export to the host console, opens the QR, screenshots that
+element and decodes the pixels with jsQR.
+
+An e2e assertion on `[data-testid="event-qr"]` proves a box is on screen and nothing about
+what is in it — and a QR encoding the wrong string renders perfectly, scans perfectly, and
+takes the guest nowhere. Chromium's `BarcodeDetector` is unavailable on this platform
+(checked), so decoding is the only route. It also fails when the code is merely
+undecodable, which is the contrast/quiet-zone/resolution class a camera in a dim room
+would hit.
+
 **E — policy verification** (`pnpm verify:policies`). The only lane that can
 see row-level security behave. It runs `supabase/verify-policies.sql`, which seeds an
 event, a guest and a host inside a `DO` block, switches

@@ -1,5 +1,9 @@
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { EventQr } from '@/components/ui/EventQr';
+import { shareMessage } from '@/lib/invite';
+import { shareText } from '@/lib/share';
+import { useToast } from '@/state/ToastProvider';
 
 import { formatClock } from '@/lib/format';
 import { useHostActions } from '@/state/actions';
@@ -16,9 +20,22 @@ export function BroadcastPanel() {
   const { send, startScheduleItem, restartScheduleItem, addScheduleItem } = useHostActions();
   const [draft, setDraft] = useState('');
   const [pinned, setPinned] = useState(false);
+  const [showQr, setShowQr] = useState(false);
+  const { show } = useToast();
 
   // Addressed to everyone invited, not just whoever is currently in the room.
   const invited = event?.invitedCount ?? 0;
+  /**
+   * Sharing lives on the HOST console and nowhere else, because handing out the code is
+   * a host's job. It sits above the composer for the same reason: a guest who never got
+   * the code cannot read an announcement.
+   */
+  const onShare = async () => {
+    if (!event) return;
+    const shared = await shareText(shareMessage(event));
+    if (!shared) show(`No share sheet here. The code is ${event.code.toUpperCase()}.`);
+  };
+
   const onSend = async () => {
     if (!draft.trim()) return;
     await send(draft, pinned, true);
@@ -28,6 +45,41 @@ export function BroadcastPanel() {
 
   return (
     <ScrollView style={s.scroll} contentContainerStyle={s.content} testID="host-broadcast">
+      {/* The invite row. Both affordances are disabled until there IS an event, which
+          against Supabase is until the host has joined -- events_read admits members
+          only, so `event` is null before that. */}
+      <View style={s.inviteRow}>
+        <Pressable
+          onPress={onShare}
+          disabled={!event}
+          accessibilityRole="button"
+          accessibilityLabel="Share the join code and link"
+          hitSlop={8}
+          testID="host-share"
+        >
+          <Text style={[s.inviteAction, { color: tokens.accent }]}>Share invite →</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => setShowQr((v) => !v)}
+          disabled={!event}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: showQr }}
+          accessibilityLabel={showQr ? 'Hide the QR code' : 'Show a QR code to scan'}
+          hitSlop={8}
+          testID="host-qr-toggle"
+        >
+          <Text style={[s.inviteAction, { color: tokens.accent }]}>
+            {showQr ? 'Hide QR' : 'Show QR'}
+          </Text>
+        </Pressable>
+      </View>
+
+      {showQr && event && (
+        <View style={s.qrHolder}>
+          <EventQr code={event.code} />
+        </View>
+      )}
+
       <TextInput
         value={draft}
         onChangeText={setDraft}
@@ -162,6 +214,13 @@ export function BroadcastPanel() {
 }
 
 const s = StyleSheet.create({
+  inviteRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  // ~15pt of text, under SC 2.5.8's 24x24 AA minimum, so both carry hitSlop. They are
+  // each other's nearest neighbour, hence the space-between rather than flush siblings:
+  // RN's own docs note slop "never extends past the parent view bounds and the Z-index of
+  // sibling views always takes precedence".
+  inviteAction: { fontSize: 15, fontWeight: weight.semibold },
+  qrHolder: { alignItems: 'center', paddingVertical: 8 },
   scroll: { flex: 1 },
   content: { paddingVertical: 16, paddingHorizontal: 20, gap: 14 },
   textarea: {
