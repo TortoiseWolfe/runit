@@ -78,19 +78,19 @@ export function PhotoApprovalsPanel() {
 
       <View style={s.sectionHead}>
         <Text style={[s.section, { color: alpha(tokens.baseContent, fade.muted) }]}>Folders</Text>
-        {/* NOT disabled at the cap. The label says "Upgrade", and a control that
-            says Upgrade and then does nothing when tapped is worse than no
-            control -- it was also the only route to /pricing in the whole UI, so
-            disabling it made the entire paywall unreachable outside a deep link.
-            `addFolder` already goes through useGuardedAction, and the repository
-            throws EntitlementError at the cap, so pressing it here routes to the
-            pricing screen with the denial that caused it. */}
+        {/* NOT disabled at the cap, and the reason survives the paywall being cut.
+            A control that is visibly there and does nothing when tapped is worse
+            than no control: it reads as a bug. `addFolder` goes through
+            useGuardedAction, and the repository throws EntitlementError at the
+            cap, so pressing it here raises a toast naming the limit rather than
+            failing silently. It once WAS disabled, which made the denial
+            unreachable and looked exactly like a broken button. */}
         <Pressable
           onPress={() => addFolder(`Folder ${folders.length + 1}`)}
           accessibilityRole="button"
           accessibilityHint={
             atFolderCap
-              ? `Your plan allows ${folderCap} folders. Opens upgrade options.`
+              ? `This event allows ${folderCap} folders. Explains the limit.`
               : undefined
           }
           // ~15pt of text, under SC 2.5.8's 24x24 AA minimum. Isolated control,
@@ -99,7 +99,7 @@ export function PhotoApprovalsPanel() {
           testID="add-folder"
         >
           <Text style={[s.link, { color: atFolderCap ? alpha(tokens.baseContent, fade.faint) : tokens.accent }]}>
-            {atFolderCap ? `${folderCap} · Upgrade` : '+ New folder'}
+            {atFolderCap ? `${folderCap} folders max` : '+ New folder'}
           </Text>
         </Pressable>
       </View>

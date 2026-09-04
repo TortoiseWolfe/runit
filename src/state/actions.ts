@@ -7,6 +7,7 @@
 import { useCallback, useMemo } from 'react';
 import { useRouter } from 'expo-router';
 
+import { denialMessage } from '@/domain/denials';
 import { EntitlementError, JoinError, ScheduleError, type UploadOutcome } from '@/data/repository';
 import { capturePhoto } from '@/lib/capture';
 import { checkLimit } from '@/domain/entitlements';
@@ -16,11 +17,19 @@ import { useRepository } from './RepositoryProvider';
 import { useToast } from './ToastProvider';
 
 /**
- * Runs a repository write and turns an EntitlementError into a contextual
- * paywall rather than an unexplained no-op. Every gated action goes through it.
+ * Runs a repository write and turns an EntitlementError into a contextual REFUSAL
+ * rather than an unexplained no-op. Every gated action goes through it.
+ *
+ * It used to push the pricing modal. That modal is cut from v1 -- it listed
+ * $19/$79/$599 with no purchase path on the screen at all -- so the denial now
+ * surfaces as a toast naming the specific limit or feature. The copy is the same
+ * copy, moved to `domain/denials.ts`; what is gone is the attempt to sell a fix.
+ *
+ * The important property is unchanged and is the whole point of this function: a
+ * gated action must never fail silently.
  */
 export function useGuardedAction() {
-  const router = useRouter();
+  const { show } = useToast();
   return useCallback(
     async (fn: () => Promise<unknown>): Promise<boolean> => {
       try {
@@ -28,21 +37,13 @@ export function useGuardedAction() {
         return true;
       } catch (e) {
         if (e instanceof EntitlementError) {
-          const d = e.denial;
-          router.push({
-            pathname: '/pricing',
-            params: {
-              reason: d.kind,
-              detail: d.kind === 'limit' ? d.limit : d.feature,
-              highlight: d.upgradeTo ?? '',
-            },
-          });
+          show(denialMessage(e.denial));
           return false;
         }
         throw e;
       }
     },
-    [router],
+    [show],
   );
 }
 

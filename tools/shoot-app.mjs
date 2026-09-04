@@ -205,20 +205,11 @@ for (const scheme of ['dark', 'light']) {
     await shot(name);
   }
 
-  // 04 Pricing
-  await page.goto(`${base}/pricing`, { waitUntil: 'networkidle' });
-  await page.waitForSelector('[data-testid="pricing"]', { timeout: 30_000 });
-  await shot('04-pricing');
-
-  // 04b The same screen as a guest actually reaches it -- turned away by a
-  // limit, with the denial headline in place of the marketing blurb and the
-  // tier that lifts it ringed. The gating is the product; a ladder screenshot
-  // with no denial on it does not show the product working.
-  await page.goto(`${base}/pricing?reason=limit&detail=guests&highlight=event`, {
-    waitUntil: 'networkidle',
-  });
-  await page.waitForSelector('[data-testid="pricing"]', { timeout: 30_000 });
-  await shot('04-pricing-paywall');
+  // 04 Pricing -- REMOVED with the /pricing route itself in v1. The screen listed
+  // $19/$79/$599 and contained no Pressable at all, which is a Guideline 3.1.1 and
+  // 2.1 problem rather than a design one. Denials now surface as a toast naming the
+  // limit (src/domain/denials.ts), so there is no longer a screen to shoot. The
+  // gating is still the product -- host-console.spec.ts proves it fires.
 
   if (errors.length) {
     console.log(`  [${scheme}] ${errors.length} page error(s):`);

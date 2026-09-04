@@ -353,3 +353,50 @@ test.describe('host console · run of show', () => {
     await expect(page.getByText('Ceremony is starting · Lawn', { exact: true })).toHaveCount(0);
   });
 });
+
+test.describe('host console · entitlement denials', () => {
+  /**
+   * MOVED HERE when /pricing was cut from v1, and it is the reason this file
+   * grew a third describe block rather than the test being dropped with the
+   * screen.
+   *
+   * The original lived in pricing.spec.ts and proved the folder cap ROUTED to
+   * the paywall. Deleting the paywall does not delete the thing that test was
+   * really guarding, which is that a refused action is refused OUT LOUD. That
+   * control shipped `disabled={atFolderCap}` once: it read "Upgrade", did
+   * nothing at all when tapped, and made every denial in the app unreachable.
+   * Every other pricing test navigated by URL, so not one of them could see it.
+   *
+   * The destination changed from a modal to a toast. The property did not.
+   */
+  test('filling the folder cap and tapping again names the limit out loud, and adds no folder', async ({
+    page,
+  }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await joinAsGuest(page, scheme);
+    await switchToHost(page);
+    await page.getByTestId('host-segment-photos').click();
+    await expect(page.getByTestId('host-photos')).toBeVisible();
+
+    // The seed sits on the Event tier: 10 folders allowed, 3 already there.
+    for (let i = 0; i < 7; i++) await page.getByTestId('add-folder').click();
+    await expect(page.getByTestId('add-folder')).toContainText('10 folders max');
+
+    // Clear the toast raised by the 10th successful add, so what is asserted
+    // below is the DENIAL and not the success that preceded it.
+    await expect(page.getByTestId('toast')).toHaveCount(0, { timeout: 10_000 });
+
+    const before = await page.getByTestId('add-folder').textContent();
+    await page.getByTestId('add-folder').click();
+
+    // Names the specific limit. A generic "something went wrong" would pass a
+    // weaker assertion and would not be worth shipping.
+    await expect(page.getByTestId('toast')).toHaveText(
+      'You have used every folder this event allows.',
+    );
+
+    // And the refusal actually refused: the label still reads the cap, so no
+    // eleventh folder was created behind the toast.
+    await expect(page.getByTestId('add-folder')).toHaveText(before ?? '');
+  });
+});

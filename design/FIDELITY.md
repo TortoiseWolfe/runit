@@ -420,3 +420,34 @@ is a named item on the roadmap instead.
 Useful thing that came out of it: `expo-camera` **is** bundled in Expo Go 57.0.9
 (239 refs in the shipped APK, verified by dex grep), so a scanner works in both
 clients, and `CameraView` carries `barcodeScannerSettings` — no extra library.
+
+## P. The pricing screen is designed, rendered, and not shipped
+
+`design/renders/04-pricing.{dark,light}.png` stay in the repo. `design/screenshots/`
+no longer has a matching pair, and `tools/shoot-app.mjs` no longer walks there.
+
+**That asymmetry is the note.** The canvas specifies a pricing ladder and the canvas is
+the spec, so the render is still the truth about what Runit is meant to be. What changed
+is that v1 does not ship the route.
+
+The reason is not aesthetic. `PricingScreen.tsx` listed `$19 / $79 / $599` and contained
+**no `Pressable` anywhere on the screen** — four tiers, four prices, and nothing to tap.
+Shipping that invites App Review Guideline 3.1.1 (unlocking features must use in-app
+purchase) and 2.1 (completeness), and a rejection round-trip costs more days than the
+screen was buying.
+
+What survives:
+
+- **`src/domain/tiers.ts` is untouched.** The ladder still drives every entitlement gate.
+- **The denial copy survives**, moved to `src/domain/denials.ts`. `useGuardedAction` raises
+  it as a toast instead of navigating. A refused action still names the specific limit that
+  refused it, which was always the property that mattered — the paywall was the delivery
+  mechanism, not the point.
+- **The folder-cap control stays pressable.** It reads `N folders max` instead of
+  `N · Upgrade`, and tapping it toasts the reason. It was `disabled` once, which made the
+  denial unreachable and looked exactly like a broken button; that fix holds, only its
+  destination changed.
+
+Restoring the screen is a route file, a `Stack.Screen`, and pointing `useGuardedAction`
+back at it — **but it should not come back without a purchase path**, because a paywall
+that cannot take money is the thing that got it cut.

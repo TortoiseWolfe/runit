@@ -56,7 +56,6 @@ function Chrome() {
           contentStyle: { backgroundColor: tokens.base100 },
         }}
       >
-        <Stack.Screen name="pricing" options={{ presentation: 'modal' }} />
       </Stack>
     </>
   );
