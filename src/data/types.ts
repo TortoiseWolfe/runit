@@ -157,6 +157,20 @@ export interface Photo {
    */
   localUri: string | null;
   /**
+   * Transfer progress, 0..1, while `status === 'uploading'`. Null otherwise.
+   *
+   * Null is not zero: null means "not transferring", zero means "transferring
+   * and nothing has moved yet". A spinner that cannot tell those apart shows
+   * a stuck bar on every photo that already finished.
+   */
+  progress: number | null;
+  /**
+   * Why the last transfer attempt failed, for `status === 'failed'`. Shown to the
+   * guest, so it has to be worth reading -- "Upload failed" tells them nothing
+   * they cannot see.
+   */
+  failureReason: string | null;
+  /**
    * Where the bytes live REMOTELY -- a bucket key a Supabase adapter resolves to
    * a signed URL. Deliberately separate from `localUri`: reusing one field for a
    * device path and a remote key collides the moment an adapter exists, because

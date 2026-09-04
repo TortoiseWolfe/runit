@@ -290,3 +290,37 @@ pictures and record video?"* — Android's own wording for the CAMERA group,
 including the words "record video" for an app that records none. So the copy above
 is an iOS improvement, not a cross-platform one. `design/device/`
 `android-host-photos-capture.dark.png` is the run that established it.
+
+## L. Upload progress and retry, which the canvas does not draw
+The canvas has no in-flight or failed photo state — a tap on the shutter simply
+produces a pending row. Real uploads fail, so the app has states the design does
+not: a progress bar over the tile while bytes move, and a **Retry** button when
+they do not arrive.
+
+**They live in the guest's own album, not the host's queue.** `photos.pending`
+now selects `'pending'` only; `photos.mine` carries this guest's `'uploading'`
+and `'failed'` rows. The audiences are different — a photo whose bytes never
+arrived is not work a host can moderate, and putting it in the queue gives them
+live Approve/Hide over nothing while inflating the console badge. The selector
+previously included `'uploading'` in `pending`, so this is a fixed bug rather
+than a preference.
+
+**The in-memory adapter's transfer is instantaneous, and that is the truth rather
+than a stub.** Nothing is being sent anywhere; the bytes are already on the
+device. A fabricated progress bar over a local file would show a guest work that
+is not happening. The transfer is therefore *injectable* — the states are real
+for the adapter that will send bytes, and they must be buildable and testable
+before it exists. `fixtures/flakyTransfer.ts` drives them in tests, and
+`?flaky=1` does in the harness, double-gated on `EXPO_PUBLIC_FIDELITY` so it
+cannot be reached in a real build.
+
+Consequences worth knowing:
+- An in-flight upload **holds a tier slot** — otherwise a guest could start a
+  hundred transfers past a cap only checked at the start of each. A **failed**
+  one releases it, so a flaky connection cannot permanently consume an allowance.
+- `upload()` **never throws on a transfer failure.** It is reached through
+  `useGuardedAction`, which routes throws to the paywall — a dropped connection
+  is not a billing problem.
+- `progress` is `null` when settled, not `0`. Null means "not transferring";
+  zero means "transferring, nothing moved yet". A bar that cannot tell them apart
+  shows stuck at 0% on every finished photo.

@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
-import { joinAsGuest, switchToHost, TOKENS } from './helpers';
+import { joinAsGuest, ready, switchToHost, TOKENS } from './helpers';
 
 /**
  * Photos tab -- the shared album.
@@ -222,6 +222,50 @@ test.describe('Photos tab · shared album', () => {
     // What this CANNOT prove, stated rather than implied: that a camera opened.
     // react-native-web has no camera and this lane never will. Only a device can
     // witness a real capture -- design/FIDELITY.md note G.
+  });
+
+  test('a failed upload stays with the guest, offers Retry, and never reaches the host queue', async ({
+    page,
+  }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+
+    // ?flaky=1 injects a transfer that reports progress then fails once. It is
+    // double-gated on EXPO_PUBLIC_FIDELITY (src/app/_layout.tsx), so it cannot be
+    // reached in a real build. Without it these states are unreachable at all:
+    // the in-memory adapter has no network, so its transfer completes instantly.
+    await page.goto('/join?flaky=1');
+    await ready(page, scheme);
+    await page.getByTestId('join-nickname').fill('Ada');
+    await page.getByTestId('join-submit').click();
+    await expect(page.getByTestId('chat-feed')).toBeVisible();
+    await page.getByTestId('tab-photos').click();
+    await expect(page.getByTestId('album')).toBeVisible();
+
+    await page.getByTestId('shutter-small').click();
+
+    // The guest sees their own failure, with a way out of it.
+    const retry = page.getByTestId(/^retry-pho_/);
+    await expect(retry).toHaveCount(1);
+    await expect(retry).toHaveAccessibleName(/Retry upload/);
+
+    // THE ASSERTION THAT MATTERS MOST. A photo whose bytes never arrived is not
+    // work a host can do: showing it in the moderation queue would give them
+    // live Approve/Hide over nothing and inflate the console badge. The old
+    // selector included 'uploading' in `pending`, so this is a real regression
+    // guard, not a restatement.
+    await openHostPhotos(page);
+    await expect(page.getByTestId('host-segment-photos')).toHaveText('Photos · 3');
+    await expect(page.getByTestId('host-photos').locator('img')).toHaveCount(0);
+
+    // Back to the guest, retry, and it lands.
+    await page.getByTestId('role-switch').click();
+    await page.getByTestId('tab-photos').click();
+    await page.getByTestId(/^retry-pho_/).click();
+
+    await expect(page.getByTestId(/^retry-pho_/)).toHaveCount(0);
+    await openHostPhotos(page);
+    await expect(page.getByTestId('host-segment-photos')).toHaveText('Photos · 4');
+    await expect(page.getByTestId('host-photos').locator('img')).toHaveCount(1);
   });
 
   test('tapping another folder chip moves the album, and the shutter follows it', async ({

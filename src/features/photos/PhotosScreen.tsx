@@ -2,7 +2,7 @@ import { Image, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, Vi
 
 import { EventHeader } from '@/features/chat/EventHeader';
 import { usePhotoActions } from '@/state/actions';
-import { useActiveFolder, useApprovedPhotos, useFolders } from '@/state/hooks';
+import { useActiveFolder, useApprovedPhotos, useFolders, useMyUploads } from '@/state/hooks';
 import { albumTileColor, alpha, border, radius, tracking, useTheme, weight } from '@/theme';
 
 /**
@@ -38,7 +38,9 @@ export function PhotosScreen() {
   const folders = useFolders();
   const active = useActiveFolder();
   const approved = useApprovedPhotos();
-  const { capture, selectFolder } = usePhotoActions();
+  // This guest's own transfers -- in flight or failed. Nobody else's.
+  const mine = useMyUploads();
+  const { capture, retry, selectFolder } = usePhotoActions();
 
   const visible = approved.filter((p) => p.folderId === active?.id);
   const totalPhotos = folders.reduce((a, f) => a + f.photoCount, 0);
@@ -115,6 +117,53 @@ export function PhotosScreen() {
         </ScrollView>
 
         <View style={s.grid}>
+          {/* Own transfers first: they are the newest thing the guest did, and a
+              failed one needs to be found without hunting. They sit in the same
+              grid rather than a separate list so the album still reads as one
+              roll -- which is also why they keep the hue tile underneath. */}
+          {mine.map((p) => (
+            <View
+              key={p.id}
+              testID={`upload-${p.id}`}
+              style={[
+                s.tile,
+                { width: tileSize, height: tileSize, backgroundColor: albumTileColor(p.hue, isDark) },
+              ]}
+            >
+              {p.localUri ? (
+                <Image source={{ uri: p.localUri }} style={s.tileImage} resizeMode="cover" />
+              ) : null}
+              {p.status === 'uploading' ? (
+                <View style={[s.overlay, { backgroundColor: alpha(tokens.base100, 0.62) }]}>
+                  {/* A determinate bar, not a spinner. The guest is waiting on a
+                      known quantity of bytes, and a spinner cannot distinguish
+                      "nearly there" from "stuck". */}
+                  <View style={[s.track, { backgroundColor: alpha(tokens.baseContent, 0.25) }]}>
+                    <View
+                      testID={`upload-progress-${p.id}`}
+                      style={[
+                        s.fill,
+                        { width: `${Math.round((p.progress ?? 0) * 100)}%`, backgroundColor: tokens.primary },
+                      ]}
+                    />
+                  </View>
+                </View>
+              ) : (
+                <View style={[s.overlay, { backgroundColor: alpha(tokens.base100, 0.72) }]}>
+                  <Pressable
+                    onPress={() => retry(p.id)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Retry upload${p.failureReason ? `. ${p.failureReason}` : ''}`}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    testID={`retry-${p.id}`}
+                    style={[s.retry, { borderColor: tokens.base300 }]}
+                  >
+                    <Text style={[s.retryText, { color: tokens.baseContent }]}>Retry</Text>
+                  </Pressable>
+                </View>
+              )}
+            </View>
+          ))}
           {visible.map((p) => (
             // The testID stays on the OUTER node deliberately. The e2e suite
             // counts `tile-*` and asserts their order; wrapping the image in a
@@ -193,6 +242,22 @@ const s = StyleSheet.create({
   tile: { borderRadius: 6 },
   // Fills the tile it sits inside; the tile owns the size.
   tileImage: { width: '100%', height: '100%' },
+  overlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+  },
+  track: { width: '100%', height: 4, borderRadius: 2, overflow: 'hidden' },
+  fill: { height: '100%' },
+  // 28pt tall clears the 24x24 AA minimum on its own; the hitSlop is headroom
+  // for a thumb, not the thing that gets it over the bar.
+  retry: { minHeight: 28, paddingHorizontal: 12, justifyContent: 'center', borderRadius: radius.pill, borderWidth: border },
+  retryText: { fontSize: 12 },
 
   albumBar: { alignItems: 'center', paddingTop: 14, paddingBottom: 10, borderTopWidth: border },
   shutterSmall: {

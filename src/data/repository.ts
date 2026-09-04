@@ -137,14 +137,35 @@ export interface RunitRepository {
 
   photos: {
     folders: Observable<Folder[]>;
+    /**
+     * The host's moderation queue: `pending` ONLY.
+     *
+     * Deliberately excludes `uploading`. A photo still in transfer has no bytes
+     * to look at, and putting it here gives the host live Approve/Hide buttons
+     * over nothing -- it would also inflate the console badge, so the host is
+     * told there is work waiting that they cannot do.
+     */
     pending: Observable<Photo[]>;
     approved: Observable<Photo[]>;
+    /**
+     * The CURRENT GUEST's own in-flight and failed uploads.
+     *
+     * Separate from `pending` because the audiences are different: this is "your
+     * photo is on its way / did not make it, here is a retry", which only the
+     * uploader should see, and only for their own photos.
+     */
+    mine: Observable<Photo[]>;
     /**
      * Records a photo whose bytes already exist at `localUri`. Capture itself is
      * NOT here -- see src/lib/capture.ts for why a camera behind this interface
      * would make every future adapter carry one.
      */
     upload(input: { localUri: string }): Promise<void>;
+    /**
+     * Re-attempt a failed transfer. No-op unless the photo is `failed`, so a
+     * double-tap cannot start two transfers for one photo.
+     */
+    retry(id: PhotoId): Promise<void>;
     approve(id: PhotoId): Promise<void>;
     hide(id: PhotoId): Promise<void>;
     addFolder(input: { name: string }): Promise<void>;

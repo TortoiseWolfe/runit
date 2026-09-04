@@ -1,6 +1,7 @@
 import { MemoryRepository } from './MemoryRepository';
 import { weddingSeed } from './fixtures/wedding';
 import { housePartySeed } from './fixtures/houseParty';
+import { flakyTransfer } from './fixtures/flakyTransfer';
 import { EntitlementError, JoinError, ScheduleError } from '../repository';
 
 const FIXED = '2026-10-17T20:00:00.000Z';
@@ -143,6 +144,95 @@ describe('photos', () => {
     // Recomputed and republished, or an advisory check reads a stale count and
     // waves through an upload the write method is about to refuse.
     expect(r.entitlements.get().usage.photosStored).toBe(99);
+  });
+
+  it('a failed transfer lands in the guest\'s own view, never in the host queue', async () => {
+    const r = MemoryRepository.create(weddingSeed, {
+      now: () => FIXED,
+      transfer: flakyTransfer({ failAttempts: [1], message: 'Upload failed. Check your connection.' }),
+    });
+    await r.session.joinAsGuest({ code: 'SR1017', nickname: 'Ada' });
+    await r.photos.upload({ localUri: 'file:///tmp/a.jpg' });
+
+    const mine = r.photos.mine.get();
+    expect(mine).toHaveLength(1);
+    expect(mine[0]!.status).toBe('failed');
+    expect(mine[0]!.failureReason).toBe('Upload failed. Check your connection.');
+    expect(mine[0]!.progress).toBeNull();
+
+    // The host must not see it. A photo with no delivered bytes is not work
+    // anyone can moderate, and it would inflate the console badge.
+    expect(r.photos.pending.get()).toHaveLength(3); // the three seeded, unchanged
+    expect(r.photos.approved.get().some((p) => p.uploadedByName === 'Ada')).toBe(false);
+  });
+
+  it('a failure does not throw, because a flaky network is not a billing problem', async () => {
+    const r = MemoryRepository.create(weddingSeed, {
+      now: () => FIXED,
+      transfer: flakyTransfer({ failAttempts: [1] }),
+    });
+    await r.session.joinAsGuest({ code: 'SR1017', nickname: 'Ada' });
+    // upload() is reached through useGuardedAction, which routes a throw to the
+    // PAYWALL. Throwing here would show a guest an upgrade prompt for a dropped
+    // connection.
+    await expect(r.photos.upload({ localUri: 'file:///tmp/a.jpg' })).resolves.toBeUndefined();
+  });
+
+  it('retry re-attempts and delivers, clearing the failure', async () => {
+    const r = MemoryRepository.create(weddingSeed, {
+      now: () => FIXED,
+      transfer: flakyTransfer({ failAttempts: [1] }), // first attempt only
+    });
+    await r.session.joinAsGuest({ code: 'SR1017', nickname: 'Ada' });
+    await r.photos.upload({ localUri: 'file:///tmp/a.jpg' });
+    const failed = r.photos.mine.get()[0]!;
+
+    await r.photos.retry(failed.id);
+
+    expect(r.photos.mine.get()).toHaveLength(0); // no longer in flight or failed
+    const queued = r.photos.pending.get();
+    expect(queued).toHaveLength(4);
+    expect(queued.some((p) => p.id === failed.id && p.failureReason === null)).toBe(true);
+  });
+
+  it('retry is a no-op on anything not failed, so a double-tap cannot double-send', async () => {
+    const r = make();
+    await r.session.joinAsGuest({ code: 'SR1017', nickname: 'Ada' });
+    await r.photos.upload({ localUri: 'file:///tmp/a.jpg' });
+    const delivered = r.photos.pending.get()[0]!;
+    const before = r.photos.pending.get().length;
+    await r.photos.retry(delivered.id);   // already pending
+    await r.photos.retry('pho_does_not_exist');
+    expect(r.photos.pending.get()).toHaveLength(before);
+    expect(r.photos.mine.get()).toHaveLength(0);
+  });
+
+  it('reports progress while in flight, and clears it once settled', async () => {
+    const seen: (number | null)[] = [];
+    const r = MemoryRepository.create(weddingSeed, {
+      now: () => FIXED,
+      transfer: flakyTransfer({ steps: [0.25, 0.75] }),
+    });
+    await r.session.joinAsGuest({ code: 'SR1017', nickname: 'Ada' });
+    r.photos.mine.subscribe((rows) => { if (rows[0]) seen.push(rows[0].progress); });
+    await r.photos.upload({ localUri: 'file:///tmp/a.jpg' });
+
+    expect(seen).toEqual([0, 0.25, 0.75]);
+    // Null, not zero. Zero means "transferring, nothing moved yet"; a settled
+    // photo is not transferring at all.
+    expect(r.photos.pending.get()[0]!.progress).toBeNull();
+  });
+
+  it('an in-flight upload holds a tier slot, and a failed one gives it back', async () => {
+    const r = MemoryRepository.create(housePartySeed, {
+      now: () => FIXED,
+      transfer: flakyTransfer({ failAttempts: [1] }),
+    });
+    expect(r.entitlements.get().usage.photosStored).toBe(98);
+    await r.photos.upload({ localUri: 'file:///tmp/a.jpg' });
+    // Failed: the bytes never landed, so the slot is released. Holding it would
+    // let a flaky connection permanently consume a guest's allowance.
+    expect(r.entitlements.get().usage.photosStored).toBe(98);
   });
 
   it('stops at the free tier photo cap rather than failing after the capture', async () => {

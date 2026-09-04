@@ -106,6 +106,22 @@ export class MemoryRepository implements RunitRepository {
   private seq: number;
   /** Injectable so tests are deterministic. */
   private now: () => string;
+  /**
+   * How bytes get somewhere durable.
+   *
+   * THE DEFAULT IS INSTANT SUCCESS, AND THAT IS THE TRUTH RATHER THAN A STUB.
+   * This adapter keeps everything in memory; the bytes are already on the device
+   * and nothing is being sent anywhere, so there is no transfer to be slow. A
+   * fabricated two-second progress bar over a local file would be theatre -- it
+   * would show a guest work that is not happening.
+   *
+   * It is injectable because the states it drives are real for the adapter that
+   * WILL send bytes, and they have to be buildable and testable before that
+   * adapter exists. Tests and the `flakyTransfer` fixture inject one that
+   * reports progress and fails, which is the only way `uploading` and `failed`
+   * are reachable today.
+   */
+  private transfer: (photo: Photo, onProgress: (fraction: number) => void) => Promise<void>;
 
   private sigSession: Signal<Session>;
   private sigEvent: Signal<RunitEvent | null>;
@@ -118,6 +134,7 @@ export class MemoryRepository implements RunitRepository {
   private sigMyVotes: Signal<ReadonlySet<SongRequestId>>;
   private sigFolders: Signal<Folder[]>;
   private sigPending: Signal<Photo[]>;
+  private sigMine: Signal<Photo[]>;
   private sigApproved: Signal<Photo[]>;
   private sigHosts: Signal<{ id: string; displayName: string; role: HostRole }[]>;
   private sigEntitlements: Signal<Entitlements>;
@@ -125,8 +142,15 @@ export class MemoryRepository implements RunitRepository {
   /** Live tier + usage. Advisory reads only; enforcement is in the write methods. */
   entitlements: Observable<Entitlements> = undefined as unknown as Observable<Entitlements>;
 
-  constructor(seed: Seed, opts: { now?: () => string } = {}) {
+  constructor(
+    seed: Seed,
+    opts: {
+      now?: () => string;
+      transfer?: (photo: Photo, onProgress: (fraction: number) => void) => Promise<void>;
+    } = {},
+  ) {
     this.now = opts.now ?? (() => new Date().toISOString());
+    this.transfer = opts.transfer ?? (async () => {});
     this.ev = { ...seed.event };
     this.hostList = [...seed.hosts];
     this.broadcastList = [...seed.broadcasts];
@@ -152,6 +176,7 @@ export class MemoryRepository implements RunitRepository {
     this.sigMyVotes = new Signal<ReadonlySet<SongRequestId>>(new Set(this.votes));
     this.sigFolders = new Signal<Folder[]>([]);
     this.sigPending = new Signal<Photo[]>([]);
+    this.sigMine = new Signal<Photo[]>([]);
     this.sigApproved = new Signal<Photo[]>([]);
     this.sigHosts = new Signal<{ id: string; displayName: string; role: HostRole }[]>([]);
     this.sigEntitlements = new Signal<Entitlements>(this.computeEntitlements());
@@ -159,6 +184,54 @@ export class MemoryRepository implements RunitRepository {
     // this constructor body, so their `current`/`feed` slots are still empty at
     // that point. Wiring happens here, once every signal exists.
     this.wire();
+    this.recompute();
+  }
+
+  private patchPhoto(id: PhotoId, patch: Partial<Photo>): void {
+    this.photoList = this.photoList.map((p) => (p.id === id ? { ...p, ...patch } : p));
+  }
+
+  /**
+   * Run one transfer attempt and land the photo in its next resting state.
+   *
+   * Never throws. A failed upload is a state the guest can see and act on, not
+   * an exception the caller has to catch -- and `upload()` is already reached
+   * through `useGuardedAction`, which would route a throw to the PAYWALL. A
+   * flaky network is not a billing problem.
+   */
+  private async runTransfer(id: PhotoId): Promise<void> {
+    const photo = this.photoList.find((p) => p.id === id);
+    if (!photo) return;
+
+    try {
+      await this.transfer(photo, (fraction) => {
+        // Ignore progress for a photo that has already settled -- a late
+        // callback from an abandoned attempt must not resurrect a spinner.
+        const live = this.photoList.find((p) => p.id === id);
+        if (!live || live.status !== 'uploading') return;
+        this.patchPhoto(id, { progress: Math.min(1, Math.max(0, fraction)) });
+        this.recompute();
+      });
+    } catch (err) {
+      this.patchPhoto(id, {
+        status: 'failed',
+        progress: null,
+        failureReason: err instanceof Error ? err.message : 'Upload failed',
+      });
+      this.recompute();
+      return;
+    }
+
+    // Success. The free tier has no approval queue, so uploads land approved;
+    // paid tiers wait for a host. This is the one behavioural fork the tier copy
+    // implies but never states outright.
+    const moderated = checkFeature(this.computeEntitlements(), 'photoModeration').allowed;
+    this.patchPhoto(id, {
+      status: moderated ? 'pending' : 'approved',
+      progress: null,
+      failureReason: null,
+    });
+    if (!moderated) this.bumpFolder(photo.folderId, 1);
     this.recompute();
   }
 
@@ -205,9 +278,22 @@ export class MemoryRepository implements RunitRepository {
     this.sigMyVotes.set(new Set(this.votes));
 
     this.sigFolders.set([...this.folderList].sort((a, b) => a.position - b.position));
+    // `pending` ONLY -- an in-flight photo has no bytes for a host to judge, and
+    // including it would inflate the console badge with work nobody can do.
     this.sigPending.set(
       this.photoList
-        .filter((p) => p.status === 'pending' || p.status === 'uploading')
+        .filter((p) => p.status === 'pending')
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+    );
+    // The uploader's own view of their transfers. Scoped to this guest: nobody
+    // else's failed upload is any of their business.
+    this.sigMine.set(
+      this.photoList
+        .filter(
+          (p) =>
+            (p.status === 'uploading' || p.status === 'failed') &&
+            p.uploadedByGuestId === this.myGuestId,
+        )
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     );
     this.sigApproved.set(
@@ -468,6 +554,7 @@ export class MemoryRepository implements RunitRepository {
     folders: undefined as unknown as Observable<Folder[]>,
     pending: undefined as unknown as Observable<Photo[]>,
     approved: undefined as unknown as Observable<Photo[]>,
+    mine: undefined as unknown as Observable<Photo[]>,
 
     upload: async ({ localUri }: { localUri: string }) => {
       const e = this.computeEntitlements();
@@ -477,28 +564,43 @@ export class MemoryRepository implements RunitRepository {
       const s = this.sigSession.get();
       const seq = this.nextPhotoSeq;
       this.nextPhotoSeq += 1;
-      // Free tier has no approval queue, so uploads land approved. On paid
-      // tiers they wait for a host. This is the one behavioural fork the tier
-      // copy implies but never states outright.
-      const moderated = checkFeature(e, 'photoModeration').allowed;
       const folderId = this.ev.activeFolderId;
+      const id = this.id('pho');
+
+      // The row is created as `uploading` and only becomes visible to the host
+      // once its bytes have actually moved. It counts against the tier cap from
+      // this moment, deliberately: otherwise a guest could start a hundred
+      // transfers and blow past a cap that is only checked at the start of each.
       this.photoList = [
         {
-          id: this.id('pho'),
+          id,
           folderId,
           uploadedByGuestId: s.kind === 'guest' ? s.guestId : null,
           uploadedByName: s.kind === 'guest' ? s.nickname : 'you',
-          status: moderated ? 'pending' : 'approved',
+          status: 'uploading',
           hue: hueForPhotoSeq(seq),
           localUri,
-        // Stays null until an adapter uploads the bytes somewhere remote.
-        storagePath: null,
+          progress: 0,
+          failureReason: null,
+          // Stays null until an adapter puts the bytes somewhere remote.
+          storagePath: null,
           createdAt: this.now(),
         },
         ...this.photoList,
       ];
-      if (!moderated) this.bumpFolder(folderId, 1);
       this.recompute();
+
+      await this.runTransfer(id);
+    },
+
+    retry: async (id: PhotoId) => {
+      const photo = this.photoList.find((p) => p.id === id);
+      // Guarded so a double-tap cannot start two transfers for one photo, and
+      // so retrying something already delivered cannot un-deliver it.
+      if (!photo || photo.status !== 'failed') return;
+      this.patchPhoto(id, { status: 'uploading', progress: 0, failureReason: null });
+      this.recompute();
+      await this.runTransfer(id);
     },
 
     approve: async (id: PhotoId) => {
@@ -584,11 +686,18 @@ export class MemoryRepository implements RunitRepository {
     this.photos.folders = this.sigFolders;
     this.photos.pending = this.sigPending;
     this.photos.approved = this.sigApproved;
+    this.photos.mine = this.sigMine;
     this.entitlements = this.sigEntitlements;
     this.hosts.all = this.sigHosts;
   }
 
-  static create(seed: Seed, opts: { now?: () => string } = {}): MemoryRepository {
+  static create(
+    seed: Seed,
+    opts: {
+      now?: () => string;
+      transfer?: (photo: Photo, onProgress: (fraction: number) => void) => Promise<void>;
+    } = {},
+  ): MemoryRepository {
     return new MemoryRepository(seed, opts);
   }
 }

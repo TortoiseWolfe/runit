@@ -16,6 +16,8 @@ export const useMyVotes = () => useObservable(useRepository().music.myVotes);
 export const useFolders = () => useObservable(useRepository().photos.folders);
 export const usePendingPhotos = () => useObservable(useRepository().photos.pending);
 export const useApprovedPhotos = () => useObservable(useRepository().photos.approved);
+/** This guest's own in-flight and failed uploads. Nobody else's. */
+export const useMyUploads = () => useObservable(useRepository().photos.mine);
 export const useHosts = () => useObservable(useRepository().hosts.all);
 /** Live tier + usage. For ADVISORY checks only -- the write methods enforce. */
 export const useEntitlements = () => useObservable(useRepository().entitlements);

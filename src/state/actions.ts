@@ -128,6 +128,10 @@ export function usePhotoActions() {
         const ok = await guarded(() => repo.photos.upload({ localUri: shot.uri }));
         if (ok) show(`Uploaded to ${folderName} · awaiting host approval`);
       },
+      // NOT wrapped in `guarded`. A retry cannot raise an EntitlementError --
+      // the cap was taken when the row was created and is still held by it --
+      // so routing this through the paywall guard could only mislead.
+      retry: (id: PhotoId) => repo.photos.retry(id),
       approve: (id: PhotoId) => guarded(() => repo.photos.approve(id)),
       hide: (id: PhotoId) => guarded(() => repo.photos.hide(id)),
       addFolder: (name: string) => guarded(() => repo.photos.addFolder({ name })),

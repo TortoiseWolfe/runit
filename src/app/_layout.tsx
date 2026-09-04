@@ -11,6 +11,7 @@ import { Stack } from 'expo-router';
    change here and nothing else. */
 import { MemoryRepository } from '@/data/memory/MemoryRepository';
 import { weddingSeed } from '@/data/memory/fixtures/wedding';
+import { flakyTransfer } from '@/data/memory/fixtures/flakyTransfer';
 /* eslint-enable no-restricted-imports */
 
 import { RepositoryProvider } from '@/state/RepositoryProvider';
@@ -62,8 +63,33 @@ function Chrome() {
 }
 
 export default function RootLayout() {
-  const repository = useMemo(() => MemoryRepository.create(weddingSeed), []);
   const fidelity = process.env.EXPO_PUBLIC_FIDELITY === '1';
+
+  /**
+   * Opt-in flaky transfer, for the harness only.
+   *
+   * The in-memory adapter completes a transfer instantly, because nothing is
+   * being sent anywhere -- so `uploading` and `failed` are unreachable, and the
+   * progress bar and Retry button would ship with nothing able to exercise them.
+   * `?flaky=1` injects a transfer that reports progress and fails once.
+   *
+   * Double-gated on EXPO_PUBLIC_FIDELITY so it cannot be triggered in a real
+   * build by anyone who guesses the query string. A deliberately-breaking
+   * upload path is a fixture, never a feature.
+   */
+  const flaky =
+    fidelity &&
+    typeof window !== 'undefined' &&
+    new URLSearchParams(window.location.search).get('flaky') === '1';
+
+  const repository = useMemo(
+    () =>
+      MemoryRepository.create(
+        weddingSeed,
+        flaky ? { transfer: flakyTransfer({ steps: [0.4], failAttempts: [1] }) } : {},
+      ),
+    [flaky],
+  );
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

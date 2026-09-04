@@ -298,6 +298,10 @@ that lives in a button handler is bypassed by the second caller.
   that nothing in `shoot-app.mjs` answers, and headless Chromium refuses
   `getUserMedia`. `guest-photos.spec.ts` asserts that exact data URI, which is
   what proves the value came from the capture path and not from a literal.
+- **`photos.pending` is the host's queue and selects `'pending'` ONLY.** In-flight
+  and failed uploads go to `photos.mine`, scoped to the uploading guest. Putting
+  `'uploading'` back into `pending` gives the host Approve/Hide over a photo with
+  no bytes — it was that way once, and a test now fails if it returns.
 - `Photo.localUri` (device path) and `Photo.storagePath` (remote key) are
   **separate fields on purpose**. Conflating them hands a `file://` to a
   signed-URL resolver the day an adapter exists.
@@ -323,13 +327,11 @@ that lives in a button handler is bypassed by the second caller.
 
 ## Not built yet
 
-- Photo capture **progress, retry, and the `failed` state**. Capture itself now
-  works: `src/lib/capture.ts` (native) and `capture.web.ts` take a real photo,
-  resize it to 1600px, and hand `upload()` a URI. What is still missing is an
-  in-flight `uploading` row with progress, a retry affordance, and anything that
-  ever writes `'failed'`. **Before adding an `uploading` row, note that it is
-  already selected into `sigPending` and counted against the tier cap** — so it
-  would appear in the host's approval queue with live Approve/Hide on a photo
-  with no bytes, and move three e2e badge counts.
+- **A real backend to upload to.** Capture, progress, retry and the `failed`
+  state all work (FIDELITY notes K and L), but the in-memory adapter's transfer
+  completes instantly because nothing is being sent anywhere. The states exist
+  for the Supabase adapter to drive; until it lands they are reachable only via
+  the injectable transfer (`fixtures/flakyTransfer.ts`, or `?flaky=1` in the
+  harness).
 - Supabase adapter (`src/data/supabase/README.md` holds the contract).
 - Push notifications, host invites, QR scanning, calendar export.
