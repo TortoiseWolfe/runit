@@ -407,7 +407,12 @@ alter table public.folders         enable row level security;
 alter table public.photos          enable row level security;
 
 -- An event is readable once you are in it. Discovery is via join_event() only,
--- which is SECURITY DEFINER -- so a code cannot be brute-forced by listing.
+-- which is SECURITY DEFINER, so the events table cannot be LISTED. That is not
+-- the same as a code being unguessable: join_event is an oracle -- a uuid on a
+-- hit, `unknown_code` on a miss. What bounds guessing is the GRANTS section at
+-- the foot of this file, which puts every call behind a session and therefore
+-- behind the anonymous sign-in rate limit. Codes are still short; treat the
+-- limit as the control and prove it by rehearsal.
 create policy events_read on public.events for select
   using (public.my_guest_id(id) is not null or public.is_host(id));
 
@@ -490,3 +495,52 @@ alter publication supabase_realtime add table public.song_requests;
 alter publication supabase_realtime add table public.now_playing;
 alter publication supabase_realtime add table public.folders;
 alter publication supabase_realtime add table public.photos;
+
+
+-- ========================================================================
+-- GRANTS -- the part Postgres gets wrong by default
+-- ========================================================================
+--
+-- Postgres grants EXECUTE on every new function to PUBLIC, and PostgREST exposes
+-- everything in `public` as an RPC. So each SECURITY DEFINER helper above was
+-- silently published at /rest/v1/rpc/<name>, callable with no session at all.
+-- The Supabase security advisor flagged all nine; the stub Postgres this file
+-- was first verified against could not, because it has no PostgREST and no
+-- anon/authenticated roles.
+--
+-- REVOKE MUST NAME `public`, NOT THE ROLE. `revoke ... from anon` removes anon's
+-- own grant and leaves the PUBLIC grant standing, which anon still inherits --
+-- the statement succeeds and changes nothing. Read it back in pg_proc.proacl:
+-- the PUBLIC entry is `=X/postgres`, with an EMPTY grantee.
+
+revoke execute on function public.fold_vote_count()  from public;
+revoke execute on function public.fold_guest_count() from public;
+revoke execute on function public.fold_seen_count()  from public;
+revoke execute on function public.fold_photo_count() from public;
+
+revoke execute on function public.my_guest_id(uuid)                  from public;
+revoke execute on function public.is_host(uuid)                      from public;
+revoke execute on function public.join_event(text, text)             from public;
+revoke execute on function public.play_next(uuid)                    from public;
+revoke execute on function public.start_schedule_item(uuid, boolean) from public;
+
+-- The four fold_* functions get NOTHING back. They are trigger functions and
+-- nothing should reach them over HTTP. This does not stop the triggers: EXECUTE
+-- is checked at CREATE TRIGGER time against the table owner, never at fire time
+-- against the caller. Verified on this database, not assumed -- a scratch table
+-- whose trigger function had EXECUTE revoked from PUBLIC still folded its count
+-- for a caller running as `authenticated`.
+
+-- The five that ARE the app's API get an explicit grant to `authenticated`.
+-- That is the role a Supabase ANONYMOUS session carries (with is_anonymous=true);
+-- `anon` is the role for a request with no session, and nothing here needs it.
+--
+-- my_guest_id and is_host must stay executable by `authenticated` even though
+-- they read as internal: every RLS policy above calls them, and a policy is
+-- evaluated as the QUERYING role. Revoking here hardens nothing and breaks
+-- every select in the app.
+grant execute on function public.my_guest_id(uuid)                  to authenticated;
+grant execute on function public.is_host(uuid)                      to authenticated;
+grant execute on function public.join_event(text, text)             to authenticated;
+grant execute on function public.play_next(uuid)                    to authenticated;
+grant execute on function public.start_schedule_item(uuid, boolean) to authenticated;

@@ -23,3 +23,6 @@ playwright-report/
 # supposed to be the source of truth. Regenerate with `expo prebuild --clean`.
 /android
 /ios
+.env
+.env.*
+!.env.example

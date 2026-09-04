@@ -1,7 +1,26 @@
 # Supabase adapter — contract
 
-Not built. This file records what an implementation has to satisfy so the
-interface does not need reshaping when it lands.
+The **database exists**; the TypeScript adapter does not. This file records what
+an implementation has to satisfy so the interface does not need reshaping when
+it lands.
+
+## The live project
+
+| | |
+|---|---|
+| ref | `qwusbxallkbzfladvgfx` (public — it is the hostname) |
+| url | `https://qwusbxallkbzfladvgfx.supabase.co` |
+| org | `ieceljlytbxfhtaxvnyq` (spoketowork@gmail.com) · free · $0/mo |
+| region | `us-east-2` |
+| schema | `supabase/migrations/00000000000000_init.sql`, applied |
+
+Credentials go in `.env.local` (gitignored). `.env.example` has the shape.
+
+**`join_event` is an oracle** — a uuid on a hit, `unknown_code` on a miss — so a
+code can be *guessed* even though the events table cannot be *listed*. The only
+thing bounding that is the anonymous sign-in rate limit, which the GRANTS section
+of the migration forces every call behind. Supabase's own docs contradict
+themselves on whether that limit is adjustable. **Prove it by rehearsal.**
 
 ## The identity problem drives everything
 
