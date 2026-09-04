@@ -286,3 +286,50 @@ test.describe('Join', () => {
     // host-console round trip below.
   });
 });
+
+test.describe('Join · claiming a host seat', () => {
+  /**
+   * The claim flow exists because a host is whoever matches hosts.auth_user_id, and
+   * Runit has no sign-in -- so `becomeHost` cannot make anyone a host against a real
+   * backend. These run on MemoryRepository, whose key is a FIXTURE (DEMO_HOST_KEY);
+   * the real keys are bcrypt hashes in Postgres and appear in no file here.
+   *
+   * What they pin is the FLOW, which is the part both adapters share: the field is
+   * optional, a wrong key does not cost you your seat, and a right one lands you in
+   * the console.
+   */
+  test('the host key field is optional -- an empty one joins as a guest', async ({ page }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await open(page, scheme);
+    await page.getByTestId('join-code').fill(WEDDING.code);
+    await page.getByTestId('join-nickname').fill('Ada');
+    await expect(page.getByTestId('join-host-key')).toHaveValue('');
+    await page.getByTestId('join-submit').click();
+    await expect(page.getByTestId('chat-feed')).toBeVisible();
+  });
+
+  test('a wrong key says so and still seats you as a guest', async ({ page }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await open(page, scheme);
+    await page.getByTestId('join-code').fill(WEDDING.code);
+    await page.getByTestId('join-nickname').fill('Ada');
+    await page.getByTestId('join-host-key').fill('NOPE-NOPE-NOPE');
+    await page.getByTestId('join-submit').click();
+    // Named, not swallowed -- and the join is NOT undone. Throwing someone back to
+    // retype a nickname because of a typo in an optional field is a punishment.
+    await expect(page.getByTestId('toast')).toHaveText(/host key isn't right/i);
+    await expect(page.getByTestId('chat-feed')).toBeVisible();
+  });
+
+  test('the right key lands in the host console, dashes and case ignored', async ({ page }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await open(page, scheme);
+    await page.getByTestId('join-code').fill(WEDDING.code);
+    await page.getByTestId('join-nickname').fill('Riley');
+    // Typed the way a person actually would, off a note, in the wrong case and
+    // without the grouping. claim_host canonicalises; the dashes are presentation.
+    await page.getByTestId('join-host-key').fill('demohostkey0');
+    await page.getByTestId('join-submit').click();
+    await expect(page.getByTestId('host-broadcast')).toBeVisible();
+  });
+});

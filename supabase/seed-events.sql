@@ -140,3 +140,45 @@ select code, name, tier, guest_count,
        (select count(*) from public.photos p where p.event_id = e.id) as photos,
        active_folder_id is not null as has_active_folder
 from public.events e where code in ('HOUSE7','DEMO42') order by code;
+
+-- ========================================================================
+-- HOST ROWS AND THEIR CLAIM KEYS
+-- ========================================================================
+--
+-- `hosts` has no INSERT policy for anyone, so this is the only route. Each host gets a
+-- key whose BCRYPT HASH is stored; the plaintext is returned once, here, and never
+-- again -- rotate by re-running rather than trying to recover it.
+--
+-- ONE STATEMENT PER EVENT, DELIBERATELY. A single statement generating keys for both
+-- produced THE SAME KEY for each: the string-building subquery does not reference the
+-- outer row, so Postgres hoists it to an InitPlan and evaluates it once. That would
+-- have meant the App Review demo key opening the real party. Obviously-correct beats
+-- clever for a credential.
+
+insert into public.hosts (event_id, display_name, role, role_label)
+select e.id, case when e.code = 'DEMO42' then 'Riley' else 'Host' end, 'host', 'Host'
+from public.events e
+where e.code in ('HOUSE7','DEMO42')
+  and not exists (select 1 from public.hosts h where h.event_id = e.id);
+
+-- Then, once per event (repeat with the other code):
+--
+--   with s as (
+--     select (select string_agg(substr('ABCDEFGHJKMNPQRSTUVWXYZ23456789',
+--                                      1 + floor(random() * 31)::int, 1), '' order by g)
+--               from generate_series(1,12) g) as secret,
+--            h.id as host_id
+--     from public.hosts h join public.events e on e.id = h.event_id
+--     where e.code = 'HOUSE7'
+--   ), w as (
+--     insert into public.host_claims (host_id, secret_hash)
+--     select host_id, extensions.crypt(secret, extensions.gen_salt('bf')) from s
+--     on conflict (host_id) do update
+--       set secret_hash = excluded.secret_hash, claimed_at = null
+--     returning host_id
+--   )
+--   select substr(secret,1,4)||'-'||substr(secret,5,4)||'-'||substr(secret,9,4) as host_key
+--   from s join w on w.host_id = s.host_id;
+--
+-- The hash is over the UNGROUPED, upper-case form; claim_host() canonicalises input the
+-- same way, so the dashes shown above are cosmetic and typing them is optional.

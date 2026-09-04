@@ -53,16 +53,46 @@ export function useJoinActions() {
   const router = useRouter();
   return useMemo(
     () => ({
-      join: async (code: string, nickname: string) => {
+      /**
+       * `hostKey` is optional and, when present, runs AFTER the join.
+       *
+       * That order is not cosmetic. Claiming a host seat binds an auth user, and
+       * against Supabase there is no auth user until the anonymous sign-in inside
+       * joinAsGuest. Claiming first would have nothing to bind.
+       *
+       * A wrong key does NOT undo the join. The guest is already seated and their seat
+       * is idempotent; throwing them back to the form to retype a nickname would punish
+       * a typo in the optional field by discarding the work of the required ones.
+       */
+      join: async (code: string, nickname: string, hostKey?: string) => {
         try {
           await repo.session.joinAsGuest({ code, nickname });
-          show(`Welcome${nickname.trim() ? `, ${nickname.trim()}` : ''}. You're in.`);
-          router.replace('/chat');
-          return true;
         } catch (e) {
           show(e instanceof JoinError ? e.message : 'Could not join. Try again.');
           return false;
         }
+
+        const key = hostKey?.trim();
+        if (key) {
+          try {
+            await repo.session.claimHost({ code, key });
+            show('You are the host of this event.');
+            router.replace('/host/broadcast');
+            return true;
+          } catch (e) {
+            // The failure is the ONLY toast raised on this path. Falling through to the
+            // welcome would replace this message within a frame -- one Toast, one slot,
+            // last writer wins -- so the person who mistyped their key would be told
+            // nothing at all and simply arrive as a guest wondering why.
+            show(e instanceof JoinError ? e.message : 'Could not claim the host seat.');
+            router.replace('/chat');
+            return true;
+          }
+        }
+
+        show(`Welcome${nickname.trim() ? `, ${nickname.trim()}` : ''}. You're in.`);
+        router.replace('/chat');
+        return true;
       },
     }),
     [repo, show, router],

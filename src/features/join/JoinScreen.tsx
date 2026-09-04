@@ -22,10 +22,11 @@ export function JoinScreen() {
   // camera scan exists, the seed code is the honest stand-in for that.
   const [code, setCode] = useState(event?.code ?? '');
   const [nickname, setNickname] = useState('');
+  const [hostKey, setHostKey] = useState('');
   const [joined, setJoined] = useState(false);
 
   const onJoin = async () => {
-    const ok = await join(code, nickname);
+    const ok = await join(code, nickname, hostKey);
     if (ok) setJoined(true);
   };
 
@@ -94,6 +95,23 @@ export function JoinScreen() {
           placeholderTextColor={alpha(tokens.baseContent, fade.faint)}
           accessibilityLabel="Nickname"
           testID="join-nickname"
+          style={[...inputStyle, s.nickInput]}
+        />
+        {/* OPTIONAL, and last, because almost nobody types in it: at a party of ten
+            there is one host and nine guests. It is a plain field rather than a
+            separate screen because the host has to join as a guest first anyway --
+            there is no auth user to bind a host seat to until the anonymous sign-in
+            inside joinAsGuest has run. */}
+        <TextInput
+          value={hostKey}
+          onChangeText={setHostKey}
+          placeholder="Host key (optional)"
+          placeholderTextColor={alpha(tokens.baseContent, fade.faint)}
+          autoCapitalize="characters"
+          autoCorrect={false}
+          accessibilityLabel="Host key, optional"
+          accessibilityHint="Leave empty unless you are running this event."
+          testID="join-host-key"
           style={[...inputStyle, s.nickInput]}
         />
         <Text style={[s.fine, { color: alpha(tokens.baseContent, fade.soft) }]}>

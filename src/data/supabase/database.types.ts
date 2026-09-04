@@ -172,6 +172,7 @@ export type Database = {
     };
     Views: Record<never, never>;
     Functions: {
+      claim_host: { Args: { p_code: string; p_secret: string }; Returns: string };
       is_host: { Args: { p_event: string }; Returns: boolean };
       join_event: { Args: { p_code: string; p_nickname: string }; Returns: string };
       my_guest_id: { Args: { p_event: string }; Returns: string };

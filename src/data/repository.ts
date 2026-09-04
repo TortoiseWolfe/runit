@@ -37,7 +37,7 @@ export class EntitlementError extends Error {
 
 export class JoinError extends Error {
   constructor(
-    readonly reason: 'unknown_code' | 'event_full' | 'nickname_taken',
+    readonly reason: 'unknown_code' | 'event_full' | 'nickname_taken' | 'bad_host_key',
     message: string,
   ) {
     super(message);
@@ -91,6 +91,21 @@ export interface RunitRepository {
     joinAsGuest(input: { code: string; nickname: string }): Promise<void>;
     /** Demo affordance: the canvas shows host and guest side by side. */
     becomeHost(hostId: string): Promise<void>;
+    /**
+     * Bind the current identity to a host seat by presenting its key.
+     *
+     * `becomeHost` cannot do this against a real backend: a host is whoever matches
+     * `hosts.auth_user_id`, and Runit has no sign-in, so there is nothing for a person
+     * to become. This is the missing half of `joinAsGuest` -- the same shape, one
+     * credential heavier.
+     *
+     * Rejects with `JoinError('unknown_code')` for a code that matches no event and
+     * `JoinError('bad_host_key')` for a wrong key. The two are distinct on purpose: the
+     * event code is already discoverable through `joinAsGuest`, so collapsing them hides
+     * nothing from an attacker and costs a real person the ability to tell which of the
+     * two things they mistyped.
+     */
+    claimHost(input: { code: string; key: string }): Promise<void>;
     /** The other direction, without re-running the join validation. */
     becomeGuest(): Promise<void>;
     leave(): Promise<void>;

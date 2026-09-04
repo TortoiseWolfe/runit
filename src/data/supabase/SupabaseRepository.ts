@@ -369,6 +369,36 @@ export class SupabaseRepository implements RunitRepository {
       });
     },
 
+    claimHost: async ({ code, key }: { code: string; key: string }) => {
+      const { data: hostId, error } = await this.db.rpc('claim_host', {
+        p_code: code,
+        p_secret: key,
+      });
+      if (error) {
+        if (isPgError(error) && error.code === 'P0002') {
+          throw new JoinError('unknown_code', "That code doesn't match an event.");
+        }
+        // 42501 here is the function's own `bad_host_key`, not a policy denial -- the
+        // function is SECURITY DEFINER, so RLS never refuses this call.
+        if (isPgError(error) && error.code === '42501') {
+          throw new JoinError('bad_host_key', "That host key isn't right for this event.");
+        }
+        throw error;
+      }
+
+      // The claim rebound hosts.auth_user_id, so `hosts` must be re-read before the
+      // session can name the seat -- it was fetched once at join, when this user was
+      // not a host of anything.
+      await this.loadFetchOnce();
+      const mine = this.hostRows.find((h) => h.id === (hostId as unknown as string));
+      if (!mine) throw new Error('Claimed a host seat that is not readable. This is a bug.');
+      this.sigSession.set({
+        kind: 'host', hostId: mine.id, displayName: mine.displayName,
+        role: mine.role, roleLabel: mine.roleLabel,
+      });
+      this.recompute();
+    },
+
     becomeGuest: async () => {
       const guestId = this.requireGuest();
       const { data: nickname } = await this.db.rpc('my_guest_id', { p_event: this.requireEvent() });

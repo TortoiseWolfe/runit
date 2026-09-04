@@ -89,6 +89,12 @@ function highestSeedSeq(seed: Seed): number {
   return high;
 }
 
+/**
+ * The in-memory host key. A FIXTURE VALUE and deliberately obvious as one -- the real
+ * keys live as bcrypt hashes in Postgres and appear in no file here.
+ */
+export const DEMO_HOST_KEY = 'DEMO-HOST-KEY0';
+
 const byVotesDesc = (a: SongRequest, b: SongRequest) =>
   b.voteCount - a.voteCount || a.createdAt.localeCompare(b.createdAt);
 
@@ -106,6 +112,7 @@ export class MemoryRepository implements RunitRepository {
   private seq: number;
   /** Injectable so tests are deterministic. */
   private now: () => string;
+  private hostKey: string;
   /**
    * How bytes get somewhere durable.
    *
@@ -147,9 +154,14 @@ export class MemoryRepository implements RunitRepository {
     opts: {
       now?: () => string;
       transfer?: (photo: Photo, onProgress: (fraction: number) => void) => Promise<void>;
+      hostKey?: string;
     } = {},
   ) {
     this.now = opts.now ?? (() => new Date().toISOString());
+    // A FIXTURE, not a secret. The real key exists only as a bcrypt hash in Postgres
+    // and is never in this repo; this exists so the claim flow has both branches to
+    // exercise without a network.
+    this.hostKey = opts.hostKey ?? DEMO_HOST_KEY;
     this.transfer = opts.transfer ?? (async () => {});
     this.ev = { ...seed.event };
     this.hostList = [...seed.hosts];
@@ -337,6 +349,30 @@ export class MemoryRepository implements RunitRepository {
         kind: 'host', hostId: h.id, displayName: h.displayName, role: h.role, roleLabel: h.roleLabel,
       });
     },
+    /**
+     * The in-memory analogue of the real claim. There is no bcrypt and no auth user
+     * here -- the key IS the whole check -- but the SHAPE has to match, because this
+     * is what the e2e suite drives and a flow that only exists against Supabase is a
+     * flow nothing can test.
+     *
+     * `hostKey` is injectable so a test can exercise both branches; the default is a
+     * fixture value, not a secret.
+     */
+    claimHost: async ({ code, key }: { code: string; key: string }) => {
+      if (code.trim().toUpperCase() !== this.ev.code) {
+        throw new JoinError('unknown_code', "That code doesn't match an event.");
+      }
+      const canonical = (v: string) => v.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+      if (canonical(key) !== canonical(this.hostKey)) {
+        throw new JoinError('bad_host_key', "That host key isn't right for this event.");
+      }
+      const h = this.hostList[0];
+      if (!h) throw new Error('This event has no host seat to claim.');
+      this.sigSession.set({
+        kind: 'host', hostId: h.id, displayName: h.displayName, role: h.role, roleLabel: h.roleLabel,
+      });
+    },
+
     becomeGuest: async () => {
       const s = this.sigSession.get();
       this.sigSession.set({
@@ -697,6 +733,8 @@ export class MemoryRepository implements RunitRepository {
     opts: {
       now?: () => string;
       transfer?: (photo: Photo, onProgress: (fraction: number) => void) => Promise<void>;
+      /** Fixture value, not a secret -- the real key lives as a bcrypt hash in Postgres. */
+      hostKey?: string;
     } = {},
   ): MemoryRepository {
     return new MemoryRepository(seed, opts);

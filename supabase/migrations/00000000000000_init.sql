@@ -631,3 +631,86 @@ create policy event_photos_delete on storage.objects for delete to authenticated
 --   marks a broadcast read -- so seen_count folds a table nobody writes to and stays 0.
 --   Either add chat.markRead(), or stop rendering the count. "Seen by 0" under every
 --   announcement is worse than no number.
+
+-- ========================================================================
+-- HOST CLAIM -- the missing half of join_event
+-- ========================================================================
+--
+-- A host is whoever matches `hosts.auth_user_id = auth.uid()`, and Runit has no
+-- sign-in, only anonymous auth. So without this there is no way for a PERSON to become
+-- the host of an event: the row has to be bound by hand with a service-role update.
+-- That is not a product, and it leaves half the app -- Broadcast, DJ queue, Photo
+-- approvals -- unreachable to anyone who did not write the SQL, App Review included.
+
+create table public.host_claims (
+  host_id     uuid primary key references public.hosts(id) on delete cascade,
+  -- A BCRYPT HASH, never the key. The table is unreachable by any client, but a hash
+  -- also means a service-role dump, a backup, or a support session does not hand
+  -- anyone the ability to take over an event.
+  secret_hash text not null,
+  claimed_at  timestamptz,
+  created_at  timestamptz not null default now()
+);
+
+alter table public.host_claims enable row level security;
+
+-- NO POLICIES. Not restrictive ones: none, exactly like `guests`. Nothing a client
+-- sends reaches this table -- reads come back empty, writes affect zero rows. The only
+-- ways in are claim_host() below and the service role.
+
+create or replace function public.claim_host(p_code text, p_secret text)
+returns uuid
+language plpgsql security definer set search_path = public, extensions as $$
+declare
+  v_event uuid;
+  v_host  uuid;
+  v_key   text;
+begin
+  if auth.uid() is null then
+    raise exception 'not authenticated' using errcode = '28000';
+  end if;
+
+  -- The key is PRINTED grouped -- XV24-HJ78-DBAB -- because that is how a person reads
+  -- it off a note and types it on a phone. The dashes are presentation, not credential.
+  -- Canonicalise here so the client never has to know the format and nobody is locked
+  -- out of their own event for typing a dash, a space, or the wrong case.
+  v_key := upper(regexp_replace(coalesce(p_secret, ''), '[^A-Za-z0-9]', '', 'g'));
+  if v_key = '' then
+    raise exception 'bad_host_key' using errcode = '42501';
+  end if;
+
+  select id into v_event from public.events where upper(code) = upper(btrim(p_code));
+  if v_event is null then
+    raise exception 'unknown_code' using errcode = 'P0002';
+  end if;
+
+  -- crypt() re-derives with the salt stored inside the hash, so this compares without
+  -- ever holding the key. Bcrypt's cost is also the online brute-force defence: every
+  -- attempt is deliberately slow, and the caller already needed a session to get here.
+  select hc.host_id into v_host
+    from public.host_claims hc
+    join public.hosts h on h.id = hc.host_id
+   where h.event_id = v_event
+     and hc.secret_hash = extensions.crypt(v_key, hc.secret_hash)
+   limit 1;
+
+  if v_host is null then
+    -- Deliberately distinct from unknown_code. The event code is ALREADY an oracle via
+    -- join_event, so collapsing the two hides nothing from an attacker while costing a
+    -- real person the ability to tell a typo in the code from a typo in the key.
+    raise exception 'bad_host_key' using errcode = '42501';
+  end if;
+
+  -- REBIND rather than refuse when already claimed. The KEY is the credential, not the
+  -- anonymous identity -- and that identity is not durable: an Android reinstall wipes
+  -- the keystore, so a host who reinstalled would otherwise be locked out of their own
+  -- event with no recovery. Rebinding costs the previous device its host access, which
+  -- is the right outcome when someone presents the key.
+  update public.hosts set auth_user_id = auth.uid() where id = v_host;
+  update public.host_claims set claimed_at = now() where host_id = v_host;
+
+  return v_host;
+end $$;
+
+revoke execute on function public.claim_host(text, text) from public;
+grant  execute on function public.claim_host(text, text) to authenticated;
