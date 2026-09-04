@@ -32,7 +32,18 @@ export type Instant = string;
 
 export type TierId = 'house_party' | 'party' | 'event' | 'venue';
 
-export type HostRole = 'host' | 'dj' | 'planner' | 'partner';
+/**
+ * The permission GRADE, and a genuinely closed set -- which is why the database can
+ * enforce it as a check constraint.
+ *
+ * `'partner'` used to be here and never appeared in a fixture, a branch or a test: it was
+ * a value nothing produced and the DB constraint rejected. The human-facing word belongs
+ * in `Host.roleLabel`, which is free text precisely so an event can print "Partner",
+ * "Bride", "Best Man" or "Head of Ops" without the schema having an opinion. Widening the
+ * constraint to admit a dead union member would have made the type and the database agree
+ * on a lie; narrowing makes them agree on what is true.
+ */
+export type HostRole = 'host' | 'dj' | 'planner';
 
 export interface RunitEvent {
   id: EventId;

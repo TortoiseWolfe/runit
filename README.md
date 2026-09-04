@@ -13,6 +13,15 @@ photos into folders.
 Built from a Claude Design canvas, which is committed in `design/` and is the
 specification for every screen.
 
+## Shipping
+
+| | |
+|---|---|
+| Store listing name | **Runit: Event Companion** — plain "RunIt" is taken on the App Store by `se.runit.app`, and store names are globally unique. The home-screen name stays `Runit`; only the listing has to differ. |
+| Bundle ID | `com.turtlewolfe.runit` |
+| Privacy policy | <https://tortoisewolfe.github.io/runit-legal/privacy/> — a required, publicly-accessible field in App Store Connect (Guideline 5.1.1(i)). Source: [`TortoiseWolfe/runit-legal`](https://github.com/TortoiseWolfe/runit-legal), public because Pages on a private repo needs a paid plan. |
+| Supabase | project `qwusbxallkbzfladvgfx`, org `ieceljlytbxfhtaxvnyq`, us-east-2 |
+
 ## Running it
 
 ```bash

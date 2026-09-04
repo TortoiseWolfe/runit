@@ -544,3 +544,90 @@ grant execute on function public.is_host(uuid)                      to authentic
 grant execute on function public.join_event(text, text)             to authenticated;
 grant execute on function public.play_next(uuid)                    to authenticated;
 grant execute on function public.start_schedule_item(uuid, boolean) to authenticated;
+
+-- ========================================================================
+-- WRITE PATHS -- the ones the first pass left with no server-side route
+-- ========================================================================
+--
+-- RLS denies by default, so a method with no matching policy does not fail loudly: it
+-- affects ZERO ROWS and raises nothing. Mapping every RunitRepository method against a
+-- policy found four such silent holes. These close the two that v1 needs.
+
+-- events UPDATE, for event.setActiveFolder().
+--
+-- A policy says WHO may write; it cannot say WHICH COLUMNS. Supabase grants
+-- `authenticated` blanket UPDATE on every table in `public`, so a bare policy here would
+-- also let any host rewrite `tier` (bypassing billing the day billing exists) and `code`
+-- (hijacking another event's join code). Column grants are the other half of the tool.
+revoke update on public.events from authenticated, anon;
+grant  update (active_folder_id) on public.events to authenticated;
+
+create policy events_host_update on public.events for update
+  using (public.is_host(id)) with check (public.is_host(id));
+
+-- `now_schedule_item_id` is deliberately NOT granted. It is written only inside
+-- start_schedule_item(), which carries the would_rewind guard. Granting it here would
+-- open a second route to the cursor that skips that guard -- the same "a check in a
+-- button handler is bypassed by the second caller" failure the interface was shaped
+-- to avoid.
+
+-- ========================================================================
+-- STORAGE -- photo bytes had nowhere to go at all
+-- ========================================================================
+
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('event-photos', 'event-photos', false, 10485760, array['image/jpeg','image/png','image/webp'])
+on conflict (id) do nothing;
+
+-- PRIVATE. A public bucket serves every photo -- including ones still waiting on host
+-- approval -- to anyone holding the URL, which is the exact promise photos_read exists
+-- to keep. Clients get signed URLs.
+
+-- Object path is `{event_id}/{photo_id}.jpg`, so (storage.foldername(name))[1] is the
+-- event id. INSERT can only check that prefix: bytes are uploaded BEFORE the photos row
+-- exists, so there is nothing to join to yet.
+create policy event_photos_insert on storage.objects for insert to authenticated
+  with check (
+    bucket_id = 'event-photos'
+    and public.my_guest_id(((storage.foldername(name))[1])::uuid) is not null
+  );
+
+-- SELECT mirrors public.photos.photos_read exactly, by joining on storage_path. Photo ids
+-- are uuids and so unguessable, but "unguessable" is not an access control -- a pending
+-- photo must be unreadable to the room even by someone who learns its path.
+create policy event_photos_select on storage.objects for select to authenticated
+  using (
+    bucket_id = 'event-photos'
+    and exists (
+      select 1 from public.photos p
+       where p.storage_path = storage.objects.name
+         and (
+              (p.status = 'approved' and public.my_guest_id(p.event_id) is not null)
+           or  p.uploaded_by_guest_id = public.my_guest_id(p.event_id)
+           or  public.is_host(p.event_id)
+         )
+    )
+  );
+
+-- Only a host removes bytes. `hide` is an audit trail rather than a delete
+-- (photos.status = 'hidden'), so this is for genuine removal: a takedown, or the
+-- retention sweep.
+create policy event_photos_delete on storage.objects for delete to authenticated
+  using (
+    bucket_id = 'event-photos'
+    and public.is_host(((storage.foldername(name))[1])::uuid)
+  );
+
+-- ========================================================================
+-- STILL OPEN, DELIBERATELY -- written down rather than left implied
+-- ========================================================================
+--
+-- * `hosts` has no INSERT policy, so hosts.invite() cannot add anyone. The free tier
+--   allows exactly one host, so v1 does not need it. Bootstrap is one service-role insert.
+-- * No tier cap is enforced here. join_event() does not check maxGuests, despite
+--   src/data/supabase/README.md requiring server-side enforcement. Client-only checks are
+--   what that README forbids, so this is a real debt, not a decision.
+-- * `broadcast_reads` has a policy AND a fold trigger, but nothing in RunitRepository ever
+--   marks a broadcast read -- so seen_count folds a table nobody writes to and stays 0.
+--   Either add chat.markRead(), or stop rendering the count. "Seen by 0" under every
+--   announcement is worse than no number.
