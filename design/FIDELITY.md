@@ -38,11 +38,36 @@ Yoga treats a `View`'s baseline as its bottom edge, so the canvas's five
 baseline rows (each pairing a large number with a small label) need
 `alignItems: 'flex-end'` plus matched `lineHeight`.
 
-## 6. System font per platform
+## 6. System font per platform — and geometry is NOT a safe harbour
 The canvas asks for `ui-sans-serif, system-ui, -apple-system`. That resolves to
 SF Pro on iOS, Roboto on Android, and DejaVu Sans in the Linux Chromium that
-generates `renders/`. **The three are not glyph-identical**, which is exactly why
-Lane B gates on geometry (bounding boxes) rather than on glyph pixels.
+generates `renders/`. **The three are not glyph-identical.**
+
+This note used to say that was "exactly why Lane B gates on geometry (bounding
+boxes) rather than on glyph pixels." **That reasoning was wrong, and it is the
+thing that made the divergence in issue #6 invisible.** Geometry is precisely what
+glyph metrics move: the suite's two geometric assertions
+(`tests/e2e/guest-chat.spec.ts:167` and `:228`) count rendered line boxes, and a
+line box wraps when the glyphs get wider. Gating on geometry does not escape the
+font problem; it *is* the font problem, one level up.
+
+Nothing in the app pins a font. `grep fontFamily src/` is empty, `dist/` ships no
+font files, and this host has 8 fonts, all DejaVu. Typography is entirely
+machine-supplied.
+
+Measured with `tools/measure-text-margin.mjs` against one `dist/`:
+
+| | host (DejaVu) | container (Liberation) | column |
+|---|---|---|---|
+| `11:30 PM` | **65.33px** | 58.89px | 72px |
+| `Full schedule` | 78.13px | 70.72px | one line in both |
+
+**The host is the tighter environment**, clearing the 72px column by 6.67px
+(9.3%). A font ~10% wider than DejaVu wraps `11:30 PM` and fails `:228`.
+
+Note `renders/` is committed and was generated on this host in DejaVu, so making
+the container authoritative for `screenshots/` would guarantee a divergence on
+every Lane D read rather than fixing one.
 
 ## 7. Letter-spacing is frozen
 The canvas uses `em`; RN's `letterSpacing` is absolute points. `tracking(em, px)`

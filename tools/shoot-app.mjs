@@ -10,7 +10,7 @@
  */
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { extname, join, resolve } from 'node:path';
 import { createRequire } from 'node:module';
 import { pixelAt } from './px.mjs';
@@ -230,6 +230,31 @@ for (const scheme of ['dark', 'light']) {
 await browser.close();
 server.close();
 console.log(`\n${wrote} screenshots -> design/screenshots/`);
+
+/**
+ * PROVENANCE. These PNGs are only comparable to design/renders/ -- or to each
+ * other -- within one environment. The app pins no fonts, so glyph widths come
+ * from whatever the machine has, and host and container differ by 5.53% of pixels
+ * on the join screen. renders/ is committed and was generated on the host in
+ * DejaVu. Stamp which machine wrote these so a Lane D read can tell. Issue #6.
+ */
+const inContainer = existsSync('/.dockerenv');
+writeFileSync(
+  join(OUT, '.provenance.json'),
+  JSON.stringify(
+    {
+      environment: inContainer ? 'container' : 'host',
+      note: inContainer
+        ? 'Container fonts (Liberation et al). design/renders/ is DejaVu from the host -- do NOT read these two against each other.'
+        : 'Host fonts (DejaVu). Matches design/renders/, so Lane D comparisons are valid.',
+      node: process.versions.node,
+      shots: shots.length,
+    },
+    null,
+    2,
+  ) + '\n',
+);
+console.log(`provenance: rendered on the ${inContainer ? 'container' : 'host'}`);
 
 /**
  * COLOUR GATE.

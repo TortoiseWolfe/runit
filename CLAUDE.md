@@ -203,6 +203,15 @@ kept deliberately as evidence.
 order. Programmatic probes catch a different class of thing; neither substitutes
 for the other.
 
+**Compare within ONE environment.** The same source renders differently on the
+host than in the checks container — 5.53% of pixels on the join screen — because
+the app pins no fonts and the two machines have different ones. `renders/` is
+committed and was generated **on the host, in DejaVu**; `screenshots/` belongs to
+whichever ran `pnpm shots` last. `design/screenshots/.provenance.json` records
+which. Regenerate on the host before a Lane D read, or you will read a wrap
+difference as a fidelity regression that no code caused. See FIDELITY note 6 and
+issue #6.
+
 ### iOS is not verified here — say so plainly
 
 There is no Mac in this environment (`xcrun` absent, WSL2). **iOS pixels cannot
