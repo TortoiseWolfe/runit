@@ -233,3 +233,29 @@ safety.
 `schedule.start()` additionally refuses to move the cursor backwards unless told
 to (`ScheduleError('would_rewind')`); the host restarts a past item by holding
 it.
+
+## J. The join screen shows "N already here"
+The canvas's join artboard shows the event name, the doors line and a calendar
+pill. It does not show a guest count; that lives only in the Chat header's
+"{n} here" pill.
+
+Added here, and the reason is a test gap rather than a design note. `guestCount`
+was rendered in exactly one place, and both guarded layouts redirect an anonymous
+session to `/join` — so there was **no screen on which the room's count could be
+read before joining**, and no end-to-end assertion could distinguish "seeded 172,
+join adds one" from "seeded 173, join adds nothing". That was verified, not
+assumed: patching the bundle to seed 173 and delete the increment left the whole
+join spec green.
+
+It is a product change made to close a test gap, which deserves naming rather than
+burying. It is defensible on its own terms — an aggregate count is something a
+guest genuinely wants before committing, and it is the same social proof a queue
+outside a venue provides — and it reveals no individual, so the privacy promise
+three lines below it ("guests can't see each other") stays true.
+
+Proof it works: with the seed at 173 and the increment deleted, the new
+two-reading test fails while the pre-existing "one more than the seed" assertion
+still passes. That is the gap, demonstrated.
+
+`src/features/join/JoinScreen.tsx` (`join-guest-count`), asserted in
+`tests/e2e/join.spec.ts`. Moves the `01-join.{dark,light}` baselines.

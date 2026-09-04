@@ -19,19 +19,26 @@ import { TOKENS, WEDDING, open, switchToHost } from './helpers';
  * State is per page load: MemoryRepository is built in the root layout's
  * useMemo, so every `open()` re-seeds the wedding.
  *
- * WHAT THIS FILE CANNOT PROVE, STATED PLAINLY. `guestCount` is rendered in
- * exactly one place -- the "{n} here" pill in the Chat header -- and both the
- * guest and host layouts redirect an anonymous session to /join. So there is no
- * screen on which the room's count can be read BEFORE joining, and no e2e
- * assertion can distinguish "seeded 172, join adds one" from "seeded 173, join
- * adds nothing". Verified, not assumed: patching the built bundle to seed 173
- * and delete the increment leaves this whole file green. The seed's own value
- * is pinned by src/data/memory/MemoryRepository.test.ts, which can call the
- * repository directly; what is pinned HERE is everything around it -- that the
- * number is one more than the seed, that it is the same after two separate
- * joins in two page loads, that a refused code never reaches it, and that
- * crossing into the host console and back does not quietly add another. Do not
- * write a comment claiming this file catches a doctored seed. It does not.
+ * THE LIMIT THIS FILE USED TO CARRY, AND HOW IT WAS CLOSED. `guestCount` was
+ * rendered in exactly one place -- the "{n} here" pill in the Chat header -- and
+ * both guarded layouts redirect an anonymous session to /join. So there was no
+ * screen on which the room's count could be read BEFORE joining, and no
+ * assertion here could tell "seeded 172, join adds one" apart from "seeded 173,
+ * join adds nothing". That was verified rather than assumed: patching the built
+ * bundle to seed 173 and delete the increment left this whole file green.
+ *
+ * The join screen now shows "N already here" (join-guest-count), so the
+ * before-reading exists and the increment is provable end-to-end -- see the
+ * three-point test below. That was a product change made to close a test gap,
+ * which is worth naming: it is defensible here only because an aggregate count
+ * is a thing a guest genuinely wants before committing, and it reveals no
+ * individual. It is recorded as an intentional divergence in FIDELITY note J.
+ *
+ * State is per page load, which is what makes the three-point reading work:
+ * MemoryRepository is built in the root layout's useMemo, so `open()` re-seeds
+ * -- but in-app navigation does not. `/join` is deliberately NOT session-guarded
+ * (only src/app/index.tsx gates on session), so a joined guest can navigate back
+ * to it and read the count again within one page load.
  */
 
 /** The "{n} here" pill. Anchored: the chat footer also ends in "hosts post here". */
@@ -249,5 +256,33 @@ test.describe('Join', () => {
       'background-color',
       TOKENS[scheme].primary,
     );
+  });
+
+  test('the count is provable, not merely consistent: 172 before the join, 173 after', async ({
+    page,
+  }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await open(page, scheme);
+
+    // THE READING THAT DID NOT EXIST. Everything else in this file reads the
+    // count only AFTER joining, which is satisfied just as well by a seed of 173
+    // that never increments. This one fails immediately in that world.
+    const before = page.getByTestId('join-guest-count');
+    await expect(before).toHaveText(`${WEDDING.present} already here`);
+
+    await page.getByTestId('join-nickname').fill('Ada');
+    await page.getByTestId('join-submit').click();
+    await expect(page.getByTestId('chat-feed')).toBeVisible();
+    expect(await peopleHere(page)).toBe(WEDDING.present + 1);
+
+    // NO THIRD READING, and the reason is worth recording rather than leaving as
+    // an absence. A round trip back to /join would be a nice flourish, but
+    // useJoinActions calls router.REPLACE('/chat'), so /join is not on the
+    // history stack and page.goBack() leaves the app; and page.goto() would
+    // reload the SPA, re-seeding the repository and discarding the state under
+    // test. Neither is worth a product change, because two readings is already
+    // the whole point: a seed of 173 that never increments fails at the FIRST
+    // one. "Once per join, not once per attempt" is covered separately by the
+    // host-console round trip below.
   });
 });

@@ -283,6 +283,9 @@ that lives in a button handler is bypassed by the second caller.
 - `schedule.start()` refuses to move the run-of-show cursor **backwards** unless
   passed `{ rewind: true }`. `nowScheduleItemId` drives every guest's Now/Next card,
   so a mis-tap on a past row rewound the evening for the whole room. FIDELITY note I.
+- The join screen shows "N already here" (`join-guest-count`). It is **not** in the
+  canvas — it exists so the e2e suite can prove joining *increments* the room
+  rather than merely that the room reads 173 afterwards. FIDELITY note J.
 - The demo wedding sits on the Event tier where nothing is capped, so the
   gating layer is invisible against it. Use the `housePartySeed` fixture to see
   it work.

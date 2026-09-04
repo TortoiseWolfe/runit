@@ -44,6 +44,21 @@ export function JoinScreen() {
         <Text style={[s.subtitle, { color: alpha(tokens.baseContent, fade.body) }]}>
           {event?.doorsLabel ?? ''}
         </Text>
+        {/* An aggregate count, and deliberately nothing more -- no names, no
+            avatars. It reads as social proof before you commit, and it is what
+            makes the e2e suite able to prove that joining INCREMENTS the room
+            rather than merely that the room reads 173 afterwards. Before this
+            existed there was no screen showing the count pre-join, so a seed of
+            173 that never incremented was indistinguishable from a seed of 172
+            that did. See tests/e2e/join.spec.ts and FIDELITY note J. */}
+        {event ? (
+          <Text
+            testID="join-guest-count"
+            style={[s.alreadyHere, { color: alpha(tokens.baseContent, fade.muted) }]}
+          >
+            {event.guestCount} already here
+          </Text>
+        ) : null}
         {/* A View, not a Pressable, until calendar export exists. It was a
             Pressable with no onPress, no role and no label -- it looked and felt
             like a button and did nothing, which is worse than not offering it.
@@ -117,6 +132,7 @@ const s = StyleSheet.create({
   eyebrow: { ...eyebrow.section, fontSize: 12 },
   title: { fontSize: 34, fontWeight: weight.semibold, letterSpacing: tracking(-0.02, 34), lineHeight: 37, marginTop: 6 },
   subtitle: { fontSize: 15, marginTop: 8 },
+  alreadyHere: { fontSize: 13, marginTop: 6 },
   calendarPill: {
     alignSelf: 'flex-start',
     marginTop: 10,
