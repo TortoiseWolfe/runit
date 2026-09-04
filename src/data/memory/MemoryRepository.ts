@@ -9,9 +9,11 @@
  * exists in a button's onPress is bypassed by the second caller.
  */
 import type {
-  Broadcast, Folder, FolderId, Host, HostRole, NowPlaying, Photo, PhotoId,
+  BlockedGuest, Broadcast, Folder, FolderId, GuestId, Host, HostRole, NowPlaying, Photo, PhotoId,
+  Report, ReportId, ReportReason, ReportResolution, ReportSubject,
   RunitEvent, ScheduleItem, ScheduleItemId, Session, SongRequest, SongRequestId, TierId,
 } from '../types';
+import { subjectKey } from '../types';
 import {
   EntitlementError, JoinError, ScheduleError, type UploadOutcome,
   type Observable, type RunitRepository, type Unsubscribe,
@@ -108,6 +110,8 @@ export class MemoryRepository implements RunitRepository {
   private photoList: Photo[];
   private votes: Set<SongRequestId>;
   private myGuestId: string;
+  private blockList: BlockedGuest[] = [];
+  private reportList: Report[] = [];
   private nextPhotoSeq: number;
   private seq: number;
   /** Injectable so tests are deterministic. */
@@ -144,6 +148,9 @@ export class MemoryRepository implements RunitRepository {
   private sigMine: Signal<Photo[]>;
   private sigApproved: Signal<Photo[]>;
   private sigHosts: Signal<{ id: string; displayName: string; role: HostRole }[]>;
+  private sigBlocked: Signal<BlockedGuest[]>;
+  private sigReports: Signal<Report[]>;
+  private sigMyReports: Signal<ReadonlySet<string>>;
   private sigEntitlements: Signal<Entitlements>;
 
   /** Live tier + usage. Advisory reads only; enforcement is in the write methods. */
@@ -191,6 +198,9 @@ export class MemoryRepository implements RunitRepository {
     this.sigMine = new Signal<Photo[]>([]);
     this.sigApproved = new Signal<Photo[]>([]);
     this.sigHosts = new Signal<{ id: string; displayName: string; role: HostRole }[]>([]);
+    this.sigBlocked = new Signal<BlockedGuest[]>([]);
+    this.sigReports = new Signal<Report[]>([]);
+    this.sigMyReports = new Signal<ReadonlySet<string>>(new Set());
     this.sigEntitlements = new Signal<Entitlements>(this.computeEntitlements());
     // Class field initialisers (session = {...}, chat = {...}, ...) run BEFORE
     // this constructor body, so their `current`/`feed` slots are still empty at
@@ -284,10 +294,19 @@ export class MemoryRepository implements RunitRepository {
     );
     this.sigSchedule.set([...this.scheduleList].sort((a, b) => a.position - b.position));
 
-    const live = this.requestList.filter((r) => r.status !== 'played' && r.status !== 'declined');
+    // THE BLOCK FILTER, applied once, here. Every guest-facing list below is derived
+    // from an already-filtered array, so no screen can forget to apply it and no future
+    // screen has to remember. The host's own lists (`pending`, `reports`) deliberately
+    // do NOT go through this -- see the note on RunitRepository.moderation.
+    const blocked = new Set(this.blockList.map((b) => b.guestId));
+    const visibleRequests = this.requestList.filter(
+      (r) => r.requestedByGuestId === null || !blocked.has(r.requestedByGuestId),
+    );
+
+    const live = visibleRequests.filter((r) => r.status !== 'played' && r.status !== 'declined');
     this.sigQueue.set(live.sort(byVotesDesc));
-    this.sigIncoming.set(this.requestList.filter((r) => r.status === 'pending').sort(byVotesDesc));
-    this.sigAccepted.set(this.requestList.filter((r) => r.status === 'accepted').sort(byVotesDesc));
+    this.sigIncoming.set(visibleRequests.filter((r) => r.status === 'pending').sort(byVotesDesc));
+    this.sigAccepted.set(visibleRequests.filter((r) => r.status === 'accepted').sort(byVotesDesc));
     this.sigMyVotes.set(new Set(this.votes));
 
     this.sigFolders.set([...this.folderList].sort((a, b) => a.position - b.position));
@@ -311,10 +330,32 @@ export class MemoryRepository implements RunitRepository {
     );
     this.sigApproved.set(
       this.photoList
-        .filter((p) => p.status === 'approved')
+        .filter(
+          (p) =>
+            p.status === 'approved' &&
+            (p.uploadedByGuestId === null || !blocked.has(p.uploadedByGuestId)),
+        )
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     );
     this.sigHosts.set(this.hostList.map(({ id, displayName, role }) => ({ id, displayName, role })));
+
+    this.sigBlocked.set(
+      [...this.blockList].sort((a, b) => b.blockedAt.localeCompare(a.blockedAt)),
+    );
+    // The host's backlog: UNRESOLVED only, oldest first. A resolved report stays in the
+    // table as the audit trail but leaves the queue, or the queue never empties.
+    this.sigReports.set(
+      this.reportList
+        .filter((r) => r.resolvedAt === null)
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+    );
+    this.sigMyReports.set(
+      new Set(
+        this.reportList
+          .filter((r) => r.reporterGuestId === this.myGuestId)
+          .map((r) => subjectKey(r.subject)),
+      ),
+    );
   }
 
   private patchRequest(id: SongRequestId, patch: Partial<SongRequest>): void {
@@ -703,6 +744,122 @@ export class MemoryRepository implements RunitRepository {
     },
   };
 
+  // ------------------------------------------------------------- moderation
+
+  moderation = {
+    blocked: undefined as unknown as Observable<BlockedGuest[]>,
+    reports: undefined as unknown as Observable<Report[]>,
+    myReports: undefined as unknown as Observable<ReadonlySet<string>>,
+
+    report: async ({
+      subject,
+      reason,
+      note,
+    }: {
+      subject: ReportSubject;
+      reason: ReportReason;
+      note?: string;
+    }) => {
+      // Already reported by this guest? Nothing to do. Matching file_report()'s
+      // ON CONFLICT DO NOTHING rather than raising: a double tap is not a failure.
+      const key = subjectKey(subject);
+      const mine = this.reportList.some(
+        (r) => r.reporterGuestId === this.myGuestId && subjectKey(r.subject) === key,
+      );
+      if (mine) return;
+
+      // The label is derived HERE, from the local rows, for the same reason the
+      // database derives it in file_report(): a caller that supplies it can caption a
+      // complaint as something it is not.
+      const label = this.labelFor(subject);
+      if (label === null) throw new Error(`Cannot report ${key}: no such subject in this event.`);
+      if (subject.kind === 'guest' && subject.guestId === this.myGuestId) {
+        throw new Error('You cannot report yourself.');
+      }
+
+      this.reportList = [
+        ...this.reportList,
+        {
+          id: this.id('rep'),
+          subject,
+          reporterGuestId: this.myGuestId,
+          reporterName: this.myNickname(),
+          subjectLabel: label,
+          reason,
+          note: note ?? '',
+          resolution: null,
+          resolvedAt: null,
+          createdAt: this.now(),
+        },
+      ];
+      this.recompute();
+    },
+
+    block: async (guestId: GuestId) => {
+      if (guestId === this.myGuestId) throw new Error('You cannot block yourself.');
+      if (this.blockList.some((b) => b.guestId === guestId)) return;
+      this.blockList = [
+        ...this.blockList,
+        { guestId, nickname: this.nicknameFor(guestId), blockedAt: this.now() },
+      ];
+      this.recompute();
+    },
+
+    unblock: async (guestId: GuestId) => {
+      this.blockList = this.blockList.filter((b) => b.guestId !== guestId);
+      this.recompute();
+    },
+
+    resolve: async (id: ReportId, resolution: ReportResolution) => {
+      this.reportList = this.reportList.map((r) =>
+        r.id === id ? { ...r, resolution, resolvedAt: this.now() } : r,
+      );
+      this.recompute();
+    },
+  };
+
+  /**
+   * The host-facing description of a reported thing, or null if it is not in this event.
+   *
+   * Null is the local stand-in for the adapter's `subject_not_in_event`: the id names
+   * nothing here, so there is nothing to report.
+   */
+  private labelFor(subject: ReportSubject): string | null {
+    switch (subject.kind) {
+      case 'photo': {
+        const photo = this.photoList.find((p) => p.id === subject.photoId);
+        return photo ? `Photo from ${photo.uploadedByName}` : null;
+      }
+      case 'song_request': {
+        const request = this.requestList.find((r) => r.id === subject.requestId);
+        if (!request) return null;
+        return request.artist ? `${request.title} -- ${request.artist}` : request.title;
+      }
+      case 'guest':
+        return this.nicknameFor(subject.guestId) || null;
+    }
+  }
+
+  /**
+   * A guest's display name, found through the content they left behind.
+   *
+   * There is no guest directory to read -- on the real backend `guests` has no select
+   * policy at all -- so a nickname is only ever knowable from a row that carries it.
+   * That is exactly why the database stamps `blocked_name` with a trigger.
+   */
+  private nicknameFor(guestId: GuestId): string {
+    const photo = this.photoList.find((p) => p.uploadedByGuestId === guestId);
+    if (photo) return photo.uploadedByName;
+    const request = this.requestList.find((r) => r.requestedByGuestId === guestId);
+    if (request) return request.requestedByName;
+    return 'Someone';
+  }
+
+  private myNickname(): string {
+    const session = this.sigSession.get();
+    return session.kind === 'guest' ? session.nickname : this.nicknameFor(this.myGuestId);
+  }
+
   private bumpFolder(id: FolderId, by: number): void {
     this.folderList = this.folderList.map((f) =>
       f.id === id ? { ...f, photoCount: Math.max(0, f.photoCount + by) } : f,
@@ -726,6 +883,9 @@ export class MemoryRepository implements RunitRepository {
     this.photos.mine = this.sigMine;
     this.entitlements = this.sigEntitlements;
     this.hosts.all = this.sigHosts;
+    this.moderation.blocked = this.sigBlocked;
+    this.moderation.reports = this.sigReports;
+    this.moderation.myReports = this.sigMyReports;
   }
 
   static create(

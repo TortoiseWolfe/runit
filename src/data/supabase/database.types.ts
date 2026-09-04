@@ -76,6 +76,21 @@ export type Database = {
         Update: { id?: string; event_id?: string; name?: string; position?: number; photo_count?: number };
         Relationships: [];
       };
+      guest_blocks: {
+        Row: {
+          event_id: string; blocker_guest_id: string; blocked_guest_id: string;
+          blocked_name: string; created_at: string;
+        };
+        Insert: {
+          event_id: string; blocker_guest_id: string; blocked_guest_id: string;
+          blocked_name?: string; created_at?: string;
+        };
+        Update: {
+          event_id?: string; blocker_guest_id?: string; blocked_guest_id?: string;
+          blocked_name?: string; created_at?: string;
+        };
+        Relationships: [];
+      };
       guests: {
         Row: { id: string; event_id: string; auth_user_id: string; nickname: string; created_at: string };
         Insert: { id?: string; event_id: string; auth_user_id: string; nickname: string; created_at?: string };
@@ -145,6 +160,33 @@ export type Database = {
         };
         Relationships: [];
       };
+      reports: {
+        Row: {
+          id: string; event_id: string; reporter_guest_id: string | null; reporter_name: string;
+          subject_kind: string; subject_photo_id: string | null;
+          subject_request_id: string | null; subject_guest_id: string | null;
+          reason: string; note: string; subject_label: string;
+          resolved_at: string | null; resolution: string | null;
+          resolved_by_host_id: string | null; created_at: string;
+        };
+        Insert: {
+          id?: string; event_id: string; reporter_guest_id?: string | null; reporter_name: string;
+          subject_kind: string; subject_photo_id?: string | null;
+          subject_request_id?: string | null; subject_guest_id?: string | null;
+          reason: string; note?: string; subject_label: string;
+          resolved_at?: string | null; resolution?: string | null;
+          resolved_by_host_id?: string | null; created_at?: string;
+        };
+        Update: {
+          id?: string; event_id?: string; reporter_guest_id?: string | null;
+          reporter_name?: string; subject_kind?: string; subject_photo_id?: string | null;
+          subject_request_id?: string | null; subject_guest_id?: string | null;
+          reason?: string; note?: string; subject_label?: string;
+          resolved_at?: string | null; resolution?: string | null;
+          resolved_by_host_id?: string | null; created_at?: string;
+        };
+        Relationships: [];
+      };
       schedule_items: {
         Row: {
           id: string; event_id: string; position: number; time_label: string | null;
@@ -188,6 +230,15 @@ export type Database = {
     Views: Record<never, never>;
     Functions: {
       claim_host: { Args: { p_code: string; p_secret: string }; Returns: string };
+      file_report: {
+        Args: {
+          p_event_id: string; p_kind: string; p_subject_id: string;
+          p_reason: string; p_note?: string;
+        };
+        // Null when this guest had already reported this subject -- ON CONFLICT DO
+        // NOTHING returns no row. That is a success, not a failure.
+        Returns: string | null;
+      };
       is_host: { Args: { p_event: string }; Returns: boolean };
       join_event: { Args: { p_code: string; p_nickname: string }; Returns: string };
       my_guest_id: { Args: { p_event: string }; Returns: string };

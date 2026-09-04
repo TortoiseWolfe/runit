@@ -481,3 +481,147 @@ describe('observables', () => {
     expect(seen).toEqual([4]);
   });
 });
+
+/* ----------------------------------------------- moderation (Guideline 1.2) */
+
+describe('blocking someone', () => {
+  it('takes their songs out of every queue at once, not screen by screen', async () => {
+    // The property that matters is the FILTER'S PLACEMENT. If it lived in the screens,
+    // this test would pass for whichever screen was written first and silently fail for
+    // the next one. Asserting all three lists from one block is what pins it to the seam.
+    const r = make();
+    expect(r.music.queue.get().some((s) => s.requestedByName === 'Priya')).toBe(true);
+    expect(r.music.accepted.get().some((s) => s.requestedByName === 'Priya')).toBe(true);
+
+    await r.moderation.block('gst_priya');
+
+    expect(r.music.queue.get().some((s) => s.requestedByName === 'Priya')).toBe(false);
+    expect(r.music.incoming.get().some((s) => s.requestedByName === 'Priya')).toBe(false);
+    expect(r.music.accepted.get().some((s) => s.requestedByName === 'Priya')).toBe(false);
+  });
+
+  it('leaves the HOST console untouched, because a block cannot hide evidence', async () => {
+    // Priya has a pending photo in the seed. Blocking her must not remove it from the
+    // approvals queue: moderation is the host's job and a guest cannot veto it.
+    const r = make();
+    const before = r.photos.pending.get().length;
+    await r.moderation.block('gst_priya');
+    expect(r.photos.pending.get()).toHaveLength(before);
+    expect(r.photos.pending.get().some((p) => p.uploadedByName === 'Priya')).toBe(true);
+  });
+
+  it('hides their APPROVED photos from the album, matching on identity not name', async () => {
+    // BY ID, DELIBERATELY. The seed also carries `phoa_1`, an approved row whose
+    // uploadedByName is likewise 'Priya' but whose uploadedByGuestId is null -- a
+    // fixture with no owner. Filtering on the NAME would take that row too, which is
+    // wrong twice over: it is not hers to hide, and two guests may share a nickname.
+    // A block is against a person, and only an id names one.
+    const r = make();
+    await r.photos.approve('pho_1'); // Priya's, and genuinely attributed to her
+    expect(r.photos.approved.get().some((p) => p.id === 'pho_1')).toBe(true);
+
+    await r.moderation.block('gst_priya');
+
+    expect(r.photos.approved.get().some((p) => p.id === 'pho_1')).toBe(false);
+    // The ownerless row is untouched: nothing links it to the person just blocked.
+    expect(r.photos.approved.get().some((p) => p.id === 'phoa_1')).toBe(true);
+  });
+
+  it('is idempotent, and unblock puts them back', async () => {
+    const r = make();
+    await r.moderation.block('gst_priya');
+    await r.moderation.block('gst_priya');
+    expect(r.moderation.blocked.get()).toHaveLength(1);
+    expect(r.moderation.blocked.get()[0]).toMatchObject({ nickname: 'Priya' });
+
+    await r.moderation.unblock('gst_priya');
+    expect(r.moderation.blocked.get()).toHaveLength(0);
+    expect(r.music.queue.get().some((s) => s.requestedByName === 'Priya')).toBe(true);
+  });
+
+  it('names the person, because a list of ids cannot be unblocked by a human', async () => {
+    const r = make();
+    await r.moderation.block('gst_lou');
+    expect(r.moderation.blocked.get()[0]!.nickname).toBe('Grandpa Lou');
+  });
+
+  it('refuses to block yourself', async () => {
+    const r = make();
+    await expect(r.moderation.block('gst_me')).rejects.toThrow(/yourself/);
+  });
+});
+
+describe('reporting something', () => {
+  it('describes the subject for the host, rather than handing over an id', async () => {
+    const r = make();
+    await r.moderation.report({ subject: { kind: 'song_request', requestId: 'req_1' }, reason: 'hate' });
+    expect(r.moderation.reports.get()[0]).toMatchObject({
+      subjectLabel: 'Dancing Queen -- ABBA',
+      reason: 'hate',
+    });
+  });
+
+  it('labels a photo by who took it, which is the only thing a host can act on', async () => {
+    const r = make();
+    await r.moderation.report({ subject: { kind: 'photo', photoId: 'pho_2' }, reason: 'nudity' });
+    expect(r.moderation.reports.get()[0]!.subjectLabel).toBe('Photo from Tom');
+  });
+
+  it('treats a second report of the same thing as a no-op, not an error', async () => {
+    // Matching file_report()'s ON CONFLICT DO NOTHING. A double tap is not a failure,
+    // and raising would make the button look broken to the person using it correctly.
+    const r = make();
+    const subject = { kind: 'photo', photoId: 'pho_1' } as const;
+    await r.moderation.report({ subject, reason: 'spam' });
+    await expect(r.moderation.report({ subject, reason: 'nudity' })).resolves.toBeUndefined();
+    expect(r.moderation.reports.get()).toHaveLength(1);
+    // And the FIRST reason survives -- a re-report must not rewrite the original.
+    expect(r.moderation.reports.get()[0]!.reason).toBe('spam');
+  });
+
+  it('remembers what you already reported, so a screen can stop offering the button', async () => {
+    const r = make();
+    expect(r.moderation.myReports.get().has('photo:pho_1')).toBe(false);
+    await r.moderation.report({ subject: { kind: 'photo', photoId: 'pho_1' }, reason: 'spam' });
+    expect(r.moderation.myReports.get().has('photo:pho_1')).toBe(true);
+  });
+
+  it('refuses a subject that is not in this event', async () => {
+    // The local stand-in for file_report()'s subject_not_in_event. Same failure, same
+    // moment, so a screen written against either adapter handles it the same way.
+    const r = make();
+    await expect(
+      r.moderation.report({ subject: { kind: 'photo', photoId: 'pho_nope' }, reason: 'spam' }),
+    ).rejects.toThrow(/no such subject/);
+  });
+
+  it('refuses to report yourself', async () => {
+    const r = make();
+    await expect(
+      r.moderation.report({ subject: { kind: 'guest', guestId: 'gst_me' }, reason: 'spam' }),
+    ).rejects.toThrow(/yourself/);
+  });
+
+  it('drops off the queue once resolved, but the row survives as the audit trail', async () => {
+    const r = make();
+    await r.moderation.report({ subject: { kind: 'photo', photoId: 'pho_1' }, reason: 'nudity' });
+    const id = r.moderation.reports.get()[0]!.id;
+
+    await r.moderation.resolve(id, 'removed');
+
+    expect(r.moderation.reports.get()).toHaveLength(0);
+    // Still reported, from the reporter's point of view -- the button stays off.
+    expect(r.moderation.myReports.get().has('photo:pho_1')).toBe(true);
+  });
+
+  it('orders the queue oldest first, because a queue is a backlog', async () => {
+    let t = 0;
+    const r = MemoryRepository.create(weddingSeed, { now: () => `2026-10-17T20:0${t++}:00.000Z` });
+    await r.moderation.report({ subject: { kind: 'photo', photoId: 'pho_1' }, reason: 'spam' });
+    await r.moderation.report({ subject: { kind: 'photo', photoId: 'pho_2' }, reason: 'spam' });
+    expect(r.moderation.reports.get().map((x) => x.subjectLabel)).toEqual([
+      'Photo from Priya',
+      'Photo from Tom',
+    ]);
+  });
+});

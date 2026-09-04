@@ -2,6 +2,7 @@ import type { Row } from './database.types';
 import { RowCache } from './signal';
 import type {
   Broadcast, BroadcastKind, Folder, Host, HostRole, NowPlaying, Photo, PhotoStatus,
+  Report, ReportReason, ReportResolution, ReportSubject,
   RunitEvent, ScheduleItem, SongRequest, SongRequestStatus, TierId,
 } from '../types';
 
@@ -49,6 +50,8 @@ const BROADCAST_KINDS = ['announcement', 'schedule_started'] as const satisfies 
 const REQUEST_STATUSES = ['pending', 'accepted', 'played', 'declined'] as const satisfies readonly SongRequestStatus[];
 /** Only the three the DB can hold. `uploading` and `failed` never come from a row. */
 const PHOTO_STATUSES = ['pending', 'approved', 'hidden'] as const satisfies readonly PhotoStatus[];
+const REPORT_REASONS = ['nudity', 'harassment', 'violence', 'hate', 'spam', 'other'] as const satisfies readonly ReportReason[];
+const REPORT_RESOLUTIONS = ['removed', 'blocked', 'dismissed'] as const satisfies readonly ReportResolution[];
 
 /* ------------------------------------------------------------------ mappers */
 
@@ -152,6 +155,42 @@ export function toPhoto(r: Row<'photos'>): Photo {
     progress: null,
     failureReason: null,
     storagePath: r.storage_path,
+    createdAt: r.created_at,
+  };
+}
+
+/**
+ * A report row's three nullable subject columns back into one discriminated union.
+ *
+ * The database's `reports_one_subject` check guarantees exactly one is non-null and
+ * that it matches `subject_kind`, so a row that fails this is a row that should not
+ * exist. It still cannot throw -- a mapper that throws takes down the whole realtime
+ * batch over one bad row -- so it degrades to `guest` with a null-ish id, which the
+ * host queue renders as an unactionable entry rather than crashing the console.
+ */
+function toReportSubject(r: Row<'reports'>): ReportSubject {
+  if (r.subject_kind === 'photo' && r.subject_photo_id !== null) {
+    return { kind: 'photo', photoId: r.subject_photo_id };
+  }
+  if (r.subject_kind === 'song_request' && r.subject_request_id !== null) {
+    return { kind: 'song_request', requestId: r.subject_request_id };
+  }
+  return { kind: 'guest', guestId: r.subject_guest_id ?? '' };
+}
+
+export function toReport(r: Row<'reports'>): Report {
+  return {
+    id: r.id,
+    subject: toReportSubject(r),
+    reporterGuestId: r.reporter_guest_id,
+    // Both of these are denormalised server-side, not joined: `guests` has no select
+    // policy, so there is nothing for a host to join TO. See the migration.
+    reporterName: r.reporter_name,
+    subjectLabel: r.subject_label,
+    reason: narrow(REPORT_REASONS, r.reason, 'other'),
+    note: r.note,
+    resolution: r.resolution === null ? null : narrow(REPORT_RESOLUTIONS, r.resolution, 'dismissed'),
+    resolvedAt: r.resolved_at,
     createdAt: r.created_at,
   };
 }
