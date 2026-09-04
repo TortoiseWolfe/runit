@@ -35,8 +35,55 @@ if (!url) {
 }
 
 const { default: pg } = await import('pg');
-const client = new pg.Client({ connectionString: url, ssl: { rejectUnauthorized: false } });
-await client.connect();
+
+/**
+ * TLS IS VERIFIED. This is the one connection in the repo that carries a database
+ * PASSWORD to a live project, which makes it the last place to accept an
+ * unauthenticated peer -- `rejectUnauthorized: false` here would hand that password
+ * to anyone able to intercept the connection, and it would do it silently.
+ *
+ * That flag is the usual first move when a Supabase connection fails a handshake,
+ * which is exactly why it is called out rather than just omitted: the handshake is
+ * failing because the certificate is not trusted, and turning off the check does not
+ * fix that, it agrees to be lied to.
+ *
+ * If your setup needs a specific root (some Supabase direct connections present a
+ * chain that is not in the default store), point SUPABASE_CA_CERT at the PEM that
+ * Supabase publishes for the project. Never trade verification for convenience on a
+ * connection like this one.
+ */
+const caPath = process.env.SUPABASE_CA_CERT;
+let ca;
+if (caPath) {
+  try {
+    ca = readFileSync(caPath, 'utf8');
+  } catch {
+    // A stack trace here would be the wrong answer to the one message whose whole
+    // job is to lead someone out of a TLS failure without disabling verification.
+    console.error(`\x1b[31mFAIL: SUPABASE_CA_CERT points at a file that cannot be read.\x1b[0m`);
+    console.error(`  ${caPath}`);
+    process.exit(1);
+  }
+}
+const ssl = { rejectUnauthorized: true, ...(ca ? { ca } : {}) };
+
+const client = new pg.Client({ connectionString: url, ssl });
+try {
+  await client.connect();
+} catch (e) {
+  const msg = String(e?.message ?? e);
+  if (/self[- ]signed|unable to (verify|get local issuer)|certificate/i.test(msg)) {
+    console.error('\x1b[31mFAIL: the database certificate could not be verified.\x1b[0m');
+    console.error(`  ${msg}`);
+    console.error('  Download the project CA from the Supabase dashboard');
+    console.error('  (Settings -> Database -> SSL Configuration) and set:');
+    console.error('    export SUPABASE_CA_CERT=/path/to/prod-ca.crt');
+    console.error('  Do NOT disable certificate verification -- this connection carries');
+    console.error('  the database password.');
+    process.exit(1);
+  }
+  throw e;
+}
 
 let report;
 try {
