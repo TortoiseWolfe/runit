@@ -175,7 +175,22 @@ describe('photos', () => {
     // upload() is reached through useGuardedAction, which routes a throw to the
     // PAYWALL. Throwing here would show a guest an upgrade prompt for a dropped
     // connection.
-    await expect(r.photos.upload({ localUri: 'file:///tmp/a.jpg' })).resolves.toBeUndefined();
+    // It RESOLVES, and it resolves with the outcome rather than void -- a caller
+    // that cannot tell delivered from failed announces success over a failure,
+    // which is precisely what the toast used to do.
+    await expect(r.photos.upload({ localUri: 'file:///tmp/a.jpg' })).resolves.toBe('failed');
+  });
+
+  it('reports which resting state an upload reached, so a caller cannot guess', async () => {
+    const paid = make();
+    await paid.session.joinAsGuest({ code: 'SR1017', nickname: 'Ada' });
+    // Event tier moderates, so a delivered photo waits for a host.
+    expect(await paid.photos.upload({ localUri: 'file:///tmp/a.jpg' })).toBe('pending');
+
+    // The free tier has no approval queue; announcing "awaiting host approval"
+    // there promises a review that will never happen.
+    const free = makeFree();
+    expect(await free.photos.upload({ localUri: 'file:///tmp/a.jpg' })).toBe('approved');
   });
 
   it('retry re-attempts and delivers, clearing the failure', async () => {

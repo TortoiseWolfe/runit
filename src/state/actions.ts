@@ -7,7 +7,7 @@
 import { useCallback, useMemo } from 'react';
 import { useRouter } from 'expo-router';
 
-import { EntitlementError, JoinError, ScheduleError } from '@/data/repository';
+import { EntitlementError, JoinError, ScheduleError, type UploadOutcome } from '@/data/repository';
 import { capturePhoto } from '@/lib/capture';
 import { checkLimit } from '@/domain/entitlements';
 import { useEntitlements } from './hooks';
@@ -125,8 +125,28 @@ export function usePhotoActions() {
         // The canvas reads activeFolder from a stale closure for this toast
         // while its setState reads fresh state, so it can name the wrong
         // folder. The name is passed in from the same render here.
-        const ok = await guarded(() => repo.photos.upload({ localUri: shot.uri }));
-        if (ok) show(`Uploaded to ${folderName} · awaiting host approval`);
+        // The outcome is READ, not assumed. `upload()` deliberately does not throw
+        // on a transfer failure -- that is a state the guest can retry, not a
+        // billing problem for the paywall guard -- so `guarded` returns true
+        // either way. Announcing success off that boolean is how the toast came
+        // to read "Uploaded ... awaiting host approval" over a tile that was
+        // simultaneously offering Retry. Found on a device, not in this lane.
+        let outcome: UploadOutcome | undefined;
+        const ok = await guarded(async () => {
+          outcome = await repo.photos.upload({ localUri: shot.uri });
+        });
+        if (!ok) return; // routed to the paywall
+        if (outcome === 'failed') {
+          // The failed tile carries the reason and the Retry button, so this
+          // says the one thing the tile cannot: that nothing was sent.
+          show('Upload failed. Your photo is saved — tap Retry.');
+        } else if (outcome === 'approved') {
+          // Free tier has no approval queue; promising a host review that will
+          // never happen is a smaller lie than the last one but still a lie.
+          show(`Added to ${folderName}`);
+        } else {
+          show(`Uploaded to ${folderName} · awaiting host approval`);
+        }
       },
       // NOT wrapped in `guarded`. A retry cannot raise an EntitlementError --
       // the cap was taken when the row was created and is still held by it --

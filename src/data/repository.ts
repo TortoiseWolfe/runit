@@ -70,6 +70,21 @@ export class ScheduleError extends Error {
   }
 }
 
+/**
+ * Where an upload came to rest.
+ *
+ * `upload()` returns this rather than resolving void, because a transfer failure
+ * is NOT an exception here -- it is a state the guest can retry. A caller that
+ * cannot tell delivered from failed will cheerfully announce success over a
+ * failure, which is exactly what happened before this existed: the toast read
+ * "Uploaded ... awaiting host approval" while the tile beneath it offered Retry.
+ *
+ * The two delivered cases are distinguished because they are different promises
+ * to the guest: `pending` means a host still has to approve it, `approved` means
+ * it is already in the album (the free tier has no moderation queue).
+ */
+export type UploadOutcome = 'pending' | 'approved' | 'failed';
+
 export interface RunitRepository {
   session: {
     current: Observable<Session>;
@@ -160,7 +175,7 @@ export interface RunitRepository {
      * NOT here -- see src/lib/capture.ts for why a camera behind this interface
      * would make every future adapter carry one.
      */
-    upload(input: { localUri: string }): Promise<void>;
+    upload(input: { localUri: string }): Promise<UploadOutcome>;
     /**
      * Re-attempt a failed transfer. No-op unless the photo is `failed`, so a
      * double-tap cannot start two transfers for one photo.

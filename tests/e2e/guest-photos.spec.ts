@@ -243,6 +243,15 @@ test.describe('Photos tab · shared album', () => {
 
     await page.getByTestId('shutter-small').click();
 
+    // THE TOAST MUST NOT CLAIM SUCCESS. `upload()` deliberately does not throw on
+    // a transfer failure, so the guarded call returns true either way -- and the
+    // toast used to announce "Uploaded to Reception · awaiting host approval"
+    // over a tile that was simultaneously offering Retry. A device found that;
+    // this lane had the same test and did not assert the toast, so it did not.
+    const toast = page.getByTestId('toast');
+    await expect(toast).toContainText('Upload failed');
+    await expect(toast).not.toContainText('awaiting host approval');
+
     // The guest sees their own failure, with a way out of it.
     const retry = page.getByTestId(/^retry-pho_/);
     await expect(retry).toHaveCount(1);

@@ -66,21 +66,36 @@ export default function RootLayout() {
   const fidelity = process.env.EXPO_PUBLIC_FIDELITY === '1';
 
   /**
-   * Opt-in flaky transfer, for the harness only.
+   * Opt-in flaky transfer, for verification only.
    *
    * The in-memory adapter completes a transfer instantly, because nothing is
    * being sent anywhere -- so `uploading` and `failed` are unreachable, and the
    * progress bar and Retry button would ship with nothing able to exercise them.
-   * `?flaky=1` injects a transfer that reports progress and fails once.
+   * This injects a transfer that reports progress and then fails once.
    *
-   * Double-gated on EXPO_PUBLIC_FIDELITY so it cannot be triggered in a real
-   * build by anyone who guesses the query string. A deliberately-breaking
-   * upload path is a fixture, never a feature.
+   * TWO TRIGGERS, because one platform each:
+   *
+   * `EXPO_PUBLIC_FLAKY=1` is the portable one -- Metro inlines EXPO_PUBLIC_* at
+   * bundle time, so it reaches the Android and iOS dev clients, and a build made
+   * without it does not contain the branch at all. That is the gate: not a
+   * runtime check someone could guess past, but an absent code path.
+   *
+   * `?flaky=1` is web-only and additionally gated on EXPO_PUBLIC_FIDELITY, so the
+   * Playwright suite can drive it per-test without restarting Metro. It reads
+   * `window.location`, which is why it cannot serve native: React Native defines
+   * `window` but not a navigable location, so the query string does not exist
+   * there. Verified by trying -- the retry path was invisible on the emulator
+   * until the env trigger was added.
+   *
+   * A deliberately-breaking upload path is a fixture, never a feature.
    */
-  const flaky =
+  const flakyEnv = process.env.EXPO_PUBLIC_FLAKY === '1';
+  const flakyQuery =
     fidelity &&
     typeof window !== 'undefined' &&
+    typeof window.location?.search === 'string' &&
     new URLSearchParams(window.location.search).get('flaky') === '1';
+  const flaky = flakyEnv || flakyQuery;
 
   const repository = useMemo(
     () =>

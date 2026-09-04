@@ -13,7 +13,7 @@ import type {
   RunitEvent, ScheduleItem, ScheduleItemId, Session, SongRequest, SongRequestId, TierId,
 } from '../types';
 import {
-  EntitlementError, JoinError, ScheduleError,
+  EntitlementError, JoinError, ScheduleError, type UploadOutcome,
   type Observable, type RunitRepository, type Unsubscribe,
 } from '../repository';
 import { checkFeature, checkLimit, type Entitlements } from '@/domain/entitlements';
@@ -199,9 +199,9 @@ export class MemoryRepository implements RunitRepository {
    * through `useGuardedAction`, which would route a throw to the PAYWALL. A
    * flaky network is not a billing problem.
    */
-  private async runTransfer(id: PhotoId): Promise<void> {
+  private async runTransfer(id: PhotoId): Promise<UploadOutcome> {
     const photo = this.photoList.find((p) => p.id === id);
-    if (!photo) return;
+    if (!photo) return 'failed';
 
     try {
       await this.transfer(photo, (fraction) => {
@@ -219,7 +219,7 @@ export class MemoryRepository implements RunitRepository {
         failureReason: err instanceof Error ? err.message : 'Upload failed',
       });
       this.recompute();
-      return;
+      return 'failed';
     }
 
     // Success. The free tier has no approval queue, so uploads land approved;
@@ -233,6 +233,7 @@ export class MemoryRepository implements RunitRepository {
     });
     if (!moderated) this.bumpFolder(photo.folderId, 1);
     this.recompute();
+    return moderated ? 'pending' : 'approved';
   }
 
   private id(prefix: string): string {
@@ -590,7 +591,7 @@ export class MemoryRepository implements RunitRepository {
       ];
       this.recompute();
 
-      await this.runTransfer(id);
+      return await this.runTransfer(id);
     },
 
     retry: async (id: PhotoId) => {

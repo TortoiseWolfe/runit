@@ -324,3 +324,18 @@ Consequences worth knowing:
 - `progress` is `null` when settled, not `0`. Null means "not transferring";
   zero means "transferring, nothing moved yet". A bar that cannot tell them apart
   shows stuck at 0% on every finished photo.
+- `upload()` returns an **`UploadOutcome`** rather than resolving void, and the
+  toast reads it. Because a transfer failure is not an exception, `useGuardedAction`
+  returns true either way — so a caller announcing success off that boolean will
+  announce it over a failure. That is not hypothetical: the toast read *"Uploaded
+  to Reception · awaiting host approval"* over a tile that was simultaneously
+  offering Retry. **A device found it; the e2e suite had the same test and did not
+  assert the toast, so it did not.** The outcome also separates `pending` from
+  `approved`, because the free tier has no approval queue and promising a review
+  that will never happen is a smaller lie but still one.
+
+Verified on device: `design/device/android-upload-failed-retry.dark.png` (the
+failed tile, photo dimmed under a Retry pill, first in the grid) and
+`android-upload-retried-delivered.dark.png` (after Retry: `AWAITING APPROVAL · 4`
+with the photograph in the host queue). The host queue stayed at 3 while the
+upload was failed — it never saw it.
