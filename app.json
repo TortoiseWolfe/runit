@@ -6,6 +6,12 @@
     "orientation": "portrait",
     "scheme": "runit",
     "userInterfaceStyle": "automatic",
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#1A1A2E"
+    },
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": false,
@@ -15,7 +21,11 @@
       }
     },
     "android": {
-      "package": "com.turtlewolfe.runit"
+      "package": "com.turtlewolfe.runit",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#1A1A2E"
+      }
     },
     "web": {
       "bundler": "metro",
