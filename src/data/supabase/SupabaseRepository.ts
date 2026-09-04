@@ -429,7 +429,11 @@ export class SupabaseRepository implements RunitRepository {
       SupabaseRepository.assertWrote(data, 'setActiveFolder');
     },
 
-    setTier: async () => {
+    // The parameter is declared even though it is ignored. A zero-arg version still
+    // satisfies the interface -- TypeScript accepts a function that takes fewer
+    // arguments -- but it makes the concrete class reject the very call the interface
+    // promises, and it hides what a caller is meant to pass.
+    setTier: async (_tier: RunitEvent['tier']) => {
       // Refused, loudly. `tier` is not in the column grant, so an update naming it
       // fails with 42501 -- and one that did not name it would change nothing while
       // returning success. Dev-only affordance with no server-side route.
@@ -731,7 +735,7 @@ export class SupabaseRepository implements RunitRepository {
 
   hosts = {
     all: undefined as unknown as Observable<{ id: string; displayName: string; role: HostRole }[]>,
-    invite: async () => {
+    invite: async (_input: { displayName: string; role: HostRole }) => {
       // Refused, loudly. `hosts` has no INSERT policy at all, so this would raise
       // 42501 anyway -- saying so here names the actual reason rather than leaving
       // a caller to read a Postgres error.

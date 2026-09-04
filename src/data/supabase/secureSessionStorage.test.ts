@@ -14,6 +14,8 @@
 // factory may not close over an ordinary out-of-scope variable. The prefix is the
 // documented escape hatch, and it is a guard against reading an uninitialised mock
 // rather than a style rule.
+import { secureSessionStorage as s } from './secureSessionStorage';
+
 const mockStore = new Map<string, string>();
 
 jest.mock('expo-secure-store', () => ({
@@ -29,7 +31,6 @@ jest.mock('expo-secure-store', () => ({
   }),
 }));
 
-import { secureSessionStorage as s } from './secureSessionStorage';
 
 const KEY = 'sb-qwusbxallkbzfladvgfx-auth-token';
 const bigSession = JSON.stringify({ access_token: 'a'.repeat(4000), refresh_token: 'r'.repeat(600) });
