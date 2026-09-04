@@ -173,7 +173,12 @@ export:web` sets it). It injects the iPhone safe-area insets a browser reports
 as zero, and renders the `scheme-probe` element every test waits on. Export
 without it and the whole suite times out without naming the reason.
 
-**C — Android emulator** (`pnpm android`). Wired up and **load-bearing**. This is
+**C — Android emulator** (`pnpm android`). Wired up and **load-bearing**. It has
+now also witnessed a real camera capture end to end — permission prompt, system
+camera, resized JPEG written to the app's own cache, and the image rendering in
+the host approval queue beside seeded rows that still show their hue tile
+(`design/device/android-host-photos-capture.dark.png`). No other lane can do
+that: react-native-web has no camera. This is
 the only *native* rendering evidence obtainable without a Mac, and it earned its
 place immediately: it caught an album grid that renders nine tiles on the web and
 nothing at all on a device (see `design/FIDELITY.md` note G). Lane A could not see

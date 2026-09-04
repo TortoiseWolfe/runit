@@ -282,3 +282,11 @@ All of this was verified on WSL2 with **no Mac, no EAS build and no device**, vi
 `npx expo config --type introspect`, which prints the fully plugin-applied
 `ios.infoPlist`. Worth remembering: the question of what a permission dialog will
 say is answerable for free, long before anything is built.
+
+**One correction that only a device could supply.** The custom `cameraPermission`
+string is **iOS-only**. Android does not let an app supply the text for a
+runtime-permission dialog; the real prompt on device reads *"Allow Runit to take
+pictures and record video?"* — Android's own wording for the CAMERA group,
+including the words "record video" for an app that records none. So the copy above
+is an iOS improvement, not a cross-platform one. `design/device/`
+`android-host-photos-capture.dark.png` is the run that established it.
