@@ -216,6 +216,11 @@ an hour if you do not know it.
 Device screenshots live in `design/device/`, including the pre-fix broken album
 kept deliberately as evidence.
 
+**D — the eye.** Read `design/renders/<screen>.png` and
+`design/screenshots/<screen>.png` in the same message and walk the regions in
+order. Programmatic probes catch a different class of thing; neither substitutes
+for the other.
+
 **E — policy verification** (`supabase/verify-policies.sql`). The only lane that can
 see row-level security behave. Paste it into the SQL editor or run it through the
 Supabase MCP; it seeds an event, a guest and a host inside a `DO` block, switches
@@ -234,11 +239,6 @@ raises 22P02 inside whatever exception handler you are standing in; and several
 assertions in one `UNION` share a single statement snapshot, so a `STABLE` function
 cannot see a row a sibling branch just inserted. `join_event` looked broken twice and
 was fine both times.
-
-**D — the eye.** Read `design/renders/<screen>.png` and
-`design/screenshots/<screen>.png` in the same message and walk the regions in
-order. Programmatic probes catch a different class of thing; neither substitutes
-for the other.
 
 **Compare within ONE environment.** The same source renders differently on the
 host than in the checks container — 5.53% of pixels on the join screen — because
