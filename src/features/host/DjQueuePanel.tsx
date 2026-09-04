@@ -2,11 +2,11 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { useMusicActions } from '@/state/actions';
 import { useAccepted, useIncoming, useNowPlaying } from '@/state/hooks';
-import { alpha, border, eyebrow, fade, radius, useTheme, weight } from '@/theme';
+import { alpha, border, eyebrow, radius, useTheme, weight } from '@/theme';
 
 /** Artboard 03, DJ queue segment. */
 export function DjQueuePanel() {
-  const { tokens } = useTheme();
+  const { tokens, fade } = useTheme();
   const nowPlaying = useNowPlaying();
   const accepted = useAccepted();
   const incoming = useIncoming();

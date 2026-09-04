@@ -2,7 +2,7 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import type { Broadcast } from '@/data/types';
 import { formatClock, initialsFor } from '@/lib/format';
-import { alpha, border, fade, useTheme, weight } from '@/theme';
+import { alpha, border, useTheme, weight } from '@/theme';
 
 /**
  * Canvas: a 32px neutral-filled avatar circle, then meta at 11px/.6 and a
@@ -11,7 +11,7 @@ import { alpha, border, fade, useTheme, weight } from '@/theme';
  * corner that points back at the avatar. 20/20/20/5.6 in points.
  */
 export function BroadcastBubble({ broadcast }: { broadcast: Broadcast }) {
-  const { tokens } = useTheme();
+  const { tokens, fade } = useTheme();
   return (
     <View style={s.row}>
       <View style={[s.avatar, { backgroundColor: tokens.neutral }]}>

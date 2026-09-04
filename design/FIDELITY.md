@@ -156,3 +156,55 @@ from `useWindowDimensions()` — see `src/features/photos/PhotosScreen.tsx`.
 Nine months of green CI would not have caught an empty album. Only running it on
 a device did. Treat "it passes Lane B" as evidence about layout *logic*, never
 about native layout.
+
+## H. The canvas's text-opacity ramp does not pass WCAG AA
+The canvas uses one `fade` table for both schemes — 0.85 / 0.7 / 0.6 / 0.55 / 0.5 /
+0.45 — and `alpha()` emits a real `rgba()`, so each level composites against the
+ground rather than being pre-flattened. Measured against the built export, that
+ramp fails 4.5:1 from `muted` down in light and from `faint` down in dark.
+
+`fade` is now **per-scheme**, on `useTheme()`. The two schemes genuinely need
+different numbers: `#1F2937` on `#F5F0EB` has less headroom than `#E2E8F0` on
+`#1A1A2E`, so the minimum alpha reaching 4.5:1 is **0.666 light against 0.508
+dark**. One shared table cannot serve both without flattening dark's hierarchy.
+Each ramp keeps the canvas's ordering and relative spacing, lifted so its lowest
+level clears that scheme's floor. Worst measured ratio is now 4.65:1 light,
+4.66:1 dark.
+
+This is app code, not a token — `tokens.ts` stays locked to `design/theme.css` by
+`tokens.test.ts`.
+
+**Two things the ramp alone could not fix:**
+
+`NowNextCard` multiplied two levels for past rows — `fade.past * fade.body` and
+`fade.past * fade.muted`, i.e. 0.315 and 0.27, rendering at **1.69:1** and
+1.84:1. A product cannot be fixed by raising the ramp, because both factors rise
+together. Past rows now use a single level; ordering and the Now highlight carry
+the rest.
+
+The featured pricing card paints `neutralContent` on `neutral`, a different pair
+from the one the floors were computed against, and `faint` lands at 4.07:1 there
+in dark. That one site uses `soft`.
+
+A **contrast gate** now runs in `pnpm shots` beside the base-100 colour gate,
+compositing every rendered text colour over its painted backdrop across all 20
+screenshots. Unlike touch targets — where react-native-web drops `hitSlop` and
+this lane is structurally blind — contrast is honestly measurable here.
+
+## I. Run-of-show rows are separated, and starting one asks before rewinding
+The canvas draws the host's run of show as flush rows in a clipped card. Shipped
+with a 6pt gap and a 4pt card padding instead, because the rows are not inert:
+each fires an unretractable broadcast to every invited guest, and
+`nowScheduleItemId` drives **every guest's** Now/Next card. Flush rows put the
+past ones immediately adjacent to the current one, so a thumb slip rewound the
+evening for the whole room.
+
+`hitSlop` is not an alternative here. React Native's own documentation
+(`ViewPropTypes.d.ts`) states the touch area "never extends past the parent view
+bounds and the Z-index of sibling views always takes precedence if a touch hits
+two overlapping views" — so slop between flush siblings buys ambiguity, not
+safety.
+
+`schedule.start()` additionally refuses to move the cursor backwards unless told
+to (`ScheduleError('would_rewind')`); the host restarts a past item by holding
+it.

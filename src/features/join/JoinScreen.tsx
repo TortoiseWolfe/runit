@@ -5,7 +5,7 @@ import { Screen } from '@/components/ui/Screen';
 import { Toast } from '@/components/ui/Toast';
 import { useEvent } from '@/state/hooks';
 import { useJoinActions } from '@/state/actions';
-import { alpha, border, eyebrow, fade, radius, tracking, useTheme, weight } from '@/theme';
+import { alpha, border, eyebrow, radius, tracking, useTheme, weight } from '@/theme';
 
 /**
  * Artboard 01.
@@ -15,7 +15,7 @@ import { alpha, border, eyebrow, fade, radius, tracking, useTheme, weight } from
  * bottom="page"> re-derives them from real insets. Everything else is verbatim.
  */
 export function JoinScreen() {
-  const { tokens } = useTheme();
+  const { tokens, fade } = useTheme();
   const event = useEvent();
   const { join } = useJoinActions();
   // The canvas pre-fills the code and calls it "scanned the QR". Until a real
@@ -44,9 +44,17 @@ export function JoinScreen() {
         <Text style={[s.subtitle, { color: alpha(tokens.baseContent, fade.body) }]}>
           {event?.doorsLabel ?? ''}
         </Text>
-        <Pressable style={[s.calendarPill, { borderColor: tokens.base300 }]}>
-          <Text style={[s.calendarText, { color: tokens.accent }]}>+ Add to calendar</Text>
-        </Pressable>
+        {/* A View, not a Pressable, until calendar export exists. It was a
+            Pressable with no onPress, no role and no label -- it looked and felt
+            like a button and did nothing, which is worse than not offering it.
+            The canvas draws this affordance, so the pixels stay; the lie does
+            not. Wire it back up when expo-calendar lands (CLAUDE.md, "Not built
+            yet") and restore the Pressable with a real handler. */}
+        <View style={[s.calendarPill, { borderColor: tokens.base300 }]}>
+          <Text style={[s.calendarText, { color: alpha(tokens.baseContent, fade.muted) }]}>
+            + Add to calendar
+          </Text>
+        </View>
       </View>
 
       <View style={[s.card, { backgroundColor: tokens.base200 }]}>

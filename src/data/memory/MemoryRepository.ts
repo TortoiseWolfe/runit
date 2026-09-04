@@ -13,7 +13,7 @@ import type {
   RunitEvent, ScheduleItem, ScheduleItemId, Session, SongRequest, SongRequestId, TierId,
 } from '../types';
 import {
-  EntitlementError, JoinError,
+  EntitlementError, JoinError, ScheduleError,
   type Observable, type RunitRepository, type Unsubscribe,
 } from '../repository';
 import { checkFeature, checkLimit, type Entitlements } from '@/domain/entitlements';
@@ -315,9 +315,26 @@ export class MemoryRepository implements RunitRepository {
 
   schedule = {
     items: undefined as unknown as Observable<ScheduleItem[]>,
-    start: async (id: ScheduleItemId) => {
-      const item = this.scheduleList.find((s) => s.id === id);
-      if (!item) return;
+    start: async (id: ScheduleItemId, opts: { rewind?: boolean } = {}) => {
+      const target = this.scheduleList.findIndex((s) => s.id === id);
+      if (target === -1) return;
+      const item = this.scheduleList[target]!;
+
+      // Refuse to walk the cursor backwards by accident. nowScheduleItemId is not
+      // host-private state -- it drives every guest's Now/Next card -- so a slip
+      // onto a past row rewinds the evening for the whole room and posts a second
+      // "is starting" broadcast to all of them. The past rows are the current
+      // row's immediate neighbours in a flush list, so this is a thumb slip, not
+      // an exotic case. Forwards is untouched; only backwards asks twice.
+      const current = this.scheduleList.findIndex((s) => s.id === this.ev.nowScheduleItemId);
+      if (!opts.rewind && current !== -1 && target < current) {
+        throw new ScheduleError(
+          'would_rewind',
+          `${item.title} already ran. Starting it again moves the run of show backwards for every guest.`,
+          id,
+        );
+      }
+
       const at = this.now();
       this.scheduleList = this.scheduleList.map((s) =>
         s.id === id ? { ...s, startedAt: at } : s,

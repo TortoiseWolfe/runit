@@ -288,3 +288,68 @@ test.describe('host console', () => {
     );
   });
 });
+
+/**
+ * The run of show, and the tap that used to rewind the evening.
+ *
+ * `schedule.start` moves `nowScheduleItemId`, which is NOT host-private state --
+ * `useNowNext` derives every guest's Now/Next card from it. Until the guard landed,
+ * `start()` set that cursor unconditionally, so a thumb on a PAST row rewound the
+ * run of show for the whole room and posted a second "is starting" broadcast to
+ * 180 people. The six rows sat flush inside a card with `overflow:'hidden'` and no
+ * gap, which made the past rows the current row's nearest neighbours.
+ *
+ * This control had no e2e coverage at all before this block -- the most dangerous
+ * action in the app was the only one nothing exercised.
+ *
+ * Note what is deliberately NOT asserted: the long-press restart path. Playwright
+ * can dispatch a long press, but `onLongPress` is a React Native gesture that
+ * react-native-web maps through its own responder system, and a test that drives
+ * it here would be asserting RNW's behaviour rather than the app's. The forward
+ * path and the refusal are both real DOM-observable outcomes; the deliberate
+ * rewind is pinned at the unit layer instead (MemoryRepository.test.ts).
+ */
+test.describe('host console · run of show', () => {
+  test('starting the next item moves the cursor forward and announces it to the feed', async ({
+    page,
+  }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await joinAsGuest(page, scheme);
+    await switchToHost(page);
+
+    // sch_5 is the first item after the seeded cursor (sch_4).
+    await page.getByTestId('schedule-sch_5').click();
+
+    // The guest feed is where the consequence lands, so that is where it is checked.
+    // Navigate IN-APP: `page.goto` reloads the SPA, and the repository is built in
+    // the root layout's useMemo, so a reload re-seeds and throws away the very
+    // state under test. (Both of these tests failed that way when first written.)
+    await page.getByTestId('role-switch').click();
+    await expect(page.getByTestId('chat-feed')).toBeVisible();
+    await expect(
+      page.getByText('First dance, then open floor is starting · Barn', { exact: true }),
+    ).toHaveCount(1);
+  });
+
+  test('tapping an item that already ran is refused out loud, and rewinds nothing', async ({
+    page,
+  }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await joinAsGuest(page, scheme);
+    await switchToHost(page);
+
+    // sch_2 (Ceremony) is behind the seeded cursor at sch_4.
+    await page.getByTestId('schedule-sch_2').click();
+
+    const toast = page.getByTestId('toast');
+    await expect(toast).toContainText('already ran');
+    await expect(toast).toContainText('Hold the row');
+
+    // The consequence that matters is on the guest side: the cursor did not move,
+    // so no second "Ceremony is starting" reached the room. In-app navigation for
+    // the same reason as above.
+    await page.getByTestId('role-switch').click();
+    await expect(page.getByTestId('chat-feed')).toBeVisible();
+    await expect(page.getByText('Ceremony is starting · Lawn', { exact: true })).toHaveCount(0);
+  });
+});

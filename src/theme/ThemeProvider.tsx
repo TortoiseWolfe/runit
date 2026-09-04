@@ -3,12 +3,19 @@ import { useColorScheme } from 'react-native';
 import * as SystemUI from 'expo-system-ui';
 
 import { DARK, LIGHT, type ThemeTokens } from './tokens';
+import { fadeFor, type Fade } from './typography';
 
 export type ThemeName = 'system' | 'dark' | 'light';
 export type Scheme = 'dark' | 'light';
 
 export interface ThemeValue {
   tokens: ThemeTokens;
+  /**
+   * Text-opacity ramp for THIS scheme. Per-scheme because the canvas's single
+   * ramp fails WCAG AA -- see the note on `fadeFor` in typography.ts. Always
+   * prefer this over the module-level `fade` import inside a component.
+   */
+  fade: Fade;
   /** The resolved scheme actually being painted. */
   scheme: Scheme;
   isDark: boolean;
@@ -47,7 +54,7 @@ export function ThemeProvider({
   }, [tokens]);
 
   const value = useMemo<ThemeValue>(
-    () => ({ tokens, scheme, isDark: scheme === 'dark', name, setName }),
+    () => ({ tokens, fade: fadeFor[scheme], scheme, isDark: scheme === 'dark', name, setName }),
     [tokens, scheme, name],
   );
 

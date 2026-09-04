@@ -10,6 +10,7 @@
   "scripts": {
     "android": "expo run:android",
     "audit:styles": "node tools/audit-native-styles.mjs",
+    "audit:targets": "node tools/audit-touch-targets.mjs",
     "checks": "./docker/run-checks.sh",
     "checks:docker": "docker compose run --rm checks",
     "checks:shell": "docker compose run --rm shell",

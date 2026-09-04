@@ -3,7 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } fr
 import { EventHeader } from '@/features/chat/EventHeader';
 import { usePhotoActions } from '@/state/actions';
 import { useActiveFolder, useApprovedPhotos, useFolders } from '@/state/hooks';
-import { albumTileColor, alpha, border, fade, radius, tracking, useTheme, weight } from '@/theme';
+import { albumTileColor, alpha, border, radius, tracking, useTheme, weight } from '@/theme';
 
 /**
  * Artboard 02, Photos tab.
@@ -18,7 +18,7 @@ const GRID_GAP = 3;
 const GRID_COLUMNS = 3;
 
 export function PhotosScreen() {
-  const { tokens, isDark } = useTheme();
+  const { tokens, isDark, fade } = useTheme();
   const { width } = useWindowDimensions();
 
   // Tile size is computed, not a percentage.

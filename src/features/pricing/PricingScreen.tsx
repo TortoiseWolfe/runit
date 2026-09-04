@@ -4,7 +4,7 @@ import { useLocalSearchParams } from 'expo-router';
 import { Screen } from '@/components/ui/Screen';
 import { FEATURED_TIER, TIERS, TIER_ORDER, type Tier } from '@/domain/tiers';
 import type { TierId } from '@/data/types';
-import { alpha, border, eyebrow, fade, radius, tracking, useTheme, weight } from '@/theme';
+import { alpha, border, eyebrow, radius, tracking, useTheme, weight } from '@/theme';
 
 /** Contextual headline: a denial names the limit or feature that sent you here. */
 const REASON_COPY: Record<string, string> = {
@@ -21,7 +21,7 @@ const REASON_COPY: Record<string, string> = {
 };
 
 function TierCard({ tier, highlighted }: { tier: Tier; highlighted: boolean }) {
-  const { tokens } = useTheme();
+  const { tokens, fade } = useTheme();
   const featured = tier.id === FEATURED_TIER;
   const bg = featured ? tokens.neutral : tokens.base100;
   const fg = featured ? tokens.neutralContent : tokens.baseContent;
@@ -58,7 +58,13 @@ function TierCard({ tier, highlighted }: { tier: Tier; highlighted: boolean }) {
 
       {tier.featureLines.map((line) => (
         <View key={line} style={s.featureRow}>
-          <Text style={[s.dash, { color: alpha(fg, fade.faint) }]}>—</Text>
+          {/* `soft`, not `faint`: on the featured card this text is
+              neutralContent over neutral, not baseContent over base-100, and that
+              pair needs 0.624 in dark where faint is 0.576 (4.07:1). soft clears
+              it at 4.59:1. The ramp's floors are computed for the base pair, so a
+              card that swaps BOTH colours has to be checked separately -- which
+              is what the contrast gate in tools/shoot-app.mjs is for. */}
+          <Text style={[s.dash, { color: alpha(fg, fade.soft) }]}>—</Text>
           <Text style={[s.feature, { color: fg }]}>{line}</Text>
         </View>
       ))}
@@ -76,7 +82,7 @@ function TierCard({ tier, highlighted }: { tier: Tier; highlighted: boolean }) {
  * metric is preserved exactly. FIDELITY deviation 3.
  */
 export function PricingScreen() {
-  const { tokens } = useTheme();
+  const { tokens, fade } = useTheme();
   const params = useLocalSearchParams<{ reason?: string; detail?: string; highlight?: string }>();
   const highlight = (params.highlight || '') as TierId | '';
   const reason = params.detail ? REASON_COPY[params.detail] : undefined;

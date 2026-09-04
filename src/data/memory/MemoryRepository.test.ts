@@ -1,7 +1,7 @@
 import { MemoryRepository } from './MemoryRepository';
 import { weddingSeed } from './fixtures/wedding';
 import { housePartySeed } from './fixtures/houseParty';
-import { EntitlementError, JoinError } from '../repository';
+import { EntitlementError, JoinError, ScheduleError } from '../repository';
 
 const FIXED = '2026-10-17T20:00:00.000Z';
 const make = () => MemoryRepository.create(weddingSeed, { now: () => FIXED });
@@ -137,6 +137,52 @@ describe('schedule', () => {
     const last = r.chat.feed.get().at(-1)!;
     expect(last.body).toBe('First dance, then open floor is starting · Barn');
     expect(last.kind).toBe('schedule_started');
+  });
+
+  // The wedding seed sits on sch_4, so sch_1..sch_3 are already past. Those rows
+  // are the current row's nearest neighbours in the host console, which is what
+  // makes a backwards tap a thumb slip rather than an exotic case.
+  it('refuses to walk the cursor backwards on a plain start', async () => {
+    const r = make();
+    await expect(r.schedule.start('sch_2')).rejects.toBeInstanceOf(ScheduleError);
+    await r.schedule.start('sch_2').catch((e: ScheduleError) => {
+      expect(e.reason).toBe('would_rewind');
+      expect(e.itemId).toBe('sch_2');
+    });
+    expect.hasAssertions();
+  });
+
+  it('changes nothing at all when it refuses -- no cursor move, no broadcast', async () => {
+    const r = make();
+    const cursor = r.event.current.get()?.nowScheduleItemId;
+    const feedLength = r.chat.feed.get().length;
+    await r.schedule.start('sch_1').catch(() => {});
+    expect(r.event.current.get()?.nowScheduleItemId).toBe(cursor);
+    expect(r.chat.feed.get()).toHaveLength(feedLength);
+    // and the item it refused to start did not get a new startedAt
+    expect(r.schedule.items.get().find((s) => s.id === 'sch_1')?.startedAt).toBe(
+      weddingSeed.schedule[0]!.startedAt,
+    );
+  });
+
+  it('rewinds when the host says so explicitly', async () => {
+    const r = make();
+    await r.schedule.start('sch_2', { rewind: true });
+    expect(r.event.current.get()?.nowScheduleItemId).toBe('sch_2');
+    expect(r.chat.feed.get().at(-1)!.body).toBe('Ceremony is starting · Lawn');
+  });
+
+  it('never blocks going forwards, which is the whole point of the board', async () => {
+    const r = make();
+    await r.schedule.start('sch_5');
+    await r.schedule.start('sch_6');
+    expect(r.event.current.get()?.nowScheduleItemId).toBe('sch_6');
+  });
+
+  it('starting the item already running is not a rewind', async () => {
+    const r = make();
+    await r.schedule.start('sch_4');
+    expect(r.event.current.get()?.nowScheduleItemId).toBe('sch_4');
   });
 });
 

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useNowNext, useSchedule } from '@/state/hooks';
-import { alpha, border, fade, useTheme, weight } from '@/theme';
+import { alpha, border, useTheme, weight } from '@/theme';
 
 /**
  * Canvas: a base-200 card with a 1rem radius. The summary row carries a green
@@ -15,7 +15,7 @@ import { alpha, border, fade, useTheme, weight } from '@/theme';
  * flex:1 here and the affordance flex:0, which is what the design intends.
  */
 export function NowNextCard() {
-  const { tokens } = useTheme();
+  const { tokens, fade } = useTheme();
   const [open, setOpen] = useState(false);
   const schedule = useSchedule();
   const { now, next, nowIndex } = useNowNext();
@@ -42,6 +42,13 @@ export function NowNextCard() {
         <Text style={[s.toggle, { color: muted }]}>{open ? 'Hide' : 'Full schedule'}</Text>
       </Pressable>
 
+      {/* Past rows use a SINGLE fade level, never a product of two. They used to
+          multiply -- fade.past * fade.body and fade.past * fade.muted, i.e. 0.315
+          and 0.27 -- which rendered at 1.69:1 and 1.84:1, below even the 3:1
+          non-text floor. A product of two ramp levels cannot be fixed by raising
+          the ramp: both factors shrink together. One level says "past" well
+          enough, and position in the list plus the Now highlight carry the rest.
+          design/FIDELITY.md note H. */}
       {open && (
         <View style={s.list}>
           {schedule.map((item, i) => {
@@ -52,7 +59,7 @@ export function NowNextCard() {
                 <Text
                   style={[
                     s.time,
-                    { color: alpha(tokens.baseContent, past ? fade.past * fade.body : fade.body) },
+                    { color: alpha(tokens.baseContent, past ? fade.past : fade.body) },
                   ]}
                 >
                   {item.timeLabel ?? 'TBD'}
@@ -71,7 +78,7 @@ export function NowNextCard() {
                 <Text
                   style={[
                     s.place,
-                    { color: alpha(tokens.baseContent, past ? fade.past * fade.muted : fade.muted) },
+                    { color: alpha(tokens.baseContent, past ? fade.past : fade.muted) },
                   ]}
                 >
                   {item.place}

@@ -7,7 +7,7 @@
 import { useCallback, useMemo } from 'react';
 import { useRouter } from 'expo-router';
 
-import { EntitlementError, JoinError } from '@/data/repository';
+import { EntitlementError, JoinError, ScheduleError } from '@/data/repository';
 import type { HostRole, ScheduleItemId, SongRequestId, PhotoId, FolderId } from '@/data/types';
 import { useRepository } from './RepositoryProvider';
 import { useToast } from './ToastProvider';
@@ -114,16 +114,40 @@ export function usePhotoActions() {
 export function useHostActions() {
   const repo = useRepository();
   const guarded = useGuardedAction();
+  const { show } = useToast();
   return useMemo(
     () => ({
       send: (body: string, pinned: boolean, push: boolean) =>
         repo.chat.send({ body, pinned, push }),
-      startScheduleItem: (id: ScheduleItemId) => repo.schedule.start(id),
+      /**
+       * Forwards through the run of show. A tap that would move the cursor
+       * BACKWARDS is refused and explained rather than performed -- the row above
+       * the current one is the easiest to hit by mistake and the most expensive to
+       * hit, because it rewinds every guest's Now/Next card and broadcasts again.
+       * The host restarts an item deliberately by holding it (`restartScheduleItem`).
+       */
+      startScheduleItem: async (id: ScheduleItemId) => {
+        try {
+          await repo.schedule.start(id);
+          return true;
+        } catch (e) {
+          if (e instanceof ScheduleError) {
+            show(`${e.message} Hold the row to do it anyway.`);
+            return false;
+          }
+          throw e;
+        }
+      },
+      /** The deliberate form of the above. Bound to onLongPress, never to a tap. */
+      restartScheduleItem: async (id: ScheduleItemId) => {
+        await repo.schedule.start(id, { rewind: true });
+        return true;
+      },
       addScheduleItem: () =>
         repo.schedule.add({ title: 'New item', timeLabel: null, place: '' }),
       invite: (displayName: string, role: HostRole) =>
         guarded(() => repo.hosts.invite({ displayName, role })),
     }),
-    [repo, guarded],
+    [repo, guarded, show],
   );
 }

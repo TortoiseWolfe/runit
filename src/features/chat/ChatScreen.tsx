@@ -1,7 +1,7 @@
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { useFeed } from '@/state/hooks';
-import { alpha, border, fade, useTheme } from '@/theme';
+import { alpha, border, useTheme } from '@/theme';
 import { RoleSwitch } from '@/components/ui/RoleSwitch';
 import { BroadcastBubble } from './BroadcastBubble';
 import { EventHeader } from './EventHeader';
@@ -15,7 +15,7 @@ import { NowNextCard } from './NowNextCard';
  * footer reading "Announcements only · hosts post here".
  */
 export function ChatScreen() {
-  const { tokens } = useTheme();
+  const { tokens, fade } = useTheme();
   const feed = useFeed();
 
   return (

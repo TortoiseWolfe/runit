@@ -5,13 +5,11 @@ import { usePhotoActions } from '@/state/actions';
 import { useActiveFolder, useEvent, useFolders, usePendingPhotos } from '@/state/hooks';
 import { TIERS } from '@/domain/tiers';
 import { capLabel } from '@/domain/entitlements';
-import {
-  alpha, border, eyebrow, fade, pendingPhotoColor, radius, useTheme, weight,
-} from '@/theme';
+import { alpha, border, eyebrow, pendingPhotoColor, radius, useTheme, weight } from '@/theme';
 
 /** Artboard 03, Photos segment. */
 export function PhotoApprovalsPanel() {
-  const { tokens, isDark } = useTheme();
+  const { tokens, isDark, fade } = useTheme();
   const pending = usePendingPhotos();
   const folders = useFolders();
   const active = useActiveFolder();
@@ -82,6 +80,9 @@ export function PhotoApprovalsPanel() {
           accessibilityRole="button"
           accessibilityState={{ disabled: atFolderCap }}
           accessibilityHint={atFolderCap ? `Your plan allows ${folderCap} folders` : undefined}
+          // ~15pt of text, under SC 2.5.8's 24x24 AA minimum. Isolated control,
+          // so slop has no sibling to overlap.
+          hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
           testID="add-folder"
         >
           <Text style={[s.link, { color: atFolderCap ? alpha(tokens.baseContent, fade.faint) : tokens.accent }]}>

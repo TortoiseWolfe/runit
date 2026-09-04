@@ -30,6 +30,13 @@ pnpm exec eslint src tools tests
 step "native style audit  (colours React Native cannot parse)"
 pnpm audit:styles
 
+# Same static band, same doctrine, different failure. This is the ONLY lane that
+# can see a touch target at all: react-native-web drops hitSlop, so Lane B would
+# keep failing after a correct fix, and uiautomator reports a11y-tree bounds
+# rather than touch rects, so Lane C is blind too.
+step "touch target audit  (WCAG 2.2 SC 2.5.8, Level AA)"
+pnpm audit:targets
+
 step "tests"
 pnpm test
 

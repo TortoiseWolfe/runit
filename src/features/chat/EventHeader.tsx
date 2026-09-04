@@ -2,7 +2,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useEvent } from '@/state/hooks';
-import { alpha, border, fade, insetDelta, radius, tracking, useTheme, weight } from '@/theme';
+import { alpha, border, insetDelta, radius, tracking, useTheme, weight } from '@/theme';
 
 /**
  * Canvas: `padding: 66px 20px 12px`, a base-300 bottom border, an 11px
@@ -10,7 +10,7 @@ import { alpha, border, fade, insetDelta, radius, tracking, useTheme, weight } f
  * right filled base-200 with a base-300 hairline.
  */
 export function EventHeader({ eyebrow: eyebrowText }: { eyebrow: string }) {
-  const { tokens } = useTheme();
+  const { tokens, fade } = useTheme();
   const insets = useSafeAreaInsets();
   const event = useEvent();
 

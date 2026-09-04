@@ -12,4 +12,4 @@ export {
   ALBUM_HUES,
 } from './oklch';
 export { radius, border, insetDelta, tabBar, toast } from './layout';
-export { tracking, weight, eyebrow, fade } from './typography';
+export { tracking, weight, eyebrow, fade, fadeFor, type Fade } from './typography';

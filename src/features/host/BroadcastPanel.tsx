@@ -4,16 +4,16 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-
 import { formatClock } from '@/lib/format';
 import { useHostActions } from '@/state/actions';
 import { useEvent, useFeed, useNowNext, useSchedule } from '@/state/hooks';
-import { alpha, border, eyebrow, fade, radius, useTheme, weight } from '@/theme';
+import { alpha, border, eyebrow, radius, useTheme, weight } from '@/theme';
 
 /** Artboard 03, Broadcast segment. */
 export function BroadcastPanel() {
-  const { tokens } = useTheme();
+  const { tokens, fade } = useTheme();
   const event = useEvent();
   const feed = useFeed();
   const schedule = useSchedule();
   const { nowIndex } = useNowNext();
-  const { send, startScheduleItem, addScheduleItem } = useHostActions();
+  const { send, startScheduleItem, restartScheduleItem, addScheduleItem } = useHostActions();
   const [draft, setDraft] = useState('');
   const [pinned, setPinned] = useState(false);
 
@@ -75,7 +75,17 @@ export function BroadcastPanel() {
         <Text style={[s.sectionTitle, { color: alpha(tokens.baseContent, fade.muted) }]}>
           Run of show
         </Text>
-        <Pressable onPress={addScheduleItem} accessibilityRole="button" testID="schedule-add">
+        {/* A bare text link is ~15pt tall -- under the 24x24 of WCAG 2.2 SC 2.5.8
+            (Target Size (Minimum), Level AA). hitSlop is the right fix here and
+            not on the rows above: this link has no interactive neighbour, so RN's
+            "z-index of sibling views takes precedence" caveat cannot bite. */}
+        <Pressable
+          onPress={addScheduleItem}
+          accessibilityRole="button"
+          accessibilityLabel="Add a run-of-show item"
+          hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
+          testID="schedule-add"
+        >
           <Text style={[s.link, { color: tokens.accent }]}>+ Add</Text>
         </Pressable>
       </View>
@@ -88,16 +98,20 @@ export function BroadcastPanel() {
             <Pressable
               key={item.id}
               onPress={() => startScheduleItem(item.id)}
+              onLongPress={past ? () => restartScheduleItem(item.id) : undefined}
               accessibilityRole="button"
               accessibilityLabel={`Start ${item.title}`}
+              // "Start Ceremony" does not say that it announces to everyone, nor
+              // that it cannot be taken back. The hint is where that belongs.
+              accessibilityHint={
+                past
+                  ? `Already ran. Double tap and hold to restart it and move the run of show back for all ${invited} guests.`
+                  : `Announces to all ${invited} guests. This cannot be undone.`
+              }
               testID={`schedule-${item.id}`}
               style={[
                 s.scheduleRow,
-                {
-                  borderTopColor: tokens.base300,
-                  backgroundColor: current ? tokens.base200 : 'transparent',
-                  borderTopWidth: i === 0 ? 0 : border,
-                },
+                { backgroundColor: current ? tokens.base200 : 'transparent' },
               ]}
             >
               <Text style={[s.time, { color: alpha(tokens.baseContent, fade.body) }]}>
@@ -159,8 +173,14 @@ const s = StyleSheet.create({
   sectionHead: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginTop: 8 },
   sectionTitle: { ...eyebrow.section, fontSize: 12 },
   link: { fontSize: 13 },
-  scheduleCard: { borderRadius: radius.selector, borderWidth: border, overflow: 'hidden' },
-  scheduleRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, paddingHorizontal: 14 },
+  scheduleCard: { borderRadius: radius.selector, borderWidth: border, padding: 4, gap: 6 },
+  // Rows are separated deliberately. They used to sit flush inside a card with
+  // overflow:'hidden' and no gap, so the nearest thing to the current row was the
+  // PAST row -- and tapping that rewound the run of show for every guest. The gap
+  // is the fix that hitSlop cannot be: RN's own docs say slop "never extends past
+  // the parent view bounds" and that overlaps resolve by sibling z-order, so slop
+  // between flush siblings buys ambiguity, not safety.
+  scheduleRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 13, paddingHorizontal: 14, borderRadius: radius.field },
   // 72 not 64: the design itself wraps "11:30 PM" at 64. FIDELITY note A.
   time: { width: 72, fontSize: 14, fontVariant: ['tabular-nums'] },
   scheduleTitle: { flex: 1, fontSize: 14 },

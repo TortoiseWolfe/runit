@@ -45,6 +45,31 @@ export class JoinError extends Error {
   }
 }
 
+/**
+ * Raised when `schedule.start` is asked to move the run-of-show cursor BACKWARDS
+ * without being told to.
+ *
+ * The cursor is not private to the host: `nowScheduleItemId` drives every guest's
+ * Now/Next card, so re-starting an item that already ran rewinds the evening for
+ * everyone in the room and posts a second "<title> is starting" broadcast to all
+ * of them. The six rows sit flush in the host console and the past ones are the
+ * nearest neighbours of the current one, which makes that a plausible thumb slip
+ * rather than a rare mistake.
+ *
+ * Going forwards -- the overwhelmingly common case -- is unaffected.
+ */
+export class ScheduleError extends Error {
+  constructor(
+    readonly reason: 'would_rewind',
+    message: string,
+    /** The item the caller asked for, so a confirming retry needs no re-lookup. */
+    readonly itemId: string,
+  ) {
+    super(message);
+    this.name = 'ScheduleError';
+  }
+}
+
 export interface RunitRepository {
   session: {
     current: Observable<Session>;
@@ -71,8 +96,14 @@ export interface RunitRepository {
 
   schedule: {
     items: Observable<ScheduleItem[]>;
-    /** Moves the cursor AND posts "<title> is starting · <place>". */
-    start(id: ScheduleItemId): Promise<void>;
+    /**
+     * Moves the cursor AND posts "<title> is starting · <place>".
+     *
+     * Throws `ScheduleError('would_rewind')` if `id` sits BEFORE the current item,
+     * unless `opts.rewind` is true. Callers surface that as a confirmation rather
+     * than swallowing it -- see `useScheduleActions`.
+     */
+    start(id: ScheduleItemId, opts?: { rewind?: boolean }): Promise<void>;
     add(input: { title: string; timeLabel: string | null; place: string }): Promise<void>;
   };
 

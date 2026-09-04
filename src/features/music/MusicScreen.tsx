@@ -5,7 +5,7 @@ import { EventHeader } from '@/features/chat/EventHeader';
 import { useMusicActions } from '@/state/actions';
 import { useMyRequest, useMyVotes, useNowPlaying, useQueue } from '@/state/hooks';
 import type { SongRequest, SongRequestStatus } from '@/data/types';
-import { alpha, border, eyebrow, fade, radius, useTheme, weight } from '@/theme';
+import { alpha, border, eyebrow, radius, useTheme, weight } from '@/theme';
 
 /**
  * The canvas's `statusText` map has no `declined` key, so a declined request
@@ -20,7 +20,7 @@ const STATUS_TEXT: Record<SongRequestStatus, string> = {
 };
 
 function QueueRow({ request, rank, mine }: { request: SongRequest; rank: number; mine: boolean }) {
-  const { tokens } = useTheme();
+  const { tokens, fade } = useTheme();
   const votes = useMyVotes();
   const { vote } = useMusicActions();
   const voted = votes.has(request.id);
@@ -64,7 +64,7 @@ function QueueRow({ request, rank, mine }: { request: SongRequest; rank: number;
 }
 
 export function MusicScreen() {
-  const { tokens } = useTheme();
+  const { tokens, fade } = useTheme();
   const queue = useQueue();
   const nowPlaying = useNowPlaying();
   const mine = useMyRequest();
