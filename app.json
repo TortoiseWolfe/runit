@@ -7,11 +7,6 @@
     "scheme": "runit",
     "userInterfaceStyle": "automatic",
     "icon": "./assets/icon.png",
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#1A1A2E"
-    },
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": false,
@@ -47,7 +42,15 @@
           "microphonePermission": false
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "backgroundColor": "#1A1A2E",
+          "imageWidth": 180
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
