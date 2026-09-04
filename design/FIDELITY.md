@@ -409,6 +409,14 @@ fires. It was also the *only* route to `/pricing` in the entire UI, so the whole
 paywall was unreachable outside a deep link. It now routes through
 `useGuardedAction` to the pricing screen carrying the denial that caused it.
 
-**The README no longer claims QR scanning.** No scanner exists in `src/`; the join
-screen's "Scanned the QR?" copy sits above a pre-filled field, which is a
-reasonable stand-in, but the README stated it as shipped.
+**~~The README no longer claims QR scanning.~~ Reverted — this one was a mistake.**
+The other three above are the *running app* asserting something false to a user
+mid-event. The README is a statement of what Runit is meant to be, and it was
+correct: QR scanning is intended, and the code is what is behind. Resolving that
+mismatch by editing the doc made the gap quieter instead of louder, which is the
+opposite of every other entry in this file. The claim is restored and QR scanning
+is a named item on the roadmap instead.
+
+Useful thing that came out of it: `expo-camera` **is** bundled in Expo Go 57.0.9
+(239 refs in the shipped APK, verified by dex grep), so a scanner works in both
+clients, and `CameraView` carries `barcodeScannerSettings` — no extra library.

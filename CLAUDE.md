@@ -334,4 +334,11 @@ that lives in a button handler is bypassed by the second caller.
   the injectable transfer (`fixtures/flakyTransfer.ts`, or `?flaky=1` in the
   harness).
 - Supabase adapter (`src/data/supabase/README.md` holds the contract).
-- Push notifications, host invites, QR scanning, calendar export.
+- Push notifications, host invites, calendar export.
+- **QR scanning** — intended (the README says so, and the canvas's "Scanned the QR?"
+  copy sits over a pre-filled field standing in for it). Not built. Tracked as a
+  named item on issue #1 rather than buried here, because it is a product promise,
+  not a nice-to-have. `expo-camera` is bundled in Expo Go 57.0.9 (verified by dex
+  grep) and `CameraView` has `barcodeScannerSettings`, so it needs no extra library
+  — but a scanner is only useful once a code identifies a real event, so it belongs
+  after the backend.

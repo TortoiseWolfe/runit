@@ -1,8 +1,7 @@
 # Runit
 
-An event companion app for iOS. Guests type a code, pick a nickname, and they
-are in — no account, no phone number. (QR scanning is not built yet; the join
-screen's pre-filled code stands in for it. See "Not built yet" in CLAUDE.md.)
+An event companion app for iOS. Guests scan a QR or type a code, pick a
+nickname, and they are in — no account, no phone number.
 
 **Guests** get three tabs: **Chat** (host announcements and a live "Now / Next"
 run of show), **Photos** (a shared album where uploads appear once a host
