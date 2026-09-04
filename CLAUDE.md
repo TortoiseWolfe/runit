@@ -79,8 +79,9 @@ pnpm checks:shell               # container: a bash shell in the same image
 pnpm test                       # jest
 pnpm typecheck                  # tsc --noEmit
 pnpm audit:styles               # Lane A: the RN colour-parser gate
+pnpm audit:targets              # Lane A2: touch targets, WCAG 2.2 SC 2.5.8 (AA)
 pnpm export:web && pnpm shots   # Lane B: screenshots at 402x874 + colour gate
-pnpm test:e2e                   # Lane B: 106 Playwright journeys, dark + light
+pnpm test:e2e                   # Lane B: 110 Playwright journeys, dark + light
 pnpm render:canvas              # regenerate design/renders/ from the canvas
 ```
 
@@ -105,6 +106,21 @@ already inside the container or want it on the host.
 
 ## Verification lanes
 
+**A2 — static touch-target audit** (`pnpm audit:targets`). The only lane that can
+see a touch target at all: react-native-web **drops `hitSlop`**, so Lane B keeps
+reporting failure after a correct fix, and `uiautomator dump` reports
+accessibility-tree bounds rather than touch rects, so Lane C is blind too.
+
+It is a **declaration** check, not a geometry check — resolving `StyleSheet.create`
+through spreads and conditionals would be a heuristic wearing a measurement's
+clothes. It asks whether every `Pressable` declares a reachable target, and carries
+the same coverage floor as Lane A.
+
+**The bar is WCAG 2.2 SC 2.5.8 (Level AA) at 24×24**, not 44×44. 44 is SC 2.5.5
+(Enhanced), Level AAA — and Apple's HIG number, which is why it gets quoted as
+though it were the standard. An audit run at the wrong level reports two dozen
+false failures and gets switched off.
+
 **A — static style audit** (`pnpm audit:styles`). The only check that catches a
 colour RN cannot parse. Has a coverage floor: if it audits fewer literals than
 expected it fails, because a matcher that stops matching passes having measured
@@ -114,9 +130,12 @@ nothing.
 
 `pnpm shots` walks the screens and writes PNGs, ending with a **colour gate**
 that reads base-100 back out of every one — added because the DOM once reported
-dark while the screen was light, and only the pixels caught it.
+dark while the screen was light, and only the pixels caught it — and a **contrast
+gate** that composites every rendered text colour over its painted backdrop and
+fails below WCAG AA. Contrast, unlike `hitSlop`, is honestly measurable in this
+lane: `alpha()` emits a real `rgba()` over real DOM backgrounds.
 
-`pnpm test:e2e` runs 106 journey tests (`tests/e2e/`) across both colour
+`pnpm test:e2e` runs 110 journey tests (`tests/e2e/`) across both colour
 schemes: join and its rejection path, the three guest tabs, the host console,
 the pricing ladder and every denial it can render, and the painted theme
 tokens. Each spec was written against the canvas and then attacked by a critic
@@ -223,6 +242,14 @@ that lives in a button handler is bypassed by the second caller.
   testID and `patchRequest` — which matches by id — patched both. Removing a
   vote from the new song pulled the seeded one down with it. If you add a seed,
   you inherit the fix; if you replace the id scheme, keep the property.
+- `fade` (`src/theme/typography.ts`) is **per-scheme and comes from `useTheme()`**,
+  not from the module import. The canvas's single ramp fails WCAG AA — the two
+  schemes need different numbers because `#1F2937` on `#F5F0EB` has less headroom
+  than `#E2E8F0` on `#1A1A2E`. Never multiply two levels together; a product cannot
+  be fixed by raising the ramp. FIDELITY note H.
+- `schedule.start()` refuses to move the run-of-show cursor **backwards** unless
+  passed `{ rewind: true }`. `nowScheduleItemId` drives every guest's Now/Next card,
+  so a mis-tap on a past row rewound the evening for the whole room. FIDELITY note I.
 - The demo wedding sits on the Event tier where nothing is capped, so the
   gating layer is invisible against it. Use the `housePartySeed` fixture to see
   it work.
