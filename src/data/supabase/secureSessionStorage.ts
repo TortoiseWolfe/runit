@@ -72,6 +72,11 @@ export const secureSessionStorage = {
   async setItem(key: string, value: string): Promise<void> {
     const parts: string[] = [];
     for (let i = 0; i < value.length; i += CHUNK) parts.push(value.slice(i, i + CHUNK));
+    // An empty value chunks to ZERO parts, which would write n=0 -- and getItem
+    // treats n<1 as "nothing stored" and returns null. So '' would round-trip as
+    // absent rather than as empty. One empty part keeps the invariant the read
+    // side relies on: n is always at least 1 when a value exists.
+    if (parts.length === 0) parts.push('');
 
     // Write the parts BEFORE the count. The count is what getItem trusts, so
     // until it lands the old session stays readable and a crash mid-write leaves
