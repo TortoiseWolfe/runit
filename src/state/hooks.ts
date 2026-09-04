@@ -22,6 +22,19 @@ export const useHosts = () => useObservable(useRepository().hosts.all);
 /** Live tier + usage. For ADVISORY checks only -- the write methods enforce. */
 export const useEntitlements = () => useObservable(useRepository().entitlements);
 
+/* -------------------------------------------------- moderation (Guideline 1.2) */
+
+/**
+ * People this guest has blocked. For the management list ONLY -- their content is
+ * already filtered out of useApprovedPhotos, useQueue, useIncoming and useAccepted
+ * before those hooks return, so no screen needs to consult this to render correctly.
+ */
+export const useBlocked = () => useObservable(useRepository().moderation.blocked);
+/** The host's open-report queue: unresolved, oldest first. */
+export const useReports = () => useObservable(useRepository().moderation.reports);
+/** Subject keys this guest has already reported. See `subjectKey` in data/types. */
+export const useMyReports = () => useObservable(useRepository().moderation.myReports);
+
 /** The current guest's own request, if they have one in the live queue. */
 export function useMyRequest() {
   const queue = useQueue();

@@ -68,6 +68,18 @@ const EXCEPTIONS = [
       'Toast.tsx derives its own position from tabBar.contentHeight, so this ' +
       'geometry is load-bearing elsewhere and must not be "fixed" casually.',
   },
+  {
+    file: 'src/features/moderation/ReportSheet.tsx',
+    why:
+      'The only flagged element is the modal BACKDROP, whose style is `flex: 1` inside ' +
+      'a <Modal>. It is the largest target in the app -- every pixel not covered by the ' +
+      'sheet -- and it is the standard tap-outside-to-dismiss affordance. `flex: 1` ' +
+      'resolves against the modal root at runtime, so there is no number in the source ' +
+      'for a static rule to read, and inventing a minHeight here would be a fiction ' +
+      'that satisfies the tool without changing the rendering. Every other control in ' +
+      'this file declares 56, 48 or 36 explicitly. Re-check this entry if the backdrop ' +
+      'ever stops being full-bleed.',
+  },
 ];
 
 /**

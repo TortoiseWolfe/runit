@@ -1,7 +1,8 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { useRouter } from 'expo-router';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { useEvent } from '@/state/hooks';
+import { useBlocked, useEvent } from '@/state/hooks';
 import { alpha, border, insetDelta, radius, tracking, useTheme, weight } from '@/theme';
 
 /**
@@ -12,7 +13,9 @@ import { alpha, border, insetDelta, radius, tracking, useTheme, weight } from '@
 export function EventHeader({ eyebrow: eyebrowText }: { eyebrow: string }) {
   const { tokens, fade } = useTheme();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const event = useEvent();
+  const blocked = useBlocked();
 
   return (
     <View
@@ -29,6 +32,26 @@ export function EventHeader({ eyebrow: eyebrowText }: { eyebrow: string }) {
           {event?.name ?? ''}
         </Text>
       </View>
+      {/*
+        SHOWN ONLY WHEN IT IS NON-EMPTY, which is the whole design. Most guests block
+        nobody, so a permanent fourth tab would cost every one of them a slot to carry
+        an empty list. Appearing the moment there is something to manage puts the way
+        back exactly where someone who just blocked a person will look for it.
+      */}
+      {blocked.length > 0 && (
+        <Pressable
+          onPress={() => router.navigate('/blocked')}
+          accessibilityRole="button"
+          accessibilityLabel={`Manage ${blocked.length} blocked ${blocked.length === 1 ? 'person' : 'people'}`}
+          testID="blocked-pill"
+          hitSlop={8}
+          style={[s.pill, { backgroundColor: tokens.base200, borderColor: tokens.base300 }]}
+        >
+          <Text style={[s.pillText, { color: tokens.baseContent }]}>
+            {blocked.length} blocked
+          </Text>
+        </Pressable>
+      )}
       <View style={[s.pill, { backgroundColor: tokens.base200, borderColor: tokens.base300 }]}>
         <Text style={[s.pillText, { color: tokens.baseContent }]}>{event?.guestCount ?? 0} here</Text>
       </View>

@@ -1,8 +1,13 @@
+import { useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { EventHeader } from '@/features/chat/EventHeader';
+import { ReportSheet } from '@/features/moderation/ReportSheet';
 import { usePhotoActions } from '@/state/actions';
-import { useActiveFolder, useApprovedPhotos, useFolders, useMyUploads } from '@/state/hooks';
+import {
+  useActiveFolder, useApprovedPhotos, useFolders, useMyReports, useMyUploads,
+} from '@/state/hooks';
+import { subjectKey, type Photo } from '@/data/types';
 import { albumTileColor, alpha, border, radius, tracking, useTheme, weight } from '@/theme';
 
 /**
@@ -41,6 +46,11 @@ export function PhotosScreen() {
   // This guest's own transfers -- in flight or failed. Nobody else's.
   const mine = useMyUploads();
   const { capture, retry, selectFolder } = usePhotoActions();
+  const myReports = useMyReports();
+  // The photo whose sheet is open, or null. Holding the ROW rather than the id keeps
+  // the label and the author available after a realtime update removes it from the
+  // grid -- otherwise reporting the thing that just got hidden crashes the sheet.
+  const [reporting, setReporting] = useState<Photo | null>(null);
 
   const visible = approved.filter((p) => p.folderId === active?.id);
   const totalPhotos = folders.reduce((a, f) => a + f.photoCount, 0);
@@ -196,10 +206,51 @@ export function PhotosScreen() {
               {p.localUri ? (
                 <Image source={{ uri: p.localUri }} style={s.tileImage} resizeMode="cover" />
               ) : null}
+              {/*
+                A VISIBLE control, not a long-press. Guideline 1.2 asks that reporting
+                be available, and a gesture with no affordance is not available to a
+                reviewer who does not know to try it -- nor to a guest upset enough to
+                want it. It sits on the tile because that is the thing being reported.
+              */}
+              <Pressable
+                onPress={() => setReporting(p)}
+                accessibilityRole="button"
+                accessibilityLabel={`Report or block, photo from ${p.uploadedByName}`}
+                // NOT `tile-report-...`: guest-photos.spec.ts counts the album with
+                // getByTestId(/^tile-/), and a second element per tile matching that
+                // prefix silently doubled the count from 9 to 18.
+                testID={`report-tile-${p.id}`}
+                hitSlop={6}
+                // SOLID, not alpha. A translucent chip composites against whatever hue
+                // the tile happens to be, so its contrast is a different number on every
+                // photo -- the colour gate measured six tiles at 1.75:1 to 1.83:1 against
+                // a 4.5:1 bar. neutral/neutralContent is a designed pair and passes by
+                // construction, whatever is underneath it.
+                style={[s.tileReport, { backgroundColor: tokens.neutral }]}
+              >
+                <Text style={[s.tileReportGlyph, { color: tokens.neutralContent }]}>⋯</Text>
+              </Pressable>
             </View>
           ))}
         </View>
       </ScrollView>
+
+      <ReportSheet
+        visible={reporting !== null}
+        onClose={() => setReporting(null)}
+        subject={reporting === null ? null : { kind: 'photo', photoId: reporting.id }}
+        subjectLabel={reporting === null ? '' : `Photo from ${reporting.uploadedByName}`}
+        // Null for a row nobody owns -- the seeded album has nine. Hiding the block
+        // option is correct there: there is no person to stop seeing.
+        author={
+          reporting === null || reporting.uploadedByGuestId === null
+            ? null
+            : { guestId: reporting.uploadedByGuestId, nickname: reporting.uploadedByName }
+        }
+        alreadyReported={
+          reporting !== null && myReports.has(subjectKey({ kind: 'photo', photoId: reporting.id }))
+        }
+      />
 
       <View style={[s.albumBar, { borderTopColor: tokens.base300 }]}>
         <Pressable
@@ -245,6 +296,14 @@ const s = StyleSheet.create({
   chips: { gap: 8, paddingTop: 14, paddingBottom: 6, paddingHorizontal: 20 },
   chip: { paddingVertical: 7, paddingHorizontal: 12, borderRadius: radius.pill, borderWidth: border },
   chipText: { fontSize: 13 },
+  // 28 clears WCAG 2.2 SC 2.5.8 (24, AA) on its own, and hitSlop 6 takes the real
+  // target to 40 -- close to SC 2.5.5's 44 without covering a third of the tile.
+  tileReport: {
+    position: 'absolute', top: 4, right: 4,
+    width: 28, height: 28, borderRadius: 14,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  tileReportGlyph: { fontSize: 16, lineHeight: 18, fontWeight: weight.bold },
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
