@@ -539,17 +539,34 @@ alter publication supabase_realtime add table public.photos;
 -- own grant and leaves the PUBLIC grant standing, which anon still inherits --
 -- the statement succeeds and changes nothing. Read it back in pg_proc.proacl:
 -- the PUBLIC entry is `=X/postgres`, with an EMPTY grantee.
+--
+-- AND IT MUST NAME THE ROLES TOO -- the half this file got wrong for a year. Supabase
+-- ships `ALTER DEFAULT PRIVILEGES ... GRANT EXECUTE ON FUNCTIONS TO anon, authenticated`,
+-- so a new function arrives with NAMED grants as well as the PUBLIC one. Revoking only
+-- `public` deletes the entry that was doing the least work and leaves
+-- `anon=X/postgres | authenticated=X/postgres` in proacl, still reachable over
+-- /rest/v1/rpc/. The security advisor flagged five functions this way, including two
+-- trigger functions that should never have been callable at all. The end state to check
+-- for is `postgres=X/postgres | service_role=X/postgres` and nothing else:
+--
+--   select proname, array_to_string(proacl, ' | ') from pg_proc
+--    where pronamespace = 'public'::regnamespace and proname = '<name>';
+--
+-- Revoking EXECUTE from a TRIGGER function does not stop the trigger -- EXECUTE is
+-- checked at CREATE TRIGGER time against the table owner, never at fire time against
+-- the caller. Verified for stamp_block_name and stamp_report_resolver specifically,
+-- after the revoke, not assumed from the note above.
 
-revoke execute on function public.fold_vote_count()  from public;
-revoke execute on function public.fold_guest_count() from public;
-revoke execute on function public.fold_seen_count()  from public;
-revoke execute on function public.fold_photo_count() from public;
+revoke execute on function public.fold_vote_count()  from public, anon, authenticated;
+revoke execute on function public.fold_guest_count() from public, anon, authenticated;
+revoke execute on function public.fold_seen_count()  from public, anon, authenticated;
+revoke execute on function public.fold_photo_count() from public, anon, authenticated;
 
-revoke execute on function public.my_guest_id(uuid)                  from public;
-revoke execute on function public.is_host(uuid)                      from public;
-revoke execute on function public.join_event(text, text)             from public;
-revoke execute on function public.play_next(uuid)                    from public;
-revoke execute on function public.start_schedule_item(uuid, boolean) from public;
+revoke execute on function public.my_guest_id(uuid)                  from public, anon;
+revoke execute on function public.is_host(uuid)                      from public, anon;
+revoke execute on function public.join_event(text, text)             from public, anon;
+revoke execute on function public.play_next(uuid)                    from public, anon;
+revoke execute on function public.start_schedule_item(uuid, boolean) from public, anon;
 
 -- The four fold_* functions get NOTHING back. They are trigger functions and
 -- nothing should reach them over HTTP. This does not stop the triggers: EXECUTE
@@ -739,7 +756,7 @@ begin
   return v_host;
 end $$;
 
-revoke execute on function public.claim_host(text, text) from public;
+revoke execute on function public.claim_host(text, text) from public, anon;
 grant  execute on function public.claim_host(text, text) to authenticated;
 
 -- ========================================================================
@@ -814,4 +831,329 @@ create trigger invitees_fold
   after insert or delete on public.invitees
   for each row execute function public.fold_invited_count();
 
-revoke execute on function public.fold_invited_count() from public;
+revoke execute on function public.fold_invited_count() from public, anon, authenticated;
+
+-- ========================================================================
+-- MODERATION -- App Review Guideline 1.2
+-- ========================================================================
+--
+-- Guideline 1.2 asks four things of any app carrying user-generated content, and
+-- Runit carries three kinds of it: photographs, song request text, and nicknames.
+--
+--   1. A method for filtering objectionable material.  ALREADY PRESENT -- photos
+--      land 'pending' and a host approves or hides them (photos_moderate), and a
+--      host accepts or declines every song request (requests_moderate).
+--   2. A mechanism to report offensive content.        THIS SECTION.
+--   3. The ability to block abusive users.             THIS SECTION.
+--   4. Published contact information.                  ALREADY PRESENT -- the
+--      support page in the runit-legal repo, linked from the App Store listing.
+--
+-- Two and three are what this section adds. They are the two that block Add for
+-- Review, and neither had any server-side route at all: a report method with no
+-- table behind it would have been a button that did nothing, which is worse than
+-- an absent one because it tells a guest their concern was recorded.
+
+-- A composite key so a block can be constrained to ONE EVENT.
+--
+-- `references public.guests(id)` alone would let a row name a blocker from one event
+-- and a blocked guest from another -- the FKs would both pass and the pair would be
+-- meaningless. Postgres cannot express "same event_id" in a CHECK (it cannot see
+-- another row), so the constraint has to travel through the foreign key itself, and
+-- that needs a unique key on the pair being referenced.
+alter table public.guests add constraint guests_id_event_key unique (id, event_id);
+
+-- ------------------------------------------------------------------------
+-- REPORTS
+-- ------------------------------------------------------------------------
+--
+-- POLYMORPHIC, and deliberately so. Three separate report tables would need three
+-- policies, three observables and three host queues, and the host's question is one
+-- question -- "what has been flagged?" -- asked across all of it. The discriminator
+-- plus a CHECK gives one queue without giving up referential integrity: each subject
+-- keeps its own real foreign key, so a report cannot name a photo that never existed.
+create table public.reports (
+  id                  uuid primary key default gen_random_uuid(),
+  event_id            uuid not null references public.events(id) on delete cascade,
+  -- NULL once the reporter leaves. The report OUTLIVES them on purpose: a host must
+  -- still be able to act on a flagged photo after the person who flagged it has gone.
+  reporter_guest_id   uuid references public.guests(id) on delete set null,
+  -- DENORMALISED, and not for speed. `guests` has NO select policy at all -- a host
+  -- cannot read that table, by design, so a host CANNOT JOIN to find out who filed a
+  -- report. The name has to travel with the row or the queue renders anonymous. Same
+  -- reason `broadcasts.author_name` and `photos.uploaded_by_name` exist.
+  reporter_name       text not null,
+  subject_kind        text not null
+                        check (subject_kind in ('photo','song_request','guest')),
+  subject_photo_id    uuid references public.photos(id)        on delete cascade,
+  subject_request_id  uuid references public.song_requests(id) on delete cascade,
+  subject_guest_id    uuid references public.guests(id)        on delete cascade,
+  -- A CLOSED SET, and the words are the ones Apple's own reviewers look for. Free text
+  -- alone would make the host queue unsortable and give a reviewer nothing to see.
+  reason              text not null
+                        check (reason in ('nudity','harassment','violence',
+                                          'hate','spam','other')),
+  -- The reporter's own words, optional. Never required -- demanding an explanation
+  -- before someone can flag a photograph of themselves is a reason not to flag it.
+  note                text not null default '',
+  -- What the host sees in the queue: "Photo from Sam", "September -- Earth, Wind & Fire",
+  -- a nickname. Same reason as reporter_name -- a photo row is readable by a host, but a
+  -- song request's requester and a reported guest's nickname both live behind `guests`.
+  -- Derived SERVER-SIDE in file_report(), never supplied by the client.
+  subject_label       text not null,
+  resolved_at         timestamptz,
+  resolution          text check (resolution in ('removed','blocked','dismissed')),
+  resolved_by_host_id uuid references public.hosts(id) on delete set null,
+  created_at          timestamptz not null default now(),
+
+  -- Exactly one subject, and it must be the one the discriminator names.
+  constraint reports_one_subject check (
+       (subject_kind = 'photo'
+          and subject_photo_id   is not null
+          and subject_request_id is null and subject_guest_id is null)
+    or (subject_kind = 'song_request'
+          and subject_request_id is not null
+          and subject_photo_id   is null and subject_guest_id is null)
+    or (subject_kind = 'guest'
+          and subject_guest_id   is not null
+          and subject_photo_id   is null and subject_request_id is null)
+  ),
+  -- Resolved means resolved SOMEHOW. A timestamp with no outcome is a row that says
+  -- a host looked and refuses to say what they did.
+  constraint reports_resolution_paired check (
+    (resolved_at is null and resolution is null)
+      or (resolved_at is not null and resolution is not null)
+  )
+);
+
+-- ONE REPORT PER PERSON PER THING. Without this a single guest can file the same
+-- complaint two hundred times and bury every other flag in the host's queue -- the
+-- report mechanism becomes its own abuse vector. Re-reporting is a no-op, not an error.
+create unique index reports_one_per_reporter on public.reports (
+  reporter_guest_id,
+  subject_kind,
+  coalesce(subject_photo_id, subject_request_id, subject_guest_id)
+);
+
+-- The host queue's own access path: open reports for this event, oldest first.
+create index on public.reports (event_id, resolved_at, created_at);
+
+-- ------------------------------------------------------------------------
+-- BLOCKS
+-- ------------------------------------------------------------------------
+--
+-- WHY THIS IS NOT ENFORCED IN RLS, which is the obvious place to reach for.
+--
+-- A block is a VIEWER PREFERENCE, not a permission. Two things follow, and both
+-- argue against a policy:
+--
+--   `folders.photo_count` is trigger-maintained over approved photos and is ONE
+--   NUMBER FOR THE ROOM. If blocks filtered `photos_read`, the count would keep
+--   saying 40 while a blocker's album showed 37, and no trigger can fix that --
+--   the count would have to become per-viewer, which is not a count.
+--
+--   The host must go on seeing everything. Moderation is the host's job and a
+--   guest's block cannot be allowed to hide evidence from it. An RLS branch that
+--   said "unless you are a host" on every hot policy is more surface, evaluated on
+--   every row read, to express something the client already knows.
+--
+-- So the rows live here -- server-side, so a block survives a reinstall, which
+-- matters because the anonymous identity persists in the keychain -- and the
+-- REPOSITORY applies them. Both adapters filter in one place behind the interface,
+-- which is exactly the seam that stops each screen growing its own copy.
+create table public.guest_blocks (
+  event_id         uuid not null references public.events(id) on delete cascade,
+  blocker_guest_id uuid not null,
+  blocked_guest_id uuid not null,
+  -- Denormalised for the third time in this file, and for the third identical reason:
+  -- `guests` has no select policy, so the blocker cannot look up who they blocked. A
+  -- "Blocked people" screen that lists UUIDs is a screen nobody can use to unblock the
+  -- right person. Stamped by trigger, not sent -- see stamp_block_name() below.
+  blocked_name     text not null default '',
+  created_at       timestamptz not null default now(),
+  primary key (blocker_guest_id, blocked_guest_id),
+  constraint guest_blocks_not_self check (blocker_guest_id <> blocked_guest_id),
+  foreign key (blocker_guest_id, event_id)
+    references public.guests (id, event_id) on delete cascade,
+  foreign key (blocked_guest_id, event_id)
+    references public.guests (id, event_id) on delete cascade
+);
+
+alter table public.reports      enable row level security;
+alter table public.guest_blocks enable row level security;
+
+-- NO INSERT POLICY. Reports arrive only through file_report() below, the same way
+-- guests arrive only through join_event(). A `with check (reporter_guest_id =
+-- my_guest_id(event_id))` policy looks sufficient and is not, for two reasons that a
+-- policy structurally cannot reach:
+--
+--   IT CANNOT DERIVE THE DENORMALISED FIELDS. reporter_name and subject_label would be
+--   whatever the client sent. A guest could file a report captioned as somebody else.
+--
+--   IT CANNOT SEE THE SUBJECT'S EVENT. `subject_photo_id references photos(id)` does not
+--   constrain the photo to THIS event, and the policy only checks the reporter. So a
+--   guest of event A could file a report against a photo in event B: reporter check
+--   passes, foreign key passes, and A's host gets a queue entry pointing at a row they
+--   are not allowed to read. The composite key trick used on guest_blocks is not
+--   available here, because the subject is polymorphic across three tables.
+
+-- Your own reports, plus everything if you are a host. A guest seeing their own row
+-- back is what lets the UI say "Reported" instead of re-offering the button; a guest
+-- seeing ANOTHER guest's report would turn the queue into a gossip feed.
+create policy reports_read on public.reports for select
+  using (reporter_guest_id = public.my_guest_id(event_id) or public.is_host(event_id));
+
+create policy reports_host_resolve on public.reports for update
+  using (public.is_host(event_id)) with check (public.is_host(event_id));
+
+-- NO DELETE POLICY, for anyone -- the same mechanism folders and photos use, and for a
+-- related reason. A resolved report is the audit trail that says a human looked, which is
+-- the half of Guideline 1.2 that "timely responses to concerns" actually asks for. It is
+-- worth nothing if the person being complained about can erase it.
+
+-- Blocks are private to the blocker. Not even a host reads them: a host has no action
+-- to take on one, and publishing "who is avoiding whom" at a wedding is its own harm.
+create policy blocks_own on public.guest_blocks for select
+  using (blocker_guest_id = public.my_guest_id(event_id));
+create policy blocks_insert on public.guest_blocks for insert
+  with check (blocker_guest_id = public.my_guest_id(event_id));
+-- DELETE *is* granted, unlike folders and photos, for the invitees reason: no bytes
+-- hang off a block. Unblocking has to work, and it strands nothing.
+create policy blocks_delete on public.guest_blocks for delete
+  using (blocker_guest_id = public.my_guest_id(event_id));
+
+-- A policy says WHO may write, never WHICH COLUMNS -- the same gap `events` had. A host
+-- resolving a report must not be able to rewrite the `reason` or the reporter's `note`,
+-- because that is editing the evidence to match the verdict.
+revoke update on public.reports      from authenticated, anon;
+-- `resolved_by_host_id` is deliberately NOT here. It is stamped by the trigger below from
+-- auth.uid(), so one host cannot sign another host's name to a decision.
+grant  update (resolved_at, resolution) on public.reports to authenticated;
+
+-- Nothing updates a block: you make one or you remove it.
+revoke update on public.guest_blocks from authenticated, anon;
+
+-- The host console's open-report badge has to move without a refresh, for the same
+-- reason the photo approvals badge does. `guest_blocks` is NOT published: the only
+-- device that cares made the change itself.
+alter publication supabase_realtime add table public.reports;
+
+-- ------------------------------------------------------------------------
+-- FILING A REPORT -- the only route in
+-- ------------------------------------------------------------------------
+--
+-- SECURITY DEFINER for the same reason join_event is: it has to read rows the caller
+-- cannot. It derives the reporter's name and the subject's label from the real rows,
+-- and it refuses a subject that is not in this event -- the check no INSERT policy can
+-- make, because the subject is polymorphic across three tables and a foreign key only
+-- knows the id.
+--
+-- Returns the new report's id, or NULL when this guest had already reported this exact
+-- subject. NULL is a SUCCESS, not a failure: the caller has nothing left to do, and
+-- raising here would make a double-tap look like a broken button.
+create or replace function public.file_report(
+  p_event_id   uuid,
+  p_kind       text,
+  p_subject_id uuid,
+  p_reason     text,
+  p_note       text default ''
+) returns uuid
+language plpgsql security definer set search_path = public as $$
+declare
+  v_guest_id uuid;
+  v_name     text;
+  v_label    text;
+  v_id       uuid;
+begin
+  v_guest_id := public.my_guest_id(p_event_id);
+  if v_guest_id is null then
+    raise exception 'not_in_event' using errcode = '42501';
+  end if;
+  select g.nickname into v_name from public.guests g where g.id = v_guest_id;
+
+  -- Each branch filters on event_id as well as id. That predicate IS the cross-event
+  -- check: a subject from another event simply selects no row and v_label stays null.
+  if p_kind = 'photo' then
+    select 'Photo from ' || p.uploaded_by_name into v_label
+      from public.photos p
+     where p.id = p_subject_id and p.event_id = p_event_id;
+  elsif p_kind = 'song_request' then
+    select r.title || case when r.artist = '' then '' else ' -- ' || r.artist end
+      into v_label
+      from public.song_requests r
+     where r.id = p_subject_id and r.event_id = p_event_id;
+  elsif p_kind = 'guest' then
+    -- Reporting yourself is not a thing. It is not harmful, but it is certainly a
+    -- mistake, and letting it through puts noise in a queue a host has to read.
+    if p_subject_id = v_guest_id then
+      raise exception 'cannot_report_self' using errcode = '22023';
+    end if;
+    select g.nickname into v_label
+      from public.guests g
+     where g.id = p_subject_id and g.event_id = p_event_id;
+  else
+    raise exception 'bad_subject_kind' using errcode = '22023';
+  end if;
+
+  if v_label is null then
+    raise exception 'subject_not_in_event' using errcode = '42501';
+  end if;
+
+  insert into public.reports (
+    event_id, reporter_guest_id, reporter_name, subject_kind,
+    subject_photo_id, subject_request_id, subject_guest_id,
+    subject_label, reason, note
+  ) values (
+    p_event_id, v_guest_id, v_name, p_kind,
+    case when p_kind = 'photo'        then p_subject_id end,
+    case when p_kind = 'song_request' then p_subject_id end,
+    case when p_kind = 'guest'        then p_subject_id end,
+    v_label, p_reason, coalesce(p_note, '')
+  )
+  on conflict (reporter_guest_id, subject_kind,
+               coalesce(subject_photo_id, subject_request_id, subject_guest_id))
+    do nothing
+  returning id into v_id;
+
+  return v_id;
+end $$;
+
+-- WHO resolved it is stamped here, never sent. The column grant above withholds
+-- `resolved_by_host_id` precisely so this is the only writer: an audit trail whose
+-- signature the signer picks is not an audit trail.
+create or replace function public.stamp_report_resolver() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if new.resolved_at is not null then
+    select h.id into new.resolved_by_host_id
+      from public.hosts h
+     where h.event_id = new.event_id and h.auth_user_id = auth.uid();
+  else
+    new.resolved_by_host_id := null;
+  end if;
+  return new;
+end $$;
+
+create trigger reports_stamp_resolver
+  before update on public.reports
+  for each row execute function public.stamp_report_resolver();
+
+revoke execute on function public.file_report(uuid, text, uuid, text, text) from public, anon;
+revoke execute on function public.stamp_report_resolver()                   from public, anon, authenticated;
+grant  execute on function public.file_report(uuid, text, uuid, text, text) to authenticated;
+
+-- The blocked person's name, resolved from the real row rather than trusted from the
+-- client. A block is a direct INSERT (its policy can express everything that matters,
+-- unlike reports), so a trigger is the cheap way to keep the label honest.
+create or replace function public.stamp_block_name() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  select g.nickname into new.blocked_name
+    from public.guests g where g.id = new.blocked_guest_id;
+  return new;
+end $$;
+
+create trigger guest_blocks_stamp_name
+  before insert on public.guest_blocks
+  for each row execute function public.stamp_block_name();
+
+revoke execute on function public.stamp_block_name() from public, anon, authenticated;

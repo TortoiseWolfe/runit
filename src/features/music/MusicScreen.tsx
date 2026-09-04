@@ -2,9 +2,10 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { EventHeader } from '@/features/chat/EventHeader';
+import { ReportSheet } from '@/features/moderation/ReportSheet';
 import { useMusicActions } from '@/state/actions';
-import { useMyRequest, useMyVotes, useNowPlaying, useQueue } from '@/state/hooks';
-import type { SongRequest, SongRequestStatus } from '@/data/types';
+import { useMyReports, useMyRequest, useMyVotes, useNowPlaying, useQueue } from '@/state/hooks';
+import { subjectKey, type SongRequest, type SongRequestStatus } from '@/data/types';
 import { alpha, border, eyebrow, radius, useTheme, weight } from '@/theme';
 
 /**
@@ -19,7 +20,11 @@ const STATUS_TEXT: Record<SongRequestStatus, string> = {
   declined: 'Not this time',
 };
 
-function QueueRow({ request, rank, mine }: { request: SongRequest; rank: number; mine: boolean }) {
+function QueueRow({
+  request, rank, mine, onReport,
+}: {
+  request: SongRequest; rank: number; mine: boolean; onReport: (r: SongRequest) => void;
+}) {
   const { tokens, fade } = useTheme();
   const votes = useMyVotes();
   const { vote } = useMusicActions();
@@ -59,6 +64,24 @@ function QueueRow({ request, rank, mine }: { request: SongRequest; rank: number;
           ▲ {request.voteCount}
         </Text>
       </Pressable>
+      {/*
+        Song requests are free text, so they are user-generated content in exactly the
+        way Guideline 1.2 means -- a title field will carry abuse the moment someone
+        wants it to. Not offered on your OWN request: there is nothing to report and
+        nobody to block.
+      */}
+      {!mine && (
+        <Pressable
+          onPress={() => onReport(request)}
+          accessibilityRole="button"
+          accessibilityLabel={`Report or block, ${request.title} requested by ${request.requestedByName}`}
+          testID={`request-report-${request.id}`}
+          hitSlop={8}
+          style={s.rowReport}
+        >
+          <Text style={[s.rowReportGlyph, { color: alpha(tokens.baseContent, fade.faint) }]}>⋯</Text>
+        </Pressable>
+      )}
     </View>
   );
 }
@@ -69,7 +92,9 @@ export function MusicScreen() {
   const nowPlaying = useNowPlaying();
   const mine = useMyRequest();
   const { request } = useMusicActions();
+  const myReports = useMyReports();
   const [draft, setDraft] = useState('');
+  const [reporting, setReporting] = useState<SongRequest | null>(null);
 
   const submit = async () => {
     await request(draft);
@@ -123,9 +148,32 @@ export function MusicScreen() {
             request={r}
             rank={i + 1}
             mine={mine?.request.id === r.id}
+            onReport={setReporting}
           />
         ))}
       </ScrollView>
+
+      <ReportSheet
+        visible={reporting !== null}
+        onClose={() => setReporting(null)}
+        subject={reporting === null ? null : { kind: 'song_request', requestId: reporting.id }}
+        subjectLabel={
+          reporting === null
+            ? ''
+            : reporting.artist
+              ? `${reporting.title} -- ${reporting.artist}`
+              : reporting.title
+        }
+        author={
+          reporting === null || reporting.requestedByGuestId === null
+            ? null
+            : { guestId: reporting.requestedByGuestId, nickname: reporting.requestedByName }
+        }
+        alreadyReported={
+          reporting !== null &&
+          myReports.has(subjectKey({ kind: 'song_request', requestId: reporting.id }))
+        }
+      />
 
       <View style={[s.composer, { borderTopColor: tokens.base300 }]}>
         <TextInput
@@ -186,6 +234,11 @@ const s = StyleSheet.create({
   rank: { width: 22, fontSize: 13, textAlign: 'center' },
   rowBody: { flex: 1, minWidth: 0 },
   rowTitle: { fontSize: 15, fontWeight: weight.medium },
+  // 32 wide clears SC 2.5.8 (24, AA); hitSlop 8 takes the real target to 48, past
+  // SC 2.5.5's 44, because it sits next to the vote button and a mis-tap there is
+  // the difference between muting someone and upvoting them.
+  rowReport: { width: 32, minHeight: 32, alignItems: 'center', justifyContent: 'center' },
+  rowReportGlyph: { fontSize: 18, lineHeight: 20, fontWeight: weight.bold },
   rowSub: { fontSize: 12 },
   voteButton: {
     height: 36, minWidth: 56, paddingHorizontal: 10,

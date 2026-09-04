@@ -12,7 +12,10 @@ import { EntitlementError, JoinError, ScheduleError, type UploadOutcome } from '
 import { capturePhoto } from '@/lib/capture';
 import { checkLimit } from '@/domain/entitlements';
 import { useEntitlements } from './hooks';
-import type { HostRole, ScheduleItemId, SongRequestId, PhotoId, FolderId } from '@/data/types';
+import type {
+  FolderId, GuestId, HostRole, PhotoId, ReportId, ReportReason, ReportResolution,
+  ReportSubject, ScheduleItemId, SongRequestId,
+} from '@/data/types';
 import { useRepository } from './RepositoryProvider';
 import { useToast } from './ToastProvider';
 
@@ -230,5 +233,45 @@ export function useHostActions() {
         guarded(() => repo.hosts.invite({ displayName, role })),
     }),
     [repo, guarded, show],
+  );
+}
+
+/**
+ * Report, block and resolve.
+ *
+ * Guideline 1.2 wants these reachable and wants them to visibly do something -- a
+ * reviewer taps Report and looks for evidence it was received. So every path here
+ * ends in a toast, including the already-reported one, which would otherwise look
+ * like a dead button to the one person pressing it correctly.
+ */
+export function useModerationActions() {
+  const repo = useRepository();
+  const { show } = useToast();
+  return useMemo(
+    () => ({
+      report: async (subject: ReportSubject, reason: ReportReason, note?: string) => {
+        await repo.moderation.report({ subject, reason, note });
+        show('Reported. A host will review it.');
+      },
+      block: async (guestId: GuestId, nickname: string) => {
+        await repo.moderation.block(guestId);
+        show(`You will not see posts from ${nickname}.`);
+      },
+      unblock: async (guestId: GuestId, nickname: string) => {
+        await repo.moderation.unblock(guestId);
+        show(`Unblocked ${nickname}.`);
+      },
+      resolve: async (id: ReportId, resolution: ReportResolution) => {
+        await repo.moderation.resolve(id, resolution);
+        show(
+          resolution === 'removed'
+            ? 'Removed, and the report is closed.'
+            : resolution === 'blocked'
+              ? 'Closed, and the guest is blocked.'
+              : 'Closed with no action.',
+        );
+      },
+    }),
+    [repo, show],
   );
 }

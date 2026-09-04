@@ -16,7 +16,8 @@
  * web client cannot route around them.
  */
 import type {
-  Broadcast, Folder, FolderId, HostRole, NowPlaying, Photo, PhotoId,
+  BlockedGuest, Broadcast, Folder, FolderId, GuestId, HostRole, NowPlaying, Photo, PhotoId,
+  Report, ReportId, ReportReason, ReportResolution, ReportSubject,
   RunitEvent, ScheduleItem, ScheduleItemId, Session, SongRequest, SongRequestId,
 } from './types';
 import type { EntitlementDenial, Entitlements } from '@/domain/entitlements';
@@ -204,5 +205,45 @@ export interface RunitRepository {
   hosts: {
     all: Observable<{ id: string; displayName: string; role: HostRole }[]>;
     invite(input: { displayName: string; role: HostRole }): Promise<void>;
+  };
+
+  /**
+   * App Review Guideline 1.2, the two halves that had no route.
+   *
+   * WHY BLOCKING LIVES HERE RATHER THAN IN EACH SCREEN. A block hides one guest's
+   * content from one other guest, which touches `photos.approved`, `music.queue`,
+   * `music.incoming` and `music.accepted` -- four observables on three screens. Applied
+   * per screen it would be four copies of the same filter, and the fifth caller would
+   * forget. Applied here it is one filter behind the seam, and the observables above
+   * are ALREADY FILTERED by the time a screen sees them. That is the invariant: a
+   * blocked guest's content does not reach the UI at all.
+   *
+   * The host is deliberately exempt. Moderation is the host's job, and a guest's block
+   * cannot be allowed to hide evidence from the console -- so the filter applies to the
+   * guest-facing observables, never to `photos.pending` or `moderation.reports`.
+   */
+  moderation: {
+    /**
+     * Everyone this guest has blocked, newest first. For the management list -- their
+     * content is already gone from every observable above.
+     */
+    blocked: Observable<BlockedGuest[]>;
+    /** The host queue: UNRESOLVED reports, oldest first, because a queue is a backlog. */
+    reports: Observable<Report[]>;
+    /**
+     * Subject keys this guest has already reported, so a screen can say "Reported"
+     * rather than re-offering the button. See `subjectKey`.
+     */
+    myReports: Observable<ReadonlySet<string>>;
+    /**
+     * File a report. Reporting the same subject twice is a NO-OP, not an error: a
+     * double tap is not a failure, and the person tapping has nothing left to do.
+     */
+    report(input: { subject: ReportSubject; reason: ReportReason; note?: string }): Promise<void>;
+    /** Hide this guest's content from the current guest. Idempotent. */
+    block(guestId: GuestId): Promise<void>;
+    unblock(guestId: GuestId): Promise<void>;
+    /** Host only. Records WHAT was done, because "we responded" is the claim. */
+    resolve(id: ReportId, resolution: ReportResolution): Promise<void>;
   };
 }

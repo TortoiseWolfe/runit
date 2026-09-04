@@ -3,10 +3,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePathname, useRouter } from 'expo-router';
 
 import { RoleSwitch } from '@/components/ui/RoleSwitch';
-import { useIncoming, usePendingPhotos, useSession } from '@/state/hooks';
+import { useIncoming, usePendingPhotos, useReports, useSession } from '@/state/hooks';
 import { border, insetDelta, radius, useTheme, weight } from '@/theme';
 
-type Segment = { href: '/host/broadcast' | '/host/dj' | '/host/photos'; label: string; badge?: number };
+type Segment = {
+  href: '/host/broadcast' | '/host/dj' | '/host/photos' | '/host/reports';
+  label: string;
+  badge?: number;
+};
 
 /**
  * Canvas: `padding: 66px 20px 10px`, gap 12, a base-300 bottom border, the word
@@ -25,11 +29,15 @@ export function HostConsoleChrome() {
   const session = useSession();
   const incoming = useIncoming();
   const pending = usePendingPhotos();
+  const reports = useReports();
 
   const segments: Segment[] = [
     { href: '/host/broadcast', label: 'Broadcast' },
     { href: '/host/dj', label: 'DJ queue', badge: incoming.length },
     { href: '/host/photos', label: 'Photos', badge: pending.length },
+    // Fourth segment, and it earns the space: Guideline 1.2 asks for TIMELY responses
+    // to reports, and a queue a host has to go looking for is not one they will answer.
+    { href: '/host/reports', label: 'Reports', badge: reports.length },
   ];
 
   return (

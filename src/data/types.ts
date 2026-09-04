@@ -201,3 +201,73 @@ export interface Photo {
   storagePath: string | null;
   createdAt: Instant;
 }
+
+// ---------------------------------------------------------------- moderation
+
+export type ReportId = string;
+
+/**
+ * A CLOSED SET, matching the database's check constraint, and the words are the ones
+ * App Review looks for. Free text alone would leave the host queue unsortable and give
+ * a reviewer nothing to see.
+ */
+export type ReportReason = 'nudity' | 'harassment' | 'violence' | 'hate' | 'spam' | 'other';
+
+/** What a host DID about it. Recorded because "we responded" is the claim being made. */
+export type ReportResolution = 'removed' | 'blocked' | 'dismissed';
+
+/**
+ * The thing being reported.
+ *
+ * A discriminated union rather than three id fields, so a subject is impossible to
+ * construct half-formed -- the same shape the `reports_one_subject` check enforces on
+ * the other side of the wire.
+ */
+export type ReportSubject =
+  | { kind: 'photo'; photoId: PhotoId }
+  | { kind: 'song_request'; requestId: SongRequestId }
+  | { kind: 'guest'; guestId: GuestId };
+
+/** Stable identity for a subject, for "have I already reported this?" set membership. */
+export function subjectKey(subject: ReportSubject): string {
+  switch (subject.kind) {
+    case 'photo':
+      return `photo:${subject.photoId}`;
+    case 'song_request':
+      return `song_request:${subject.requestId}`;
+    case 'guest':
+      return `guest:${subject.guestId}`;
+  }
+}
+
+export interface Report {
+  id: ReportId;
+  subject: ReportSubject;
+  /** Null once the reporter leaves. The report outlives them, deliberately. */
+  reporterGuestId: GuestId | null;
+  /**
+   * Denormalised on the server, not joined. A host cannot read `guests` at all, so
+   * without this the queue would render every complaint anonymously.
+   */
+  reporterName: string;
+  /** "Photo from Sam", "September -- Earth, Wind & Fire", a nickname. Server-derived. */
+  subjectLabel: string;
+  reason: ReportReason;
+  note: string;
+  resolution: ReportResolution | null;
+  resolvedAt: Instant | null;
+  createdAt: Instant;
+}
+
+/**
+ * Someone this guest has blocked.
+ *
+ * `nickname` is stamped by a trigger from the real guest row for the same reason
+ * `Report.reporterName` is: the blocker cannot look the name up themselves, and a
+ * "Blocked people" list of UUIDs is a list nobody can use to unblock the right person.
+ */
+export interface BlockedGuest {
+  guestId: GuestId;
+  nickname: string;
+  blockedAt: Instant;
+}

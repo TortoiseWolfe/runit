@@ -5,7 +5,8 @@ import { supabase, type RunitClient } from './client';
 import type { Row } from './database.types';
 import {
   broadcastCache, folderCache, hostCache, photoCache, requestCache, scheduleCache,
-  toBroadcast, toEvent, toFolder, toHost, toNowPlaying, toPhoto, toScheduleItem, toSongRequest,
+  toBroadcast, toEvent, toFolder, toHost, toNowPlaying, toPhoto, toReport, toScheduleItem,
+  toSongRequest,
 } from './mappers';
 import { RealtimeTable } from './RealtimeTable';
 import { Signal, setEqual, shallowArrayEqual } from './signal';
@@ -15,9 +16,11 @@ import {
   type Observable, type RunitRepository, type UploadOutcome,
 } from '../repository';
 import type {
-  Broadcast, Folder, FolderId, Host, HostRole, NowPlaying, Photo, PhotoId, RunitEvent,
+  BlockedGuest, Broadcast, Folder, FolderId, GuestId, Host, HostRole, NowPlaying, Photo,
+  PhotoId, Report, ReportId, ReportReason, ReportResolution, ReportSubject, RunitEvent,
   ScheduleItem, ScheduleItemId, Session, SongRequest, SongRequestId,
 } from '../types';
+import { subjectKey } from '../types';
 import { checkFeature, checkLimit, type Entitlements } from '@/domain/entitlements';
 import { TIERS } from '@/domain/tiers';
 
@@ -59,6 +62,8 @@ const byVotesDesc = (a: SongRequest, b: SongRequest) =>
   b.voteCount - a.voteCount || a.createdAt.localeCompare(b.createdAt);
 const byNewestFirst = (a: { createdAt: string }, b: { createdAt: string }) =>
   b.createdAt.localeCompare(a.createdAt);
+const byBlockedNewestFirst = (a: BlockedGuest, b: BlockedGuest) =>
+  b.blockedAt.localeCompare(a.blockedAt);
 
 export class SupabaseRepository implements RunitRepository {
   private readonly db: RunitClient;
@@ -78,6 +83,15 @@ export class SupabaseRepository implements RunitRepository {
   private tNowPlaying: RealtimeTable<'now_playing'> | null = null;
   private tFolders: RealtimeTable<'folders'> | null = null;
   private tPhotos: RealtimeTable<'photos'> | null = null;
+  private tReports: RealtimeTable<'reports'> | null = null;
+
+  /**
+   * Blocks are FETCH-ONCE, not realtime, and the reason is that the only device that
+   * can change them is this one -- `blocks_own` scopes every command to the blocker.
+   * A subscription would deliver this device its own writes back. Refreshed explicitly
+   * after block/unblock, the same way `votes` is maintained.
+   */
+  private blockRows: BlockedGuest[] = [];
 
   /* Row identity caches -- these are what let shallowArrayEqual ever return true. */
   private cBroadcasts = broadcastCache();
@@ -117,6 +131,9 @@ export class SupabaseRepository implements RunitRepository {
   private readonly sigHosts = new Signal<{ id: string; displayName: string; role: HostRole }[]>(
     [], shallowArrayEqual,
   );
+  private readonly sigBlocked = new Signal<BlockedGuest[]>([], shallowArrayEqual);
+  private readonly sigReports = new Signal<Report[]>([], shallowArrayEqual);
+  private readonly sigMyReports = new Signal<ReadonlySet<string>>(new Set(), setEqual);
 
   private constructor(db: RunitClient, private readonly now: () => string) {
     this.db = db;
@@ -140,6 +157,9 @@ export class SupabaseRepository implements RunitRepository {
     this.photos.approved = this.sigApproved;
     this.photos.mine = this.sigMine;
     this.hosts.all = this.sigHosts;
+    this.moderation.blocked = this.sigBlocked;
+    this.moderation.reports = this.sigReports;
+    this.moderation.myReports = this.sigMyReports;
   }
 
   /**
@@ -205,7 +225,16 @@ export class SupabaseRepository implements RunitRepository {
         .sort((a, b) => a.position - b.position),
     );
 
-    const requests = this.cRequests.reconcile((this.tRequests?.all() ?? []).map(toSongRequest));
+    // THE BLOCK FILTER. Ported from MemoryRepository.recompute() line for line, and
+    // applied in the same place for the same reason: every guest-facing list is derived
+    // from an already-filtered array, so no screen can forget it. Blocks are enforced
+    // HERE rather than in RLS -- see the note in the migration's MODERATION section on
+    // why a per-viewer policy would break `folders.photo_count` and hide evidence from
+    // the host console.
+    const blocked = new Set(this.blockRows.map((b) => b.guestId));
+    const requests = this.cRequests
+      .reconcile((this.tRequests?.all() ?? []).map(toSongRequest))
+      .filter((r) => r.requestedByGuestId === null || !blocked.has(r.requestedByGuestId));
     this.sigQueue.set(
       requests.filter((r) => r.status !== 'played' && r.status !== 'declined').sort(byVotesDesc),
     );
@@ -226,7 +255,15 @@ export class SupabaseRepository implements RunitRepository {
     // `pending` ONLY -- an in-flight photo has no bytes for a host to judge, and
     // including it would inflate the console badge with work nobody can do.
     this.sigPending.set(photos.filter((p) => p.status === 'pending').sort(byNewestFirst));
-    this.sigApproved.set(photos.filter((p) => p.status === 'approved').sort(byNewestFirst));
+    this.sigApproved.set(
+      photos
+        .filter(
+          (p) =>
+            p.status === 'approved' &&
+            (p.uploadedByGuestId === null || !blocked.has(p.uploadedByGuestId)),
+        )
+        .sort(byNewestFirst),
+    );
     // Entirely synthetic: an uploading or failed photo has no row (see the class
     // docblock, difference 2).
     this.sigMine.set(this.overlay.rows(this.myGuestId));
@@ -235,6 +272,29 @@ export class SupabaseRepository implements RunitRepository {
       this.cHosts
         .reconcile(this.hostRows)
         .map(({ id, displayName, role }) => ({ id, displayName, role })),
+    );
+
+    this.sigBlocked.set([...this.blockRows].sort(byBlockedNewestFirst));
+
+    const reports = (this.tReports?.all() ?? []).map(toReport);
+    // UNRESOLVED only, oldest first. A resolved report stays in the table as the audit
+    // trail but leaves the queue, or the queue never empties.
+    this.sigReports.set(
+      reports
+        .filter((r) => r.resolvedAt === null)
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+    );
+    // `reports_read` already scopes a guest to their own rows, so for a guest this is
+    // every report they can see. For a HOST it would be the whole queue, which is why
+    // it filters on reporterGuestId rather than trusting the policy to have done it:
+    // a host is also a person who can report, and "have I reported this?" is their
+    // question too.
+    this.sigMyReports.set(
+      new Set(
+        reports
+          .filter((r) => this.myGuestId !== null && r.reporterGuestId === this.myGuestId)
+          .map((r) => subjectKey(r.subject)),
+      ),
     );
   };
 
@@ -257,6 +317,97 @@ export class SupabaseRepository implements RunitRepository {
    * nothing -- the single most dangerous shape in this schema, because the call
    * looks like it worked. Every write that can be refused goes through here.
    */
+  /* -------------------------------------------------------------- moderation */
+
+  moderation = {
+    blocked: undefined as unknown as Observable<BlockedGuest[]>,
+    reports: undefined as unknown as Observable<Report[]>,
+    myReports: undefined as unknown as Observable<ReadonlySet<string>>,
+
+    report: async ({
+      subject,
+      reason,
+      note,
+    }: {
+      subject: ReportSubject;
+      reason: ReportReason;
+      note?: string;
+    }) => {
+      const eventId = this.requireEvent();
+      const subjectId =
+        subject.kind === 'photo'
+          ? subject.photoId
+          : subject.kind === 'song_request'
+            ? subject.requestId
+            : subject.guestId;
+
+      // Through the RPC, never a direct insert -- `reports` has no INSERT policy at
+      // all. file_report() derives reporter_name and subject_label from the real rows
+      // and refuses a subject belonging to another event, neither of which a policy
+      // could check. See the migration's MODERATION section.
+      const { error } = await this.db.rpc('file_report', {
+        p_event_id: eventId,
+        p_kind: subject.kind,
+        p_subject_id: subjectId,
+        p_reason: reason,
+        p_note: note ?? '',
+      });
+      // A NULL return is success: the guest had already reported this subject and
+      // ON CONFLICT DO NOTHING wrote nothing. Only an error is a failure.
+      if (error) throw error;
+      this.recompute();
+    },
+
+    block: async (guestId: GuestId) => {
+      const eventId = this.requireEvent();
+      const { error } = await this.db.from('guest_blocks').insert({
+        event_id: eventId,
+        blocker_guest_id: this.requireGuest(),
+        blocked_guest_id: guestId,
+      });
+      // 23505 IS THE IDEMPOTENCY, exactly as it is for song_votes: the primary key
+      // (blocker_guest_id, blocked_guest_id) already says a block exists at most once,
+      // so a duplicate is the desired state arriving twice, not a failure. Reaching for
+      // upsert here would mean naming the constraint in a string that can drift from
+      // the schema; the key is already doing the work.
+      //
+      // `blocked_name` is not sent -- the guest_blocks_stamp_name trigger fills it from
+      // the real guest row, for the same reason file_report derives its labels.
+      if (error && !(isPgError(error) && error.code === '23505')) throw error;
+      // Re-read rather than patching a local set. song_votes taught this: a local set
+      // with no realtime feed behind it drifts from the table and nothing corrects it.
+      await this.loadBlocks();
+      this.recompute();
+    },
+
+    unblock: async (guestId: GuestId) => {
+      const { error } = await this.db
+        .from('guest_blocks')
+        .delete()
+        .eq('blocker_guest_id', this.requireGuest())
+        .eq('blocked_guest_id', guestId);
+      if (error) throw error;
+      await this.loadBlocks();
+      this.recompute();
+    },
+
+    resolve: async (id: ReportId, resolution: ReportResolution) => {
+      // `resolved_by_host_id` is NOT sent: it is not in the column grant, and the
+      // reports_stamp_resolver trigger fills it from auth.uid(). An audit trail whose
+      // signature the signer chooses is not an audit trail.
+      const { data, error } = await this.db
+        .from('reports')
+        .update({ resolved_at: this.now(), resolution })
+        .eq('id', id)
+        .select('id');
+      if (error) throw error;
+      // A guest reaching this affects ZERO ROWS AND RAISES NOTHING -- reports_host_resolve
+      // is hosts-only. This is the exact silent-denial shape assertWrote exists for.
+      SupabaseRepository.assertWrote(data, 'Resolving this report');
+      this.recompute();
+    },
+  };
+
   private static assertWrote(rows: unknown[] | null, what: string): void {
     if (!rows || rows.length === 0) {
       throw new Error(
@@ -279,6 +430,32 @@ export class SupabaseRepository implements RunitRepository {
     if (votes.error) throw votes.error;
     this.hostRows = (hosts.data as Row<'hosts'>[]).map(toHost);
     this.votes = new Set((votes.data as { request_id: string }[]).map((v) => v.request_id));
+    await this.loadBlocks();
+  }
+
+  /**
+   * Re-read this guest's blocks.
+   *
+   * A host has no `blocks_own` match, so this returns zero rows for them and the
+   * filter below becomes a no-op -- which is exactly right: a guest's block must not
+   * hide anything from the console.
+   */
+  private async loadBlocks(): Promise<void> {
+    const guestId = this.myGuestId;
+    if (guestId === null) {
+      this.blockRows = [];
+      return;
+    }
+    const { data, error } = await this.db
+      .from('guest_blocks')
+      .select('blocked_guest_id, blocked_name, created_at')
+      .eq('blocker_guest_id', guestId);
+    if (error) throw error;
+    this.blockRows = (data ?? []).map((b) => ({
+      guestId: b.blocked_guest_id,
+      nickname: b.blocked_name,
+      blockedAt: b.created_at,
+    }));
   }
 
   private async startTables(eventId: string): Promise<void> {
@@ -292,11 +469,15 @@ export class SupabaseRepository implements RunitRepository {
     this.tNowPlaying = new RealtimeTable(this.db, 'now_playing', (r) => r.event_id, byEvent, on);
     this.tFolders = new RealtimeTable(this.db, 'folders', (r) => r.id, byEvent, on);
     this.tPhotos = new RealtimeTable(this.db, 'photos', (r) => r.id, byEvent, on);
+    // Published so the host console's open-report badge moves without a refresh, for
+    // the same reason the photo approvals badge does. `guest_blocks` is deliberately
+    // NOT published -- see the note on blockRows.
+    this.tReports = new RealtimeTable(this.db, 'reports', (r) => r.id, byEvent, on);
 
     await Promise.all([
       this.tEvents.start(), this.tBroadcasts.start(), this.tSchedule.start(),
       this.tRequests.start(), this.tNowPlaying.start(), this.tFolders.start(),
-      this.tPhotos.start(),
+      this.tPhotos.start(), this.tReports.start(),
     ]);
   }
 
@@ -415,7 +596,7 @@ export class SupabaseRepository implements RunitRepository {
       await Promise.all([
         this.tEvents?.stop(), this.tBroadcasts?.stop(), this.tSchedule?.stop(),
         this.tRequests?.stop(), this.tNowPlaying?.stop(), this.tFolders?.stop(),
-        this.tPhotos?.stop(),
+        this.tPhotos?.stop(), this.tReports?.stop(),
       ]);
       this.tEvents = null;
       this.tBroadcasts = null;
@@ -424,6 +605,7 @@ export class SupabaseRepository implements RunitRepository {
       this.tNowPlaying = null;
       this.tFolders = null;
       this.tPhotos = null;
+      this.tReports = null;
       // Fresh caches too: a stale RowCache would hand back objects belonging to
       // the event that was just left, and shallowArrayEqual would then report the
       // new event's first load as "unchanged".
@@ -437,6 +619,9 @@ export class SupabaseRepository implements RunitRepository {
       this.myGuestId = null;
       this.votes = new Set();
       this.hostRows = [];
+      // Blocks are per-event and per-guest. Carrying them across a leave would filter
+      // the NEXT event's album against the last event's grudges.
+      this.blockRows = [];
       await this.db.auth.signOut();
       this.sigSession.set({ kind: 'anonymous' });
       this.recompute();

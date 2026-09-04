@@ -214,7 +214,7 @@ describe('realtime lifecycle', () => {
   it('removes every channel on leave, so a rejoin does not stack subscriptions', async () => {
     const c = ready();
     const repo = await join(c);
-    expect(c.channels.length).toBe(7);
+    expect(c.channels.length).toBe(8);
     await repo.session.leave();
     expect(c.channels.every((ch) => ch.removed)).toBe(true);
     expect(c.signOutCalls).toBe(1);
@@ -259,5 +259,120 @@ describe('the run-of-show guard', () => {
     const repo = await join(c);
     await repo.schedule.start('s1', { rewind: true });
     expect(c.find('rpc', 'start_schedule_item')[0]!.payload).toEqual({ p_item: 's1', p_rewind: true });
+  });
+});
+
+/* ------------------------------------------------- moderation (Guideline 1.2) */
+
+describe('reporting, against a real backend', () => {
+  it('goes through the RPC, because `reports` has no INSERT policy at all', async () => {
+    const c = ready();
+    const repo = await join(c);
+    await repo.moderation.report({
+      subject: { kind: 'photo', photoId: 'p1' },
+      reason: 'nudity',
+      note: 'not ok',
+    });
+    expect(c.find('insert', 'reports')).toHaveLength(0);
+    expect(c.find('rpc', 'file_report')).toHaveLength(1);
+  });
+
+  it('sends the parameter names the function declares, so a rename fails loudly here', async () => {
+    // PostgREST matches RPC arguments BY NAME. A mismatch is not a type error and not a
+    // 404 -- it is a function-not-found at runtime, three screens from the cause.
+    const c = ready();
+    const repo = await join(c);
+    await repo.moderation.report({
+      subject: { kind: 'song_request', requestId: 'r9' },
+      reason: 'hate',
+    });
+    expect(c.find('rpc', 'file_report')[0]!.payload).toEqual({
+      p_event_id: EVENT,
+      p_kind: 'song_request',
+      p_subject_id: 'r9',
+      p_reason: 'hate',
+      p_note: '',
+    });
+  });
+
+  it('does NOT send reporter_name or subject_label, because the server derives them', async () => {
+    // A client that supplies these can caption a complaint as somebody else. The whole
+    // reason file_report exists is that an INSERT policy cannot check them.
+    const c = ready();
+    const repo = await join(c);
+    await repo.moderation.report({ subject: { kind: 'guest', guestId: 'g9' }, reason: 'spam' });
+    const payload = c.find('rpc', 'file_report')[0]!.payload as Record<string, unknown>;
+    expect(Object.keys(payload)).not.toContain('p_reporter_name');
+    expect(Object.keys(payload)).not.toContain('p_subject_label');
+  });
+
+  it('treats a null return as success -- it means "already reported"', async () => {
+    // ON CONFLICT DO NOTHING returns no row. Only an error is a failure.
+    const c = ready((f) =>
+      f.on((op) => (op.kind === 'rpc' && op.table === 'file_report' ? { data: null, error: null } : undefined)),
+    );
+    const repo = await join(c);
+    await expect(
+      repo.moderation.report({ subject: { kind: 'photo', photoId: 'p1' }, reason: 'spam' }),
+    ).resolves.toBeUndefined();
+  });
+});
+
+describe('resolving a report', () => {
+  it('THROWS on the silent shape, because reports_host_resolve is hosts-only', async () => {
+    // A guest resolving affects zero rows and raises nothing -- proven in lane E. This
+    // is the same failure that assertWrote exists for on `events`.
+    const c = ready((f) =>
+      f.on((op) => (op.kind === 'update' && op.table === 'reports' ? refusedSilently() : undefined)),
+    );
+    const repo = await join(c);
+    await expect(repo.moderation.resolve('rep1', 'removed')).rejects.toThrow(/affected no rows/);
+  });
+
+  it('never sends resolved_by_host_id, because it is not in the column grant', async () => {
+    // `grant update (resolved_at, resolution)` -- naming any other key, even with an
+    // unchanged value, fails the whole statement. The resolver is stamped by trigger
+    // from auth.uid() so one host cannot sign another host's name to a decision.
+    const c = ready();
+    const repo = await join(c);
+    await repo.moderation.resolve('rep1', 'dismissed');
+    expect(c.find('update', 'reports')[0]!.payload).toEqual({
+      resolved_at: FIXED,
+      resolution: 'dismissed',
+    });
+  });
+});
+
+describe('blocking, against a real backend', () => {
+  it('re-reads the blocks after a write rather than patching a local set', async () => {
+    // song_votes taught this lesson the hard way: a local set with no realtime feed
+    // behind it drifts from the table and nothing ever corrects it. `guest_blocks` is
+    // deliberately not published, so the reload IS the correction.
+    const c = ready();
+    const repo = await join(c);
+    const before = c.find('select', 'guest_blocks').length;
+    await repo.moderation.block('g9');
+    expect(c.find('select', 'guest_blocks').length).toBeGreaterThan(before);
+  });
+
+  it('scopes the unblock to this guest, so one guest cannot clear another list', async () => {
+    const c = ready();
+    const repo = await join(c);
+    await repo.moderation.unblock('g9');
+    const op = c.find('delete', 'guest_blocks')[0]!;
+    expect(op.filters).toEqual(
+      expect.arrayContaining([
+        ['blocker_guest_id', GUEST],
+        ['blocked_guest_id', 'g9'],
+      ]),
+    );
+  });
+
+  it('drops the blocks on leave, so they do not follow you into the next event', async () => {
+    const c = ready();
+    const repo = await join(c);
+    await repo.moderation.block('g9');
+    await repo.session.leave();
+    expect(repo.moderation.blocked.get()).toEqual([]);
   });
 });

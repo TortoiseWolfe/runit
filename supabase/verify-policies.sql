@@ -30,6 +30,12 @@ declare
   fid  uuid := '33333333-3333-3333-3333-333333333333';
   f2   uuid := '55555555-5555-5555-5555-555555555555';
   n int; g1 uuid; g2 uuid;
+  -- moderation fixtures
+  buid uuid := '66666666-6666-6666-6666-666666666666';
+  eid2 uuid := '77777777-7777-7777-7777-777777777777';
+  fid2 uuid := '88888888-8888-8888-8888-888888888888';
+  p2   uuid := '99999999-9999-9999-9999-999999999999';
+  gb uuid; pho uuid; rep1 uuid; rep2 uuid; who uuid; lbl text; rname text;
   out text[] := '{}';
   fails int := 0;
 
@@ -44,6 +50,17 @@ begin
   insert into public.folders (id,event_id,name,position) values (fid,eid,'Main',0),(f2,eid,'Second',1);
   insert into public.hosts (event_id, auth_user_id, display_name, role, role_label)
   values (eid, huid, 'Riley', 'host', 'Bride');
+
+  -- A second guest, and a SECOND EVENT with its own photo. The second event is not
+  -- decoration: it is the only way to test that a report cannot reach across events,
+  -- which is the check no INSERT policy could have made.
+  insert into auth.users (id, instance_id, aud, role, email, is_anonymous, created_at, updated_at)
+  values (buid,'00000000-0000-0000-0000-000000000000','authenticated','authenticated',null,true,now(),now());
+  insert into public.events (id, code, name, venue, starts_at, timezone, tier, invited_count)
+  values (eid2,'TEST02','Other','Hall',now(),'America/New_York','event',10);
+  insert into public.folders (id,event_id,name,position) values (fid2,eid2,'Main',0);
+  insert into public.photos (id,event_id,folder_id,uploaded_by_name,status)
+  values (p2,eid2,fid2,'Stranger','approved');
 
   ------------------------------------------------------------------ AS A GUEST
   perform set_config('request.jwt.claims', json_build_object('sub',guid,'role','authenticated')::text, true);
@@ -167,6 +184,122 @@ begin
     out := out || format('%s a guest cannot add an invitee (%s)',
                          case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
   end;
+
+  ------------------------------------------------------- MODERATION (guideline 1.2)
+  -- Bo joins and uploads; Ada is the one who reports. Two distinct guests, because
+  -- "a guest sees only their OWN reports" is not testable with one.
+  execute 'reset role';
+  perform set_config('request.jwt.claims', json_build_object('sub',buid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  gb := public.join_event('TEST01', 'Bo');
+  insert into public.photos (event_id, folder_id, uploaded_by_guest_id, uploaded_by_name, status)
+  values (eid, fid, gb, 'Bo', 'approved') returning id into pho;
+
+  execute 'reset role';
+  perform set_config('request.jwt.claims', json_build_object('sub',guid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+
+  rep1 := public.file_report(eid, 'photo', pho, 'nudity', 'not ok');
+  out := out || format('%s a guest can file a report', case when rep1 is not null then 'PASS' else 'FAIL' end);
+
+  rep2 := public.file_report(eid, 'photo', pho, 'nudity', 'again');
+  out := out || format('%s re-reporting the same thing is a no-op, not an error (got %s)',
+                       case when rep2 is null then 'PASS' else 'FAIL' end, coalesce(rep2::text,'null'));
+
+  select reporter_name, subject_label into rname, lbl from public.reports where id = rep1;
+  out := out || format('%s reporter_name is derived server-side (got %s, want Ada)',
+                       case when rname = 'Ada' then 'PASS' else 'FAIL' end, coalesce(rname,'null'));
+  out := out || format('%s subject_label is derived server-side (got %s)',
+                       case when lbl = 'Photo from Bo' then 'PASS' else 'FAIL' end, coalesce(lbl,'null'));
+
+  begin
+    perform public.file_report(eid, 'photo', p2, 'spam', '');
+    out := out || 'FAIL a report reached a photo in ANOTHER event';
+  exception when others then
+    out := out || format('%s a report cannot name a subject outside its event (%s)',
+                         case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  begin
+    perform public.file_report(eid, 'guest', g1, 'spam', '');
+    out := out || 'FAIL a guest reported themselves';
+  exception when others then
+    out := out || format('%s a guest cannot report themselves (%s)',
+                         case when sqlstate = '22023' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  begin
+    insert into public.reports (event_id, reporter_guest_id, reporter_name, subject_kind,
+                                subject_photo_id, subject_label, reason)
+    values (eid, g1, 'Somebody Else', 'photo', pho, 'forged', 'hate');
+    out := out || 'FAIL a guest inserted a report directly, bypassing file_report';
+  exception when others then
+    out := out || format('%s reports cannot be inserted directly (%s)',
+                         case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  -- Blocks
+  insert into public.guest_blocks (event_id, blocker_guest_id, blocked_guest_id)
+  values (eid, g1, gb);
+  select count(*) into n from public.guest_blocks;
+  out := out || format('%s a guest sees their own block (got %s, want 1)',
+                       case when n = 1 then 'PASS' else 'FAIL' end, n);
+
+  begin
+    insert into public.guest_blocks (event_id, blocker_guest_id, blocked_guest_id)
+    values (eid, g1, g1);
+    out := out || 'FAIL a guest blocked themselves';
+  exception when others then
+    out := out || format('%s a guest cannot block themselves (%s)',
+                         case when sqlstate in ('23514','42501') then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  -- Bo's side: cannot see Ada's report, cannot see Ada's block.
+  execute 'reset role';
+  perform set_config('request.jwt.claims', json_build_object('sub',buid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  select count(*) into n from public.reports;
+  out := out || format('%s a guest cannot read another guest''s report (got %s, want 0)',
+                       case when n = 0 then 'PASS' else 'FAIL' end, n);
+  select count(*) into n from public.guest_blocks;
+  out := out || format('%s blocks are private to the blocker (got %s, want 0)',
+                       case when n = 0 then 'PASS' else 'FAIL' end, n);
+
+  -- The host's queue, and the audit trail.
+  execute 'reset role';
+  perform set_config('request.jwt.claims', json_build_object('sub',huid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+
+  select count(*) into n from public.reports;
+  out := out || format('%s a host reads the whole report queue (got %s, want 1)',
+                       case when n = 1 then 'PASS' else 'FAIL' end, n);
+
+  select count(*) into n from public.guest_blocks;
+  out := out || format('%s not even a host reads blocks (got %s, want 0)',
+                       case when n = 0 then 'PASS' else 'FAIL' end, n);
+
+  begin
+    update public.reports set reason = 'spam' where id = rep1;
+    out := out || 'FAIL a host rewrote the reason on a report';
+  exception when others then
+    out := out || format('%s a host cannot edit the evidence (%s)',
+                         case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  update public.reports set resolved_at = now(), resolution = 'removed' where id = rep1;
+  select resolved_by_host_id into who from public.reports where id = rep1;
+  out := out || format('%s resolving stamps the acting host from auth.uid() (got %s)',
+                       case when who = (select id from public.hosts where auth_user_id = huid)
+                            then 'PASS' else 'FAIL' end, coalesce(who::text,'null'));
+
+  -- And the guest still cannot close their own complaint.
+  execute 'reset role';
+  perform set_config('request.jwt.claims', json_build_object('sub',guid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  update public.reports set resolved_at = null, resolution = null where id = rep1;
+  get diagnostics n = row_count;
+  out := out || format('%s a guest resolving affects zero rows, silently (got %s, want 0)',
+                       case when n = 0 then 'PASS' else 'FAIL' end, n);
 
   select count(*) into fails from unnest(out) x where x like 'FAIL%';
   raise exception using message =
