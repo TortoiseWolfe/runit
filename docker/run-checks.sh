@@ -53,6 +53,13 @@ pnpm audit:styles
 step "touch target audit  (WCAG 2.2 SC 2.5.8, Level AA)"
 pnpm audit:targets
 
+# Static, and in the same band as the two audits above for the same reason: no
+# other lane can see this. A tier that grants a feature nothing reads sells
+# nothing, and the failure is invisible until money changes hands -- which is
+# precisely when nobody is re-reading tiers.ts.
+step "tier claim audit  (the ladder may not advertise what nothing enforces)"
+pnpm audit:tiers
+
 step "tests"
 pnpm test
 

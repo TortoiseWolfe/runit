@@ -3,8 +3,23 @@
  *
  * Marketing copy and enforced numbers live side by side deliberately, so a
  * pricing change is one diff and the paywall can never advertise a limit the
- * code does not enforce. `featureLines` is transcribed VERBATIM from the canvas
- * -- the copy is part of the design.
+ * code does not enforce.
+ *
+ * `featureLines` WAS transcribed verbatim from the canvas, and that is exactly how
+ * the file came to advertise eight things nothing enforces. A grep for each
+ * TierFeatures key found `customBranding`, `venueBranding`, `zipExport`,
+ * `requestCaps`, `multiDjQueues`, `folderTemplates`, `bulkQrPrinting` and
+ * `prioritySupport` with ZERO call sites outside this file -- two of them on the
+ * featured $79 tier. `albumRetentionDays` and `eventTtlHours` have none either, so
+ * "Album kept 90 days" and "Event expires after 48h" were equally unbacked.
+ *
+ * Nobody could buy any of it, because the purchase path was cut from v1. That made
+ * it harmless and would have made it mis-selling the day IAP shipped.
+ *
+ * THE RULE NOW: a line in `featureLines` names something this codebase enforces --
+ * a limit `checkLimit` reads, or a feature `checkFeature` gates. The flags stay in
+ * `TierFeatures` as the build target; the LINE comes back when the feature does.
+ * `entitlements.test.ts` checks this, so the ladder cannot drift back into fiction.
  */
 import type { TierId } from '@/data/types';
 
@@ -20,7 +35,6 @@ export interface TierLimits {
 
 export interface TierFeatures {
   photoModeration: boolean;
-  djQueue: boolean;
   hostRoles: boolean;
   customBranding: boolean;
   venueBranding: boolean;
@@ -62,12 +76,11 @@ export const TIERS: Record<TierId, Tier> = {
       '1 host',
       'Chat, Photos, Music',
       '100 photos · 1 folder',
-      'Requests + upvotes',
-      'Event expires after 48h',
+      'Requests, upvotes, play next',
     ],
     limits: { maxGuests: 10, maxHosts: 1, maxPhotos: 100, maxFolders: 1, eventTtlHours: 48, albumRetentionDays: null },
     features: {
-      photoModeration: false, djQueue: false, hostRoles: false, customBranding: false,
+      photoModeration: false, hostRoles: false, customBranding: false,
       venueBranding: false, pinnedAnnouncements: false, pushNotifications: false,
       zipExport: false, requestCaps: false, multiDjQueues: false, folderTemplates: false,
       bulkQrPrinting: false, prioritySupport: false,
@@ -82,15 +95,14 @@ export const TIERS: Record<TierId, Tier> = {
     periodLabel: '/ event',
     audience: 'Birthdays, reunions, backyard weddings.',
     featureLines: [
+      'Up to 50 guests',
       '2 hosts',
       '1,000 photos · 3 folders',
       'Approve-before-show moderation',
-      'DJ queue: accept, decline, mark played',
-      'Album kept 90 days',
     ],
     limits: { maxGuests: 50, maxHosts: 2, maxPhotos: 1000, maxFolders: 3, eventTtlHours: null, albumRetentionDays: 90 },
     features: {
-      photoModeration: true, djQueue: true, hostRoles: false, customBranding: false,
+      photoModeration: true, hostRoles: false, customBranding: false,
       venueBranding: false, pinnedAnnouncements: false, pushNotifications: false,
       zipExport: false, requestCaps: false, multiDjQueues: false, folderTemplates: false,
       bulkQrPrinting: false, prioritySupport: false,
@@ -105,17 +117,16 @@ export const TIERS: Record<TierId, Tier> = {
     periodLabel: '/ event',
     audience: 'Weddings, corporate parties, one-off shows.',
     featureLines: [
+      'Up to 300 guests',
       '5 hosts with roles (host, DJ, planner)',
       'Unlimited photos · 10 folders',
-      'Custom event name + cover',
       'Pinned announcements + push',
-      'Album kept 1 year, ZIP export',
     ],
     limits: { maxGuests: 300, maxHosts: 5, maxPhotos: INF, maxFolders: 10, eventTtlHours: null, albumRetentionDays: 365 },
     features: {
-      photoModeration: true, djQueue: true, hostRoles: true, customBranding: true,
+      photoModeration: true, hostRoles: true, customBranding: false,
       venueBranding: false, pinnedAnnouncements: true, pushNotifications: true,
-      zipExport: true, requestCaps: false, multiDjQueues: false, folderTemplates: false,
+      zipExport: false, requestCaps: false, multiDjQueues: false, folderTemplates: false,
       bulkQrPrinting: false, prioritySupport: false,
     },
     exampleLabel: '300 guests · wedding, corporate',
@@ -128,18 +139,16 @@ export const TIERS: Record<TierId, Tier> = {
     periodLabel: '/ year',
     audience: 'Venues, planners, DJs, festivals that run events every week.',
     featureLines: [
+      'Up to 3,000 guests',
       'Unlimited hosts + staff seats',
-      'Your logo and colors on every event',
-      'Request caps + multi-DJ queues',
-      'Reusable folder templates',
-      'Priority support, bulk QR printing',
+      'Unlimited photos and folders',
     ],
     limits: { maxGuests: 3000, maxHosts: INF, maxPhotos: INF, maxFolders: INF, eventTtlHours: null, albumRetentionDays: null },
     features: {
-      photoModeration: true, djQueue: true, hostRoles: true, customBranding: true,
-      venueBranding: true, pinnedAnnouncements: true, pushNotifications: true,
-      zipExport: true, requestCaps: true, multiDjQueues: true, folderTemplates: true,
-      bulkQrPrinting: true, prioritySupport: true,
+      photoModeration: true, hostRoles: true, customBranding: false,
+      venueBranding: false, pinnedAnnouncements: true, pushNotifications: true,
+      zipExport: false, requestCaps: false, multiDjQueues: false, folderTemplates: false,
+      bulkQrPrinting: false, prioritySupport: false,
     },
     exampleLabel: '3,000 guests · festival, venue season',
   },
