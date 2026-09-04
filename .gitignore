@@ -26,3 +26,7 @@ playwright-report/
 .env
 .env.*
 !.env.example
+
+# App Store screenshots: regenerated on demand, and NOT part of the Lane D
+# render-vs-screenshot comparison -- they are shot at a different viewport.
+/design/appstore

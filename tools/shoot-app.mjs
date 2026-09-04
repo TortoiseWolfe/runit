@@ -24,7 +24,27 @@ if (!chromium) { console.error('pnpm add -D @playwright/test'); process.exit(1);
 
 const ROOT = resolve(import.meta.dirname, '..');
 const DIST = join(ROOT, 'dist');
-const OUT = join(ROOT, 'design', 'screenshots');
+/**
+ * APP STORE PRESET. `SHOT_PRESET=appstore` re-runs the same walk at the geometry
+ * App Store Connect demands, into a separate directory.
+ *
+ * 414x896 at deviceScaleFactor 3 is 1242x2688 -- the 6.5" display size Apple lists
+ * on the upload panel. The fidelity default is 402x874 @3x = 1206x2622, which is
+ * real iPhone 16 Pro geometry and is what design/renders/ is compared against; it
+ * is NOT an accepted store size, so the two cannot be the same run.
+ *
+ * The contrast and colour gates deliberately do NOT apply to this preset: those
+ * measure the app against its own design tokens at the fidelity size, and running
+ * them at a different viewport would compare a screenshot to a render that was
+ * never taken there.
+ */
+const STORE = process.env.SHOT_PRESET === 'appstore';
+const VIEWPORT = STORE ? { width: 414, height: 896 } : { width: 402, height: 874 };
+// The insets must match the viewport or content rides under the status bar. 414x896
+// is an iPhone 11 Pro Max: top 44, not the 62 of a 16 Pro. Export with
+// EXPO_PUBLIC_FIDELITY_FRAME set to this before shooting the store preset.
+const FIDELITY_FRAME = STORE ? '414x896x44x34' : '402x874x62x34';
+const OUT = join(ROOT, 'design', STORE ? 'appstore' : 'screenshots');
 if (!existsSync(DIST)) { console.error('No dist/. Run: pnpm export:web'); process.exit(1); }
 mkdirSync(OUT, { recursive: true });
 
@@ -136,7 +156,7 @@ const shots = [];
 for (const scheme of ['dark', 'light']) {
   const ctx = await browser.newContext({
     colorScheme: scheme,
-    viewport: { width: 402, height: 874 },
+    viewport: VIEWPORT,
     deviceScaleFactor: 3,
   });
   const page = await ctx.newPage();
@@ -220,7 +240,10 @@ for (const scheme of ['dark', 'light']) {
 
 await browser.close();
 server.close();
-console.log(`\n${wrote} screenshots -> design/screenshots/`);
+console.log(
+  `\n${wrote} screenshots -> design/${STORE ? 'appstore' : 'screenshots'}/` +
+    ` at ${VIEWPORT.width * 3}x${VIEWPORT.height * 3}, insets ${FIDELITY_FRAME}`,
+);
 
 /**
  * PROVENANCE. These PNGs are only comparable to design/renders/ -- or to each

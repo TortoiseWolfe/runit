@@ -29,9 +29,24 @@ import { ThemeProvider, useTheme } from '@/theme';
 /** Never fires: the value is constant, we only need the server/client split. */
 const subscribeNever = () => () => {};
 
+/**
+ * `WIDTHxHEIGHTxTOPxBOTTOM`, defaulting to iPhone 16 Pro -- the geometry
+ * design/renders/ was drawn at and Lane B compares against.
+ *
+ * It is overridable because the App Store screenshot preset renders at 414x896
+ * (1242x2688 at 3x, the size Apple's upload panel demands), and 414x896 is an
+ * iPhone 11 Pro Max, whose top inset is 44 rather than 62. Injecting 62 into a
+ * 414-wide frame put every screen's content ~18pt too high -- riding up under
+ * where the status bar belongs, which in a store screenshot reads as an app that
+ * ignores the notch.
+ */
+const FIDELITY_FRAME = (process.env.EXPO_PUBLIC_FIDELITY_FRAME ?? '402x874x62x34')
+  .split('x')
+  .map(Number);
+
 const FIDELITY_METRICS: Metrics = {
-  frame: { x: 0, y: 0, width: 402, height: 874 },
-  insets: { top: 62, left: 0, right: 0, bottom: 34 },
+  frame: { x: 0, y: 0, width: FIDELITY_FRAME[0]!, height: FIDELITY_FRAME[1]! },
+  insets: { top: FIDELITY_FRAME[2]!, left: 0, right: 0, bottom: FIDELITY_FRAME[3]! },
 };
 
 function Chrome() {
