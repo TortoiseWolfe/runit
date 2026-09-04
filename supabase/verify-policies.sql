@@ -109,6 +109,29 @@ begin
     out := out || format('%s host cannot change tier, column grant holds (%s)', case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
   end;
 
+  ------------------------------------------------------- FOLDERS CANNOT BE DELETED
+  -- Regression guard for a bug that shipped: folders_write was `for all`, which includes
+  -- DELETE, and photos.folder_id cascades from folders. One SDK call destroyed every
+  -- photo row under a folder and stranded every byte in the bucket, unreachable forever
+  -- because storage_path was the only thing that could name it.
+  insert into public.photos (event_id, folder_id, uploaded_by_name, status, hue, storage_path)
+  values (eid, fid, 'Ada', 'approved', 42, eid || '/orphan-guard.jpg');
+
+  delete from public.folders where id = fid;
+  get diagnostics n = row_count;
+  out := out || format('%s host DELETE on folders affects %s rows (want 0)',
+                       case when n = 0 then 'PASS' else 'FAIL' end, n);
+
+  select count(*) into n from public.photos where folder_id = fid;
+  out := out || format('%s the photo row survives, so its bytes stay nameable (%s)',
+                       case when n = 1 then 'PASS' else 'FAIL' end, n);
+
+  insert into public.folders (id, event_id, name, position)
+  values (gen_random_uuid(), eid, 'Added by host', 9);
+  get diagnostics n = row_count;
+  out := out || format('%s a host can still ADD a folder (%s)',
+                       case when n = 1 then 'PASS' else 'FAIL' end, n);
+
   select count(*) into fails from unnest(out) x where x like 'FAIL%';
   raise exception using message =
     format('%s FAILURE(S). %s', fails, array_to_string(out, E'\n  '));

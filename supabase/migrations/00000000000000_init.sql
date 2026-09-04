@@ -465,8 +465,35 @@ create policy now_playing_read on public.now_playing for select
 
 create policy folders_read on public.folders for select
   using (public.my_guest_id(event_id) is not null or public.is_host(event_id));
-create policy folders_write on public.folders for all
+
+-- SPLIT BY COMMAND, and the reason is a bug that shipped.
+--
+-- This was `for all`, and FOR ALL INCLUDES DELETE. Combined with
+-- `photos.folder_id ... on delete cascade` below, one SDK call --
+-- `.from('folders').delete()` -- destroyed every photo row under a folder and left every
+-- byte in the bucket. Proven against the live database: 3 rows in, folder deleted, 0 rows
+-- out, 0 rows still knowing where the bytes were.
+--
+-- Those objects are then UNREACHABLE FOREVER, because event_photos_select can only reach
+-- an object by joining back through public.photos on storage_path. Photographs of
+-- identifiable people, invisible and permanent. No UI ever did this; it needed only the
+-- client library, and claim_host hands a real person that capability.
+create policy folders_insert on public.folders for insert
+  with check (public.is_host(event_id));
+create policy folders_update on public.folders for update
   using (public.is_host(event_id)) with check (public.is_host(event_id));
+
+-- DELETE is granted to NOBODY, matching how `photos` already works: no DELETE policy for
+-- anyone, and `hide` is an audit trail rather than a removal. `photo_count` is
+-- trigger-maintained over APPROVED photos, so an emptied folder already reads as empty
+-- without deleting anything.
+--
+-- THE ORDER, for whoever eventually writes real deletion: BYTES FIRST, ROW SECOND, and
+-- idempotent, because it will be interrupted. Deleting the row first strands the object,
+-- since storage_path is the only thing that can name it. That rule holds for a host
+-- action, a takedown and a retention sweep alike -- and a sweep must run as SERVICE ROLE
+-- rather than by widening event_photos_delete, which would dissolve the invariant that
+-- only a host removes bytes.
 
 -- THE ONE THAT MATTERS. Approved photos to everyone in the event; a guest's OWN
 -- pending upload to that guest; everything to a host, who has to moderate it.

@@ -2,7 +2,7 @@
 /**
  * LANE E as a GATE rather than a document.
  *
- * `supabase/verify-policies.sql` proved thirteen RLS behaviours once, by hand, pasted
+ * `supabase/verify-policies.sql` proved a set of RLS behaviours once, by hand, pasted
  * into a SQL editor. That is a measurement, not a guard: nothing re-ran it after the
  * next migration edit, and a policy regression is silent by construction -- a denied
  * UPDATE affects zero rows and raises nothing.
@@ -27,7 +27,7 @@ const url = process.env.SUPABASE_DB_URL;
 
 if (!url) {
   console.log('\x1b[33mSKIPPED: policy verification (lane E)\x1b[0m');
-  console.log('  SUPABASE_DB_URL is not set, so THIRTEEN RLS BEHAVIOURS WENT UNCHECKED.');
+  console.log('  SUPABASE_DB_URL is not set, so THE RLS BEHAVIOUR ASSERTIONS WENT UNCHECKED.');
   console.log('  Nothing else in this suite can see row-level security: lane B has no');
   console.log('  backend and lane C is one emulator with one identity.');
   console.log('  Set it and re-run before trusting a green board after a migration change.');
@@ -107,4 +107,4 @@ if (Number(m[1]) > 0) {
   console.error(`\x1b[31mFAIL: ${m[1]} policy assertion(s) failed.\x1b[0m`);
   process.exit(1);
 }
-console.log('\x1b[32mok: 13/13 policy assertions hold against the live database\x1b[0m');
+console.log('\x1b[32mok: all policy assertions hold against the live database\x1b[0m');

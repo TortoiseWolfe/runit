@@ -225,7 +225,7 @@ for the other.
 see row-level security behave. It runs `supabase/verify-policies.sql`, which seeds an
 event, a guest and a host inside a `DO` block, switches
 role with `set local role authenticated` and a forged `request.jwt.claims`, asserts
-thirteen behaviours, and RAISES at the end so nothing commits -- the "error" it
+sixteen behaviours, and RAISES at the end so nothing commits -- the "error" it
 prints IS the report.
 
 **It skips LOUDLY without `SUPABASE_DB_URL`**, and that is deliberate. Running it
