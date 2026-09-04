@@ -216,6 +216,25 @@ an hour if you do not know it.
 Device screenshots live in `design/device/`, including the pre-fix broken album
 kept deliberately as evidence.
 
+**E — policy verification** (`supabase/verify-policies.sql`). The only lane that can
+see row-level security behave. Paste it into the SQL editor or run it through the
+Supabase MCP; it seeds an event, a guest and a host inside a `DO` block, switches
+role with `set local role authenticated` and a forged `request.jwt.claims`, asserts
+thirteen behaviours, and RAISES at the end so nothing commits -- the "error" it
+prints IS the report.
+
+It exists because reading a policy tells you what it says, not what Postgres does
+with it. The load-bearing result is that **a guest's UPDATE on `events` returns zero
+rows and raises nothing** -- the silent shape `SupabaseRepository.assertWrote()`
+exists to catch, and one no amount of reading the policy would have settled.
+
+Two traps it already fell into, both of which make a *passing* statement look like a
+failing one: `text[] || 'a literal'` parses the literal as an ARRAY LITERAL and
+raises 22P02 inside whatever exception handler you are standing in; and several
+assertions in one `UNION` share a single statement snapshot, so a `STABLE` function
+cannot see a row a sibling branch just inserted. `join_event` looked broken twice and
+was fine both times.
+
 **D — the eye.** Read `design/renders/<screen>.png` and
 `design/screenshots/<screen>.png` in the same message and walk the regions in
 order. Programmatic probes catch a different class of thing; neither substitutes
