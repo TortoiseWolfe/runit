@@ -97,6 +97,21 @@ export type Database = {
         };
         Relationships: [];
       };
+      invitees: {
+        Row: {
+          id: string; event_id: string; email: string; display_name: string | null;
+          invited_at: string | null; joined_guest_id: string | null; created_at: string;
+        };
+        Insert: {
+          id?: string; event_id: string; email: string; display_name?: string | null;
+          invited_at?: string | null; joined_guest_id?: string | null; created_at?: string;
+        };
+        Update: {
+          id?: string; event_id?: string; email?: string; display_name?: string | null;
+          invited_at?: string | null; joined_guest_id?: string | null; created_at?: string;
+        };
+        Relationships: [];
+      };
       now_playing: {
         Row: {
           event_id: string; title: string; artist: string;

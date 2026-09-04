@@ -132,6 +132,42 @@ begin
   out := out || format('%s a host can still ADD a folder (%s)',
                        case when n = 1 then 'PASS' else 'FAIL' end, n);
 
+  ------------------------------------------------------------------ THE GUEST LIST
+  -- invitees holds OTHER PEOPLE'S email addresses, uploaded by a host before those
+  -- people have consented to anything. It is the strictest table here, and these
+  -- assertions are what make "hosts only" a checked property rather than a comment.
+  insert into public.invitees (event_id, email, display_name)
+  values (eid, 'sam@example.test', 'Sam');
+  out := out || format('PASS a host can add an invitee');
+
+  select invited_count into n from public.events where id = eid;
+  out := out || format('%s invited_count folds from the list (%s, want 1)',
+                       case when n = 1 then 'PASS' else 'FAIL' end, n);
+
+  begin
+    insert into public.invitees (event_id, email) values (eid, 'SAM@example.test');
+    out := out || format('FAIL the same address in another case was accepted');
+  exception when unique_violation then
+    out := out || format('PASS one address per event, case-insensitively');
+  end;
+
+  -- Back to the guest identity to prove the list is invisible to them.
+  execute 'reset role';
+  perform set_config('request.jwt.claims', json_build_object('sub',guid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+
+  select count(*) into n from public.invitees;
+  out := out || format('%s a guest sees %s invitees (want 0 -- the list is not readable)',
+                       case when n = 0 then 'PASS' else 'FAIL' end, n);
+
+  begin
+    insert into public.invitees (event_id, email) values (eid, 'sneaky@example.test');
+    out := out || format('FAIL a guest added someone to the list');
+  exception when others then
+    out := out || format('%s a guest cannot add an invitee (%s)',
+                         case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
   select count(*) into fails from unnest(out) x where x like 'FAIL%';
   raise exception using message =
     format('%s FAILURE(S). %s', fails, array_to_string(out, E'\n  '));

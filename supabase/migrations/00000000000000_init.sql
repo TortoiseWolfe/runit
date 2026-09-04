@@ -741,3 +741,77 @@ end $$;
 
 revoke execute on function public.claim_host(text, text) from public;
 grant  execute on function public.claim_host(text, text) to authenticated;
+
+-- ========================================================================
+-- THE GUEST LIST -- the first personal data beyond a chosen nickname
+-- ========================================================================
+--
+-- WHOSE DATA THIS IS, AND WHY IT IS DIFFERENT. Every other record here is something a
+-- person typed about themselves. This is a HOST uploading OTHER PEOPLE'S email addresses,
+-- before those people have consented to anything or heard of Runit. That makes it
+-- third-party data: the host has the relationship, Runit holds it on their behalf. It
+-- gets the strictest treatment in this schema for exactly that reason.
+
+create table public.invitees (
+  id              uuid primary key default gen_random_uuid(),
+  event_id        uuid not null references public.events(id) on delete cascade,
+  email           text not null,
+  -- Optional, purely so an invite can say "Hi Sam" rather than "Hello". Never required.
+  display_name    text,
+  -- NULL until an invite is actually sent, so "on the list" and "was emailed" stay
+  -- distinguishable. A host who imports forty addresses and sends none has invited nobody.
+  invited_at      timestamptz,
+  -- Set when this invitee joins, so a host can see who arrived without the app ever
+  -- matching a nickname back to an address in application code.
+  joined_guest_id uuid references public.guests(id) on delete set null,
+  created_at      timestamptz not null default now()
+);
+
+-- One invite per address per event. Case-insensitive, because Sam@x.com and sam@x.com are
+-- one person and double-emailing them is the fastest way to look broken.
+create unique index invitees_event_email on public.invitees (event_id, lower(email));
+create index on public.invitees (event_id, invited_at);
+
+alter table public.invitees enable row level security;
+
+-- HOSTS ONLY, ALL FOUR COMMANDS. No guest-facing policy of any kind: this table IS the
+-- guest list, and "guests can't see each other" would be a dead letter if any guest could
+-- read it. A guest cannot even discover their own row.
+--
+-- DELETE *is* granted here, unlike folders and photos, and the difference is that no bytes
+-- hang off an invitee. Removing someone strands nothing -- there is no second system
+-- holding an object only this row could name. That was the entire reason folders lost
+-- DELETE, and it does not apply.
+create policy invitees_host_read on public.invitees for select
+  using (public.is_host(event_id));
+create policy invitees_host_insert on public.invitees for insert
+  with check (public.is_host(event_id));
+create policy invitees_host_update on public.invitees for update
+  using (public.is_host(event_id)) with check (public.is_host(event_id));
+create policy invitees_host_delete on public.invitees for delete
+  using (public.is_host(event_id));
+
+-- `invited_count` stops being a fixture constant.
+--
+-- It has been readable since day one -- the host console renders "Send to 180 guests" from
+-- it -- and writable by nobody: no interface method, no adapter code, no column grant. It
+-- is now folded from this table like every other count here, so the number a host sees is
+-- the number of people they actually put on the list.
+--
+-- Counting ROWS rather than sent invites, deliberately: it is "what a host ADDRESSES",
+-- which is what the column's own comment has said since the beginning. Someone imported
+-- but not yet emailed is still someone you are expecting.
+create or replace function public.fold_invited_count() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  update public.events e
+     set invited_count = (select count(*) from public.invitees i where i.event_id = e.id)
+   where e.id = coalesce(new.event_id, old.event_id);
+  return null;
+end $$;
+
+create trigger invitees_fold
+  after insert or delete on public.invitees
+  for each row execute function public.fold_invited_count();
+
+revoke execute on function public.fold_invited_count() from public;
