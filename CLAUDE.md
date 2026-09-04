@@ -62,7 +62,15 @@ Every colour in the design is `oklch()`. So:
 - `src/theme/tokens.test.ts` re-parses `design/theme.css`, re-runs the
   conversion, and fails on any drift. **Never hand-edit a token.**
 - `tools/audit-native-styles.mjs` runs every colour literal in `src/` through
-  the real RN parser and fails the build on any `null`.
+  the real RN parser and fails the build on any `null`. It resolves that parser
+  **through react-native's own tree**, not by a bare `require` — there are two
+  copies installed (`0.86.3` via react-native, `0.74.89` via react-native-web) and
+  `node-linker=hoisted` means a bare require gets whichever won the hoist. It also
+  asserts the parser version equals the installed react-native version. Do **not**
+  "fix" this by declaring the parser as a top-level dependency: hoisting makes an
+  explicit dep win, which would freeze the parser while react-native moves on —
+  trading a loud failure for a quiet wrong answer in the one gate that exists to
+  catch quiet wrong answers.
 
 This is also why NativeWind is not used: react-native-web would parse `oklch`
 correctly in a browser while the device dropped it, so the web harness would go
@@ -90,11 +98,14 @@ already inside the container or want it on the host.
 
 ### How the container is wired
 
-- Base is `mcr.microsoft.com/playwright:v1.55.0-noble` — **the same version as
-  the repo's `@playwright/test` pin**, so its bundled chromium is the one the
-  harness expects and no browser is downloaded at run time. If you ever bump
-  `@playwright/test`, bump the image tag in `docker/checks.Dockerfile` with it —
-  **and its `NODE_VERSION`/`NODE_SHA256`**, because a new base ships a new Node.
+- Base is `mcr.microsoft.com/playwright:v1.55.0-noble`, and `@playwright/test` is
+  pinned to **exactly** `1.55.0` — no caret. The image ships exactly one browser
+  set and pnpm blocks the post-install download that would heal a mismatch, so the
+  two have to agree. `run-checks.sh` asserts it. It used to be `^1.55.0` while this
+  paragraph called it "the pin"; a seven-minor range is not a pin, and 1.55.1
+  already moves chromium 1187 → 1193. If you bump `@playwright/test`, bump the
+  image tag with it — **and its `NODE_VERSION`/`NODE_SHA256`**, because a new base
+  ships a new Node.
 - The image's own Node is shadowed by an explicitly pinned one installed to
   `/usr/local` (checksum-verified against nodejs.org). The repo picks the
   runtime; the base image does not.

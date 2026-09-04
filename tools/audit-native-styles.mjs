@@ -17,8 +17,42 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, extname } from 'node:path';
 import { createRequire } from 'node:module';
 
+/**
+ * Resolve the parser through REACT-NATIVE'S OWN TREE, not through ours.
+ *
+ * There are two copies of @react-native/normalize-colors installed:
+ *   react-native@0.86.3      -> @react-native/normalize-colors@0.86.3
+ *   react-native-web@0.21.2  -> @react-native/normalize-colors@0.74.89
+ *
+ * `.npmrc` sets node-linker=hoisted, so a bare require() gets whichever one won
+ * the hoist. Today that is 0.86.3 and the audit is honest. If a future install or
+ * an RNW bump flips it, this lane would start parsing colours with the WEB
+ * renderer's parser -- twelve minors old, and belonging to the very renderer this
+ * check exists to disbelieve. It would still pass. Silently. Which is the exact
+ * failure mode the lane was written to prevent.
+ *
+ * Resolving from react-native's package root removes the race, and the version
+ * assertion below turns a future divergence into a loud failure rather than a
+ * quiet wrong answer -- the same doctrine as the Node check in run-checks.sh.
+ */
 const require = createRequire(import.meta.url);
-const normalizeRaw = require('@react-native/normalize-colors');
+const rnRequire = createRequire(require.resolve('react-native/package.json'));
+
+const rnVersion = require('react-native/package.json').version;
+const parserVersion = rnRequire('@react-native/normalize-colors/package.json').version;
+if (parserVersion !== rnVersion) {
+  console.error(
+    `\nFAIL: parser/runtime mismatch. react-native is ${rnVersion} but the colour\n` +
+      `parser resolved to @react-native/normalize-colors@${parserVersion}.\n` +
+      `This lane exists to parse colours the way the DEVICE does, so it must use the\n` +
+      `parser shipped with the installed react-native. Do not pin the parser as a\n` +
+      `top-level dependency to fix this -- hoisting makes an explicit dep WIN, which\n` +
+      `would freeze the parser while react-native moves on.`,
+  );
+  process.exit(1);
+}
+
+const normalizeRaw = rnRequire('@react-native/normalize-colors');
 const normalizeColor = normalizeRaw.default ?? normalizeRaw;
 
 const ROOT = join(import.meta.dirname, '..');

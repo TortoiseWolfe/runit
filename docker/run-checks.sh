@@ -18,6 +18,22 @@ if [ "$want" != "$have" ]; then
 fi
 echo "  Node $have (matches .nvmrc)"
 
+# Same doctrine, the axis that was left unguarded. The base image ships exactly
+# ONE browser set, and pnpm blocks the post-install download that would otherwise
+# heal a mismatch -- so @playwright/test and the image tag have to agree. This
+# fails loudly and prints the fix, unlike the Node drift which was silent.
+step "playwright version matches the base image"
+want_pw="$(grep -oP 'playwright:v\K[0-9]+\.[0-9]+\.[0-9]+' docker/checks.Dockerfile)"
+have_pw="$(node -p "require('@playwright/test/package.json').version")"
+if [ "$want_pw" != "$have_pw" ]; then
+  printf '\033[31mFAIL\033[0m: docker/checks.Dockerfile is on playwright v%s, node_modules has %s.\n' \
+    "$want_pw" "$have_pw" >&2
+  printf 'The image ships one browser set and pnpm blocks the healing download.\n' >&2
+  printf 'Pin them together: the image tag, and "@playwright/test" in package.json.\n' >&2
+  exit 1
+fi
+echo "  Playwright $have_pw (matches the base image tag)"
+
 step "install (frozen lockfile)"
 pnpm install --frozen-lockfile
 
