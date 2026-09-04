@@ -221,12 +221,26 @@ kept deliberately as evidence.
 order. Programmatic probes catch a different class of thing; neither substitutes
 for the other.
 
-**E — policy verification** (`supabase/verify-policies.sql`). The only lane that can
-see row-level security behave. Paste it into the SQL editor or run it through the
-Supabase MCP; it seeds an event, a guest and a host inside a `DO` block, switches
+**E — policy verification** (`pnpm verify:policies`). The only lane that can
+see row-level security behave. It runs `supabase/verify-policies.sql`, which seeds an
+event, a guest and a host inside a `DO` block, switches
 role with `set local role authenticated` and a forged `request.jwt.claims`, asserts
 thirteen behaviours, and RAISES at the end so nothing commits -- the "error" it
 prints IS the report.
+
+**It skips LOUDLY without `SUPABASE_DB_URL`**, and that is deliberate. Running it
+needs a database password, and CI here is one public-repo job with no secret store; a
+gate that failed closed would be switched off within a week. So it prints a yellow
+SKIPPED block naming what went unchecked. Set the URL and re-run before trusting a
+green board after any migration change:
+
+```
+export SUPABASE_DB_URL='postgresql://postgres:<pw>@db.<ref>.supabase.co:5432/postgres'
+pnpm verify:policies
+```
+
+It used to be a paragraph telling you to paste SQL into a web editor. A harness
+nobody runs measures something once and guards nothing.
 
 It exists because reading a policy tells you what it says, not what Postgres does
 with it. The load-bearing result is that **a guest's UPDATE on `events` returns zero

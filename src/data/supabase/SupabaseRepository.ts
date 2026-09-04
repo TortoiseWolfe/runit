@@ -118,7 +118,7 @@ export class SupabaseRepository implements RunitRepository {
     [], shallowArrayEqual,
   );
 
-  private constructor(db: RunitClient) {
+  private constructor(db: RunitClient, private readonly now: () => string) {
     this.db = db;
     this.sigEntitlements = new Signal<Entitlements>(this.computeEntitlements());
 
@@ -142,11 +142,21 @@ export class SupabaseRepository implements RunitRepository {
     this.hosts.all = this.sigHosts;
   }
 
-  static create(db: RunitClient = supabase()): SupabaseRepository {
+  /**
+   * `now` is injectable for the same reason MemoryRepository.create takes one: every
+   * ordering assertion in the suite depends on deterministic timestamps, and the
+   * upload overlay stamps createdAt itself because an in-flight photo has no row for
+   * the database to stamp. Without this seam those rows are untestable, and anyone
+   * forking this as a template inherits that gap.
+   */
+  static create(
+    db: RunitClient = supabase(),
+    opts: { now?: () => string } = {},
+  ): SupabaseRepository {
     // Synchronous on purpose: src/app/_layout.tsx builds this inside useMemo, and
     // the real work starts at joinAsGuest, which is the first moment there is an
     // event to subscribe to.
-    return new SupabaseRepository(db);
+    return new SupabaseRepository(db, opts.now ?? (() => new Date().toISOString()));
   }
 
   /* ------------------------------------------------------------- derivations */
@@ -527,14 +537,31 @@ export class SupabaseRepository implements RunitRepository {
         if (error && !(isPgError(error) && error.code === '23505')) throw error;
         this.votes.add(id);
       } else {
-        const { error } = await this.db
-          .from('song_votes').delete().eq('request_id', id).eq('guest_id', guestId);
+        // `.select()` IS THE ASSERTION, not decoration. Without it PostgREST returns
+        // no rows and a refused delete is indistinguishable from a successful one --
+        // and this is the shape that matters most here, because song_votes is NOT
+        // published to realtime. Nothing will ever arrive to correct a local set that
+        // has drifted from the table, so the guest would see their vote toggle off,
+        // the tally stay put, and the state come back on the next reload.
+        const { data, error } = await this.db
+          .from('song_votes').delete().eq('request_id', id).eq('guest_id', guestId)
+          .select('request_id');
         if (error) throw error;
+        // Deleting a vote that is not there is not a failure -- it is the unvote
+        // equivalent of the 23505 above, and a double-tap must not throw. But zero
+        // rows when we BELIEVED we had a vote means the delete was refused, and the
+        // local set must not be updated to a state the table does not share.
+        if ((data ?? []).length === 0 && this.votes.has(id)) {
+          throw new Error(
+            'Removing your vote affected no rows. That usually means row-level security ' +
+              'refused it silently -- the local vote set has NOT been changed.',
+          );
+        }
         this.votes.delete(id);
       }
       // song_votes is not published, so nothing will tell us this happened. The
       // trigger-folded vote_count arrives via song_requests; the membership set is
-      // ours to maintain.
+      // ours to maintain -- which is exactly why the delete above has to be checked.
       this.recompute();
     },
 
@@ -598,7 +625,7 @@ export class SupabaseRepository implements RunitRepository {
         localUri,
         folderId,
         hue: Math.floor(Math.random() * 360),
-        createdAt: new Date().toISOString(),
+        createdAt: this.now(),
         uploadedByName: s.kind === 'guest' ? s.nickname : 'Guest',
       });
       this.recompute();

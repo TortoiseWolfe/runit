@@ -56,6 +56,9 @@ pnpm audit:targets
 step "tests"
 pnpm test
 
+step "policy verification  (lane E -- skips LOUDLY without SUPABASE_DB_URL)"
+node tools/verify-policies.mjs
+
 step "iOS bundle  (catches import cycles and missing modules without a Mac)"
 pnpm exec expo export --platform ios --output-dir .export-check --clear
 rm -rf .export-check

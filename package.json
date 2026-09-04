@@ -26,6 +26,7 @@
     "test:e2e:report": "playwright show-report",
     "test:e2e:ui": "playwright test --ui",
     "typecheck": "tsc --noEmit",
+    "verify:policies": "node tools/verify-policies.mjs",
     "web": "expo start --web"
   },
   "dependencies": {
@@ -58,11 +59,13 @@
     "@testing-library/react-native": "^14.0.1",
     "@types/jest": "^30.0.0",
     "@types/node": "^26.4.1",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19.2.18",
     "eslint": "^9.39.5",
     "eslint-config-expo": "^57.0.2",
     "jest": "^30.5.1",
     "jest-expo": "^57.0.5",
+    "pg": "^8.23.0",
     "prettier": "^3.9.6",
     "test-renderer": "^1.2.0",
     "typescript": "^5.9.3"
