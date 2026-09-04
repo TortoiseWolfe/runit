@@ -44,7 +44,7 @@ export function PhotoApprovalsPanel() {
               {p.uploadedByName}
             </Text>
             <Text style={[s.meta, { color: alpha(tokens.baseContent, fade.muted) }]} numberOfLines={1}>
-              {formatRelative(p.createdAt)} · → {folders.find((f) => f.id === p.folderId)?.name ?? ''}
+              {formatRelative(p.createdAt, event?.timezone ?? 'UTC')} · → {folders.find((f) => f.id === p.folderId)?.name ?? ''}
             </Text>
           </View>
           <Pressable

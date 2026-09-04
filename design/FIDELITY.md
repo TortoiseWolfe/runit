@@ -339,3 +339,46 @@ failed tile, photo dimmed under a Retry pill, first in the grid) and
 `android-upload-retried-delivered.dark.png` (after Retry: `AWAITING APPROVAL · 4`
 with the photograph in the host queue). The host queue stayed at 3 while the
 upload was failed — it never saw it.
+
+## M. Time is the event's, not the phone's — and not UTC
+The canvas is internally inconsistent about time: the event is dated in the future
+("Sat, Oct 17") while its content is mid-reception ("3 min ago"). It gets away with
+that because every canvas timestamp is a hardcoded string. A running app cannot.
+
+Three things changed, all found by asking what a beta tester would hit.
+
+**The seed is anchored to yesterday, not to a fixed future date.** It used to be a
+hardcoded `2026-10-17`. The feed sorts pinned-first then ascending by `createdAt`,
+so a host's new broadcast — stamped `now()` — sorted **above** all three seeded ones
+in guest Chat and **below** them in the host's Sent list, which reverses the same
+array. Neither lane could see it: every unit test injected a fixed `now` *after* the
+seed date, the one case where ordering is correct, and the e2e assertion only checked
+`indexOf > 0` while the Now/Next card holds index 0. Worst of all, a fixed future
+date **self-heals** — on 2026-10-17 the bug would have vanished with nothing fixed.
+Two tests now use the real clock deliberately.
+
+**`RunitEvent` carries a `timezone`, and `formatClock` takes it.** It previously read
+`getUTCHours()`, which is correct only for seed values authored as UTC wall-clock. A
+host in Chattanooga posting at 7:02 PM EDT saw their own broadcast stamped 11:02 PM.
+Rendering in the *event's* zone — never the phone's — is what the original docblock
+already intended; it just was not implemented. Seeded times are now authored as venue
+wall-clock and converted to true instants, so a seeded timestamp and a runtime one are
+finally the same kind of value.
+
+**The conversion uses `formatToParts`, not `new Date(d.toLocaleString(...))`.** The
+string round-trip is the usual recipe and it works under Node — which is why 144 jest
+tests passed over it — but Hermes emits a locale string `Date` cannot parse, and the
+app died on launch with *"Date value out of bounds"*. Only Lane C saw it. Verified on
+the emulator afterwards: 4:10 / 5:45 / 7:02 PM render correctly through `Intl` on
+Hermes, which is this app's first use of `Intl` at all.
+
+## N. The empty-folder trap
+Selecting a folder with no approved photos used to unmount the folder chips along
+with the grid — they lived only in the grid branch — leaving no way back. Two of the
+three seeded folders are empty, so it was one tap away, and an upload lands `pending`
+so the pane never flips back on its own. The only escape was a force-quit, which
+loses the session, the nickname and every vote.
+
+The chips now render in **both** branches. The e2e that recorded this as expected
+behaviour (*"that is also why there is no way back via a chip"*) has been inverted to
+assert the escape exists, and fails if the chips are removed again.

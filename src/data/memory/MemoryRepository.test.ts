@@ -316,6 +316,32 @@ describe('schedule', () => {
 });
 
 describe('chat', () => {
+  // THE TEST THAT WAS MISSING, and the reason the bug survived.
+  //
+  // Every other test here injects `now: () => FIXED` where FIXED is
+  // 2026-10-17T20:00Z -- which was AFTER the old hardcoded seed date, i.e. the one
+  // arrangement in which ordering happens to be correct. Using the REAL clock is
+  // the whole point: it is what a host actually has.
+  it('puts a newly sent broadcast last in the feed, using the real clock', async () => {
+    const r = MemoryRepository.create(weddingSeed); // no `now` injection, deliberately
+    const before = r.chat.feed.get();
+    await r.session.becomeHost('hst_riley');
+    await r.chat.send({ body: 'Cake is cut', pinned: false, push: false });
+
+    const after = r.chat.feed.get();
+    expect(after).toHaveLength(before.length + 1);
+    // Newest last. If the seed were dated in the future this would be index 0,
+    // and the guest would read tonight's announcement above this afternoon's.
+    expect(after.at(-1)!.body).toBe('Cake is cut');
+  });
+
+  it('starting a run-of-show item announces it last too, not first', async () => {
+    const r = MemoryRepository.create(weddingSeed); // real clock again
+    await r.session.becomeHost('hst_riley');
+    await r.schedule.start('sch_5');
+    expect(r.chat.feed.get().at(-1)!.kind).toBe('schedule_started');
+  });
+
   it('keeps the pin flag on a tier that has pinning', async () => {
     const r = make();
     await r.chat.send({ body: 'Cake in ten', pinned: true, push: true });

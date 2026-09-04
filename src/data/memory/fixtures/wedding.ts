@@ -12,9 +12,78 @@
  */
 import type { Seed } from '../MemoryRepository';
 
-/** Sat, Oct 17. The canvas gives a weekday and a date but no year. */
-const DAY = '2026-10-17';
-const at = (hhmm: string) => `${DAY}T${hhmm}:00.000Z`;
+/**
+ * The seeded event happened YESTERDAY, and that is load-bearing.
+ *
+ * This used to be a hardcoded '2026-10-17' -- a date six weeks in the FUTURE. The
+ * feed sorts pinned-first then ascending by `createdAt`, so a host's brand-new
+ * broadcast (stamped `now()`) sorted ABOVE all three seeded ones in the guest's
+ * Chat, and BELOW them in the host's Sent list, which reverses the same array.
+ * Starting a run-of-show item did the same thing with its auto-broadcast.
+ *
+ * Neither lane could see it. Every unit test injects a fixed `now` of
+ * 2026-10-17T20:00Z -- i.e. AFTER the old seed date, the one case where ordering
+ * is correct -- and the e2e ordering assertion only checks `indexOf > 0` while the
+ * Now/Next card holds index 0.
+ *
+ * The nastiest part: a fixed future date SELF-HEALS. On 2026-10-17 the bug would
+ * have vanished with nothing fixed and no one any wiser. Anchoring to yesterday is
+ * correct on every future run instead of on all but one.
+ *
+ * `doorsLabel` below is a literal string and does not derive from this, so the
+ * invite still reads "Sat, Oct 17" -- the canvas is already internally
+ * inconsistent about time (see the note under `minutesAgo`), and this changes
+ * nothing a guest sees. The clock labels stay 4:10/5:45/7:02 PM because those come
+ * from the fixed `hhmm` below, not from the date.
+ */
+const DAY = new Date(Date.now() - 24 * 60 * 60_000).toISOString().slice(0, 10);
+
+/** The venue's zone. Every seeded clock string below is wall-clock IN THIS ZONE. */
+const ZONE = 'America/New_York';
+
+/**
+ * '16:10' as a wall-clock time at the venue -> a true UTC instant.
+ *
+ * These used to be written `${DAY}T${hhmm}:00.000Z` -- i.e. UTC pretending to be
+ * venue time, which only rendered correctly because formatClock also read UTC.
+ * Two wrongs cancelling. Now the seed says what it means and the formatter does
+ * the conversion, so a runtime instant and a seeded one are finally the same kind
+ * of value.
+ *
+ * The offset is measured rather than hardcoded, because DAY moves and a fixed
+ * -04:00 would be an hour out for half the year.
+ */
+function at(hhmm: string): string {
+  const guess = new Date(`${DAY}T${hhmm}:00.000Z`);
+
+  // formatToParts, NOT `new Date(d.toLocaleString(...))`. The string round-trip is
+  // the usual recipe for this and it works fine under Node -- which is why 144
+  // jest tests passed over it -- but Hermes produces a locale string `Date`
+  // cannot parse, so the app died on launch with "Date value out of bounds".
+  // Reading numeric parts never round-trips through a parser at all.
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: ZONE,
+    hour12: false,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).formatToParts(guess);
+  const part = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? 0);
+
+  // `hour` can come back as 24 for midnight under hour12:false; % 24 normalises it.
+  const wallAsUtc = Date.UTC(
+    part('year'),
+    part('month') - 1,
+    part('day'),
+    part('hour') % 24,
+    part('minute'),
+    part('second'),
+  );
+  return new Date(guess.getTime() - (wallAsUtc - guess.getTime())).toISOString();
+}
 
 /**
  * The canvas is internally inconsistent about time: the event is dated in the
@@ -34,6 +103,7 @@ export const weddingSeed: Seed = {
     name: "Sam & Riley's Wedding",
     venue: 'Willow Barn',
     startsAt: at('16:00'),
+    timezone: ZONE,
     doorsLabel: 'Sat, Oct 17 · Doors 4:00 PM · Willow Barn',
     tier: 'event',
     activeFolderId: 'fld_reception',

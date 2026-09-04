@@ -10,7 +10,14 @@ import { alpha, border, useTheme, weight } from '@/theme';
  * `border-radius: 1.25rem 1.25rem 1.25rem .35rem` -- the flattened bottom-left
  * corner that points back at the avatar. 20/20/20/5.6 in points.
  */
-export function BroadcastBubble({ broadcast }: { broadcast: Broadcast }) {
+export function BroadcastBubble({
+  broadcast,
+  timeZone,
+}: {
+  broadcast: Broadcast;
+  /** The EVENT's zone, not the phone's -- see formatClock. */
+  timeZone: string;
+}) {
   const { tokens, fade } = useTheme();
   return (
     <View style={s.row}>
@@ -21,7 +28,7 @@ export function BroadcastBubble({ broadcast }: { broadcast: Broadcast }) {
       </View>
       <View style={s.body}>
         <Text style={[s.meta, { color: alpha(tokens.baseContent, fade.muted) }]}>
-          {broadcast.authorName} · {broadcast.authorRoleLabel} · {formatClock(broadcast.createdAt)}
+          {broadcast.authorName} · {broadcast.authorRoleLabel} · {formatClock(broadcast.createdAt, timeZone)}
         </Text>
         <View style={[s.bubble, { backgroundColor: tokens.base200, borderColor: tokens.base300 }]}>
           <Text style={[s.text, { color: tokens.baseContent }]}>{broadcast.body}</Text>

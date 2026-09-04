@@ -1,6 +1,6 @@
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { useFeed } from '@/state/hooks';
+import { useEvent, useFeed } from '@/state/hooks';
 import { alpha, border, useTheme } from '@/theme';
 import { RoleSwitch } from '@/components/ui/RoleSwitch';
 import { BroadcastBubble } from './BroadcastBubble';
@@ -17,6 +17,7 @@ import { NowNextCard } from './NowNextCard';
 export function ChatScreen() {
   const { tokens, fade } = useTheme();
   const feed = useFeed();
+  const event = useEvent();
 
   return (
     <View style={s.wrap}>
@@ -28,7 +29,7 @@ export function ChatScreen() {
       >
         <NowNextCard />
         {feed.map((b) => (
-          <BroadcastBubble key={b.id} broadcast={b} />
+          <BroadcastBubble key={b.id} broadcast={b} timeZone={event?.timezone ?? 'UTC'} />
         ))}
       </ScrollView>
       <View style={[s.footer, { borderTopColor: tokens.base300 }]}>

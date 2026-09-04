@@ -41,6 +41,17 @@ export interface RunitEvent {
   name: string;
   venue: string;
   startsAt: Instant;
+  /**
+   * IANA zone of the VENUE, e.g. 'America/New_York'.
+   *
+   * Times render in the event's zone, never the phone's: a guest standing in the
+   * barn should read the same time as the sign on the door, whatever timezone
+   * their phone thinks it is in. This field is what makes that possible for
+   * instants created at runtime -- before it existed, a host in Chattanooga
+   * posting at 7:02 PM saw their own message stamped 11:02 PM, because every
+   * timestamp was formatted in UTC.
+   */
+  timezone: string;
   doorsLabel: string;
   tier: TierId;
   /** New uploads file into this folder. */

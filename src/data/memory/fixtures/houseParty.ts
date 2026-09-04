@@ -24,6 +24,7 @@ export const housePartySeed: Seed = {
     name: 'Taco night',
     venue: 'The flat',
     startsAt: at('19:00'),
+    timezone: 'America/New_York',
     doorsLabel: 'Sat, Nov 8 · 7:00 PM · The flat',
     tier: 'house_party',
     activeFolderId: 'fld_all',

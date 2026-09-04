@@ -150,7 +150,7 @@ export function BroadcastPanel() {
         >
           <Text style={[s.sentText, { color: tokens.baseContent }]}>{b.body}</Text>
           <Text style={[s.sentMeta, { color: alpha(tokens.baseContent, fade.soft) }]}>
-            {b.authorName} · {formatClock(b.createdAt)} · seen by {b.seenCount}
+            {b.authorName} · {formatClock(b.createdAt, event?.timezone ?? 'UTC')} · seen by {b.seenCount}
           </Text>
         </View>
       ))}

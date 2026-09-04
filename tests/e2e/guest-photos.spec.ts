@@ -295,10 +295,24 @@ test.describe('Photos tab · shared album', () => {
 
     // Ceremony has 112 photos but none of the nine approved rows, so the grid
     // variant unmounts entirely and the empty-album shutter pane takes over.
-    // That is also why there is no way back via a chip: the chip row is part of
-    // the grid variant. Losing the tiles is the observable half of the switch.
+    // Losing the tiles is the observable half of the switch.
     await expect(page.getByTestId('album')).toHaveCount(0);
     await expect(page.getByTestId(/^tile-/)).toHaveCount(0);
+    await expect(page.getByTestId('shutter')).toBeVisible();
+
+    // AND THERE IS A WAY BACK. This assertion used to say the opposite -- it
+    // recorded, as expected behaviour, that the chip row was part of the grid
+    // variant and vanished with it. That stranded the guest: two of the three
+    // seeded folders are empty, so it was one tap away, and an upload lands
+    // `pending` so the pane never flips back on its own. The only escape was a
+    // force-quit, which loses the session, the nickname and every vote.
+    await expect(page.getByTestId('folder-fld_reception')).toBeVisible();
+    await page.getByTestId('folder-fld_reception').click();
+    await expect(page.getByTestId('album')).toBeVisible();
+    await expect(page.getByTestId(/^tile-/)).toHaveCount(9);
+
+    // Back to Ceremony to finish what this test was originally about.
+    await page.getByTestId('folder-fld_ceremony').click();
     await expect(page.getByTestId('shutter')).toBeVisible();
 
     // The pane states its destination, and counts every folder, not the one on

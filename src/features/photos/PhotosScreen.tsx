@@ -46,10 +46,45 @@ export function PhotosScreen() {
   const totalPhotos = folders.reduce((a, f) => a + f.photoCount, 0);
   const onCapture = () => capture(active?.name ?? 'the album');
 
+  /**
+   * The folder chips, rendered by BOTH branches.
+   *
+   * They used to live only inside the grid branch, so selecting a folder with no
+   * approved photos unmounted the chips along with the grid and stranded the
+   * guest -- with no way back, because an upload lands `pending` and never flips
+   * the pane. Two of the three seeded folders are empty, so it was one tap away,
+   * and the only escape was a force-quit, which loses everything.
+   */
+  const folderChips = (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chips}>
+      {folders.map((f) => {
+        const on = f.id === active?.id;
+        return (
+          <Pressable
+            key={f.id}
+            onPress={() => selectFolder(f.id)}
+            accessibilityRole="button"
+            accessibilityState={{ selected: on }}
+            testID={`folder-${f.id}`}
+            style={[
+              s.chip,
+              { borderColor: tokens.base300, backgroundColor: on ? tokens.primary : 'transparent' },
+            ]}
+          >
+            <Text style={[s.chipText, { color: on ? tokens.primaryContent : tokens.baseContent }]}>
+              {f.name} · {f.photoCount}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </ScrollView>
+  );
+
   if (visible.length === 0) {
     return (
       <View style={s.wrap}>
         <EventHeader eyebrow="Shared album" />
+        {folderChips}
         <View style={[s.shutterPane, { backgroundColor: tokens.base200 }]}>
           <View style={s.countBlock}>
             <Text style={[s.count, { color: tokens.baseContent }]}>{totalPhotos}</Text>
@@ -93,28 +128,7 @@ export function PhotosScreen() {
     <View style={s.wrap}>
       <EventHeader eyebrow="Shared album" />
       <ScrollView style={s.scroll} testID="album">
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chips}>
-          {folders.map((f) => {
-            const on = f.id === active?.id;
-            return (
-              <Pressable
-                key={f.id}
-                onPress={() => selectFolder(f.id)}
-                accessibilityRole="button"
-                accessibilityState={{ selected: on }}
-                testID={`folder-${f.id}`}
-                style={[
-                  s.chip,
-                  { borderColor: tokens.base300, backgroundColor: on ? tokens.primary : 'transparent' },
-                ]}
-              >
-                <Text style={[s.chipText, { color: on ? tokens.primaryContent : tokens.baseContent }]}>
-                  {f.name} · {f.photoCount}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
+        {folderChips}
 
         <View style={s.grid}>
           {/* Own transfers first: they are the newest thing the guest did, and a

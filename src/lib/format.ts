@@ -3,21 +3,27 @@
  */
 
 /**
- * '2026-10-17T16:10:00.000Z' -> '4:10 PM'
+ * An instant -> '4:10 PM', in the EVENT's timezone.
  *
- * Formatted in UTC on purpose. The seeds are authored as venue wall-clock
- * ("Doors 4:00 PM"), and an event's schedule is a wall-clock thing -- a guest
- * standing in the barn should read the same time as the sign on the door,
- * regardless of the phone's timezone. When a real backend lands, this reads
- * event.timezone instead.
+ * Not the phone's, and no longer UTC. A guest standing in the barn should read
+ * the same time as the sign on the door whatever timezone their phone is in --
+ * that part was always the intent. What was wrong is that it was implemented as
+ * `getUTCHours()`, which is only correct for the seed, whose times were authored
+ * as UTC wall-clock. Any instant created at RUNTIME was mis-stamped: a host in
+ * Chattanooga posting at 7:02 PM EDT saw their own broadcast dated 11:02 PM.
+ *
+ * `Intl.DateTimeFormat` with an explicit `timeZone` is the first use of Intl in
+ * this app. Hermes has shipped full ICU since RN 0.73 so it resolves on both
+ * platforms -- verified on the Android emulator, not assumed, because "works on
+ * web, wrong on device" is this repo's recurring failure.
  */
-export function formatClock(iso: string): string {
-  const d = new Date(iso);
-  let h = d.getUTCHours();
-  const m = d.getUTCMinutes();
-  const suffix = h >= 12 ? 'PM' : 'AM';
-  h = h % 12 || 12;
-  return `${h}:${String(m).padStart(2, '0')} ${suffix}`;
+export function formatClock(iso: string, timeZone: string): string {
+  return new Intl.DateTimeFormat('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+    timeZone,
+  }).format(new Date(iso));
 }
 
 /**
@@ -33,11 +39,11 @@ export function initialsFor(name: string): string {
   return first[0]!.toUpperCase();
 }
 
-/** '2026-10-17T19:12:00.000Z' relative to now -> 'just now' / '3 min ago' */
-export function formatRelative(iso: string, now: Date = new Date()): string {
+/** An instant relative to now -> 'just now' / '3 min ago', falling back to the clock. */
+export function formatRelative(iso: string, timeZone: string, now: Date = new Date()): string {
   const mins = Math.floor((now.getTime() - new Date(iso).getTime()) / 60_000);
   if (mins < 1) return 'just now';
   if (mins === 1) return '1 min ago';
   if (mins < 60) return `${mins} min ago`;
-  return formatClock(iso);
+  return formatClock(iso, timeZone);
 }
