@@ -333,3 +333,38 @@ test.describe('Join · claiming a host seat', () => {
     await expect(page.getByTestId('host-broadcast')).toBeVisible();
   });
 });
+
+test.describe('Join · arriving from a link', () => {
+  /**
+   * The route read NO params before this: `runit://join?code=SR1017` opened the join
+   * screen and discarded the code. That was survivable only because the in-memory
+   * adapter seeds an event to pre-fill from.
+   *
+   * Against Supabase it is not. `events_read` admits members only, so `event` is null
+   * until you have already joined -- a first-time guest would see an empty field and no
+   * event name, and the canvas's "Scanned the QR? Your code is filled in" would be a
+   * plain lie. The link is what carries the code now, so it is what is tested.
+   */
+  test('a code in the query string fills the field', async ({ page }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await open(page, scheme, '/join?code=LINKED1');
+    await expect(page.getByTestId('join-code')).toHaveValue('LINKED1');
+  });
+
+  test('the link WINS over the seeded event, because the seed will not exist', async ({
+    page,
+  }, testInfo) => {
+    // The in-memory seed is SR1017. A link naming a different event must not be
+    // overridden by it, or a guest who taps the right invite joins the wrong party.
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await open(page, scheme, '/join?code=OTHER9');
+    await expect(page.getByTestId('join-code')).not.toHaveValue(WEDDING.code);
+    await expect(page.getByTestId('join-code')).toHaveValue('OTHER9');
+  });
+
+  test('no code in the link falls back to the seeded event', async ({ page }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await open(page, scheme, '/join');
+    await expect(page.getByTestId('join-code')).toHaveValue(WEDDING.code);
+  });
+});

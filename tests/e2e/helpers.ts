@@ -22,8 +22,10 @@ export async function ready(page: Page, scheme: 'dark' | 'light') {
 }
 
 /** Land on the join screen with the app hydrated. */
-export async function open(page: Page, scheme: 'dark' | 'light') {
-  await page.goto('/join');
+export async function open(page: Page, scheme: 'dark' | 'light', path = '/join') {
+  // `path` is a parameter so a test can arrive the way a guest tapping an invite does,
+  // with the code in the query string. Every existing caller keeps the default.
+  await page.goto(path);
   await ready(page, scheme);
   await expect(page.getByTestId('join-submit')).toBeVisible();
 }

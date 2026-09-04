@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useLocalSearchParams } from 'expo-router';
 
 import { Screen } from '@/components/ui/Screen';
 import { Toast } from '@/components/ui/Toast';
@@ -18,9 +19,25 @@ export function JoinScreen() {
   const { tokens, fade } = useTheme();
   const event = useEvent();
   const { join } = useJoinActions();
-  // The canvas pre-fills the code and calls it "scanned the QR". Until a real
-  // camera scan exists, the seed code is the honest stand-in for that.
-  const [code, setCode] = useState(event?.code ?? '');
+
+  /**
+   * `?code=` FIRST, and the order matters more than it looks.
+   *
+   * The canvas pre-fills the code and calls it "scanned the QR", and until now the
+   * seeded event supplied that. Against Supabase it cannot: `events_read` admits
+   * members only, so `event` is NULL until you have already joined. A guest arriving
+   * at this screen for the first time would see an empty field and no event name --
+   * the canvas's promise, broken by the backend that makes the app real.
+   *
+   * A link carrying the code is what restores it, which is why this is the param
+   * rather than the seed that wins. `runit://join?code=HOUSE7` and `/join?code=HOUSE7`
+   * both land here; before this the route read no params at all and dropped the code
+   * on the floor.
+   */
+  const params = useLocalSearchParams<{ code?: string }>();
+  const [code, setCode] = useState(
+    (typeof params.code === 'string' ? params.code : undefined) ?? event?.code ?? '',
+  );
   const [nickname, setNickname] = useState('');
   const [hostKey, setHostKey] = useState('');
   const [joined, setJoined] = useState(false);
