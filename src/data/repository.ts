@@ -19,7 +19,7 @@ import type {
   Broadcast, Folder, FolderId, HostRole, NowPlaying, Photo, PhotoId,
   RunitEvent, ScheduleItem, ScheduleItemId, Session, SongRequest, SongRequestId,
 } from './types';
-import type { EntitlementDenial } from '@/domain/entitlements';
+import type { EntitlementDenial, Entitlements } from '@/domain/entitlements';
 
 export type Unsubscribe = () => void;
 
@@ -123,11 +123,28 @@ export interface RunitRepository {
     playNext(): Promise<void>;
   };
 
+  /**
+   * The live tier + usage the write methods enforce against.
+   *
+   * Read-only, and deliberately so: this exists for ADVISORY checks -- "will this
+   * be refused?" asked before doing expensive or irreversible work, like opening
+   * a camera. Enforcement stays inside the write methods, because a check that
+   * lives only in a caller is bypassed by the second caller. Exposing the same
+   * numbers the repository already computes is what stops the UI growing its own
+   * copy of the arithmetic and drifting from it.
+   */
+  entitlements: Observable<Entitlements>;
+
   photos: {
     folders: Observable<Folder[]>;
     pending: Observable<Photo[]>;
     approved: Observable<Photo[]>;
-    upload(input: { localUri: string | null }): Promise<void>;
+    /**
+     * Records a photo whose bytes already exist at `localUri`. Capture itself is
+     * NOT here -- see src/lib/capture.ts for why a camera behind this interface
+     * would make every future adapter carry one.
+     */
+    upload(input: { localUri: string }): Promise<void>;
     approve(id: PhotoId): Promise<void>;
     hide(id: PhotoId): Promise<void>;
     addFolder(input: { name: string }): Promise<void>;

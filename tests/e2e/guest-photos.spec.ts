@@ -183,6 +183,47 @@ test.describe('Photos tab · shared album', () => {
     await expect(page.getByTestId('host-segment-photos')).toHaveText('Photos · 4');
   });
 
+  test('the shutter puts REAL BYTES on the record, from the capture path and not a literal', async ({
+    page,
+  }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await openPhotos(page, scheme);
+
+    // Reception is the active folder and has nine approved photos, so the album
+    // shows the compact shutter rather than the large empty-state one.
+    await page.getByTestId('shutter-small').click();
+    await expect(page.getByTestId('toast')).toContainText('awaiting host approval');
+
+    await openHostPhotos(page);
+
+    // Four rows pending: the three seeded ones plus ours. Exactly ONE carries an
+    // image, which is the seeded-rows-have-no-bytes claim and the ours-does claim
+    // in a single count -- no round trip needed to establish the "before".
+    await expect(page.getByTestId('host-segment-photos')).toHaveText('Photos · 4');
+    const shots = page.getByTestId('host-photos').locator('img');
+    await expect(shots).toHaveCount(1);
+
+    // THE POINT OF THIS TEST, and why it asserts the VALUE rather than presence.
+    // `upload()` used to be called with a hardcoded `localUri: null` -- the one
+    // line in the app that lied. Asserting only that an <img> exists would pass
+    // just as well against a hardcoded literal put back in its place; verified by
+    // mutation, replacing `await capturePhoto()` with a fixed object leaves every
+    // other test in this file green.
+    //
+    // Under EXPO_PUBLIC_FIDELITY the web capture returns a known 1x1 PNG
+    // (src/lib/capture.web.ts). Matching that exact prefix proves the URI came
+    // out of the capture path and was carried through state -> repository ->
+    // record -> render, rather than being minted anywhere in between.
+    await expect(shots.first()).toHaveAttribute(
+      'src',
+      /^data:image\/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB/,
+    );
+
+    // What this CANNOT prove, stated rather than implied: that a camera opened.
+    // react-native-web has no camera and this lane never will. Only a device can
+    // witness a real capture -- design/FIDELITY.md note G.
+  });
+
   test('tapping another folder chip moves the album, and the shutter follows it', async ({
     page,
   }, testInfo) => {

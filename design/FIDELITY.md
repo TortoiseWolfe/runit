@@ -259,3 +259,26 @@ still passes. That is the gap, demonstrated.
 
 `src/features/join/JoinScreen.tsx` (`join-guest-count`), asserted in
 `tests/e2e/join.spec.ts`. Moves the `01-join.{dark,light}` baselines.
+
+## K. Permission copy, and the microphone Runit does not want
+`expo-image-picker`'s config plugin defaults its usage strings to
+"Allow $(PRODUCT_NAME) to access your camera" — accurate, and it renders as
+"Allow Runit to…", so the often-repeated worry that Expo Go would make the prompt
+say someone else's name does not apply to a produced build.
+
+Two deliberate divergences from those defaults, both in `app.json`:
+
+**The copy says why.** A guest deciding in a dark room with a drink in one hand is
+better served by "Runit uses the camera so you can add a photo to this event's
+shared album" than by a bare permission name.
+
+**`microphonePermission: false`.** The plugin defaults it to *true* and also mints
+`android.permission.RECORD_AUDIO`. Runit takes still photos and has no audio
+feature; asking a wedding guest for a microphone it never uses is a privacy smell
+and an App Review flag. Setting it false both omits the iOS string and emits
+`tools:node="remove"` for RECORD_AUDIO in the merged Android manifest.
+
+All of this was verified on WSL2 with **no Mac, no EAS build and no device**, via
+`npx expo config --type introspect`, which prints the fully plugin-applied
+`ios.infoPlist`. Worth remembering: the question of what a permission dialog will
+say is answerable for free, long before anything is built.

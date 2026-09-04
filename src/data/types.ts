@@ -150,7 +150,18 @@ export interface Photo {
    * theme-independent and serialisable.
    */
   hue: number;
-  /** Null until a real capture pipeline exists -- see FIDELITY.md. */
+  /**
+   * Where the bytes live on THIS device: a `file://` in our cache on native, a
+   * `blob:`/`data:` on web. Null for seeded rows, which have no bytes and never
+   * will -- the hue tile is their permanent rendering.
+   */
+  localUri: string | null;
+  /**
+   * Where the bytes live REMOTELY -- a bucket key a Supabase adapter resolves to
+   * a signed URL. Deliberately separate from `localUri`: reusing one field for a
+   * device path and a remote key collides the moment an adapter exists, because
+   * they are resolved by completely different machinery.
+   */
   storagePath: string | null;
   createdAt: Instant;
 }

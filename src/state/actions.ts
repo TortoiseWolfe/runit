@@ -8,6 +8,9 @@ import { useCallback, useMemo } from 'react';
 import { useRouter } from 'expo-router';
 
 import { EntitlementError, JoinError, ScheduleError } from '@/data/repository';
+import { capturePhoto } from '@/lib/capture';
+import { checkLimit } from '@/domain/entitlements';
+import { useEntitlements } from './hooks';
 import type { HostRole, ScheduleItemId, SongRequestId, PhotoId, FolderId } from '@/data/types';
 import { useRepository } from './RepositoryProvider';
 import { useToast } from './ToastProvider';
@@ -91,15 +94,38 @@ export function useMusicActions() {
 
 export function usePhotoActions() {
   const repo = useRepository();
+  const entitlements = useEntitlements();
   const { show } = useToast();
   const guarded = useGuardedAction();
   return useMemo(
     () => ({
       capture: async (folderName: string) => {
+        // ADVISORY pre-check, before the camera opens. `upload()` enforces the
+        // cap authoritatively -- that must not move, because a check living only
+        // in a handler is bypassed by the second caller. But enforcement alone
+        // runs AFTER the guest has framed and taken a shot, and telling someone
+        // their photo is refused once they have already taken it is the worst
+        // possible moment. So: ask cheaply first, enforce properly second.
+        const cap = checkLimit(entitlements, 'photos');
+        if (!cap.allowed) {
+          // Route to the paywall WITHOUT opening the camera. Reusing `guarded`
+          // rather than pushing the route by hand keeps one implementation of
+          // "what a denial does", so the deep-link params cannot drift.
+          await guarded(() => {
+            throw new EntitlementError(cap.denial);
+          });
+          return;
+        }
+
+        const shot = await capturePhoto();
+        // null means the guest backed out of the camera. Not an error, and not
+        // something to raise a toast about.
+        if (!shot) return;
+
         // The canvas reads activeFolder from a stale closure for this toast
         // while its setState reads fresh state, so it can name the wrong
         // folder. The name is passed in from the same render here.
-        const ok = await guarded(() => repo.photos.upload({ localUri: null }));
+        const ok = await guarded(() => repo.photos.upload({ localUri: shot.uri }));
         if (ok) show(`Uploaded to ${folderName} · awaiting host approval`);
       },
       approve: (id: PhotoId) => guarded(() => repo.photos.approve(id)),
@@ -107,7 +133,7 @@ export function usePhotoActions() {
       addFolder: (name: string) => guarded(() => repo.photos.addFolder({ name })),
       selectFolder: (id: FolderId) => repo.event.setActiveFolder(id),
     }),
-    [repo, show, guarded],
+    [repo, show, guarded, entitlements],
   );
 }
 

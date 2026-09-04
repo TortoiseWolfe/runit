@@ -17,6 +17,8 @@ export const useFolders = () => useObservable(useRepository().photos.folders);
 export const usePendingPhotos = () => useObservable(useRepository().photos.pending);
 export const useApprovedPhotos = () => useObservable(useRepository().photos.approved);
 export const useHosts = () => useObservable(useRepository().hosts.all);
+/** Live tier + usage. For ADVISORY checks only -- the write methods enforce. */
+export const useEntitlements = () => useObservable(useRepository().entitlements);
 
 /** The current guest's own request, if they have one in the live queue. */
 export function useMyRequest() {

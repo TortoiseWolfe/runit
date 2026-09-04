@@ -101,13 +101,13 @@ export const weddingSeed: Seed = {
     uploadedByName: ['Priya', 'Tom', 'Maya', 'Aunt Jo', 'Grandpa Lou', 'Nia', 'Sam', 'Riley', 'Jordan'][i]!,
     status: 'approved' as const,
     hue,
-    storagePath: null,
+    localUri: null, storagePath: null,
     createdAt: at('19:0' + ((i % 9) + 0)),
   })),
   pendingPhotos: [
-    { id: 'pho_1', folderId: 'fld_reception', uploadedByGuestId: 'gst_priya', uploadedByName: 'Priya', status: 'pending', hue: 30, storagePath: null, createdAt: minutesAgo(0) },
-    { id: 'pho_2', folderId: 'fld_reception', uploadedByGuestId: 'gst_tom', uploadedByName: 'Tom', status: 'pending', hue: 200, storagePath: null, createdAt: minutesAgo(1) },
-    { id: 'pho_3', folderId: 'fld_reception', uploadedByGuestId: 'gst_lou', uploadedByName: 'Grandpa Lou', status: 'pending', hue: 120, storagePath: null, createdAt: minutesAgo(3) },
+    { id: 'pho_1', folderId: 'fld_reception', uploadedByGuestId: 'gst_priya', uploadedByName: 'Priya', status: 'pending', hue: 30, localUri: null, storagePath: null, createdAt: minutesAgo(0) },
+    { id: 'pho_2', folderId: 'fld_reception', uploadedByGuestId: 'gst_tom', uploadedByName: 'Tom', status: 'pending', hue: 200, localUri: null, storagePath: null, createdAt: minutesAgo(1) },
+    { id: 'pho_3', folderId: 'fld_reception', uploadedByGuestId: 'gst_lou', uploadedByName: 'Grandpa Lou', status: 'pending', hue: 120, localUri: null, storagePath: null, createdAt: minutesAgo(3) },
   ],
   /** Canvas: nextPending starts at 4, and hue = (nextPending * 67) % 360. */
   nextPhotoSeq: 4,

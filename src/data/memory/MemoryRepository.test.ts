@@ -105,7 +105,7 @@ describe('photos', () => {
   it('uploads file into the active folder and derive the canvas hue', async () => {
     const r = make();
     await r.session.joinAsGuest({ code: 'SR1017', nickname: 'Ada' });
-    await r.photos.upload({ localUri: null });
+    await r.photos.upload({ localUri: 'file:///tmp/test.jpg' });
     const newest = r.photos.pending.get()[0]!;
     expect(newest.folderId).toBe('fld_reception');
     expect(newest.uploadedByName).toBe('Ada');
@@ -115,17 +115,41 @@ describe('photos', () => {
 
   it('auto-approves on the free tier, which has no moderation', async () => {
     const r = makeFree();
-    await r.photos.upload({ localUri: null });
+    await r.photos.upload({ localUri: 'file:///tmp/test.jpg' });
     expect(r.photos.pending.get()).toHaveLength(0); // no approval queue at all
     expect(r.photos.approved.get()).toHaveLength(1);
     expect(r.photos.folders.get()[0]?.photoCount).toBe(99); // counted immediately
   });
 
+  it('keeps the bytes: the uploaded URI is stored, and storagePath stays null', async () => {
+    const r = make();
+    await r.session.joinAsGuest({ code: 'SR1017', nickname: 'Ada' });
+    await r.photos.upload({ localUri: 'file:///cache/runit-photos/1.jpg' });
+    const newest = r.photos.pending.get()[0]!;
+    // The device path and the remote key are different fields on purpose. A
+    // Supabase adapter fills storagePath with a bucket key; conflating the two
+    // means a local file:// would be handed to a signed-URL resolver.
+    expect(newest.localUri).toBe('file:///cache/runit-photos/1.jpg');
+    expect(newest.storagePath).toBeNull();
+    // Seeded rows have no bytes and never will -- the hue tile is permanent.
+    expect(r.photos.approved.get().every((p) => p.localUri === null)).toBe(true);
+  });
+
+  it('publishes entitlements so the UI can ask before opening a camera', async () => {
+    const r = makeFree(); // 98 of 100 photos
+    const before = r.entitlements.get();
+    expect(before.usage.photosStored).toBe(98);
+    await r.photos.upload({ localUri: 'file:///tmp/a.jpg' });
+    // Recomputed and republished, or an advisory check reads a stale count and
+    // waves through an upload the write method is about to refuse.
+    expect(r.entitlements.get().usage.photosStored).toBe(99);
+  });
+
   it('stops at the free tier photo cap rather than failing after the capture', async () => {
     const r = makeFree(); // 98 of 100
-    await r.photos.upload({ localUri: null }); // 99
-    await r.photos.upload({ localUri: null }); // 100
-    await expect(r.photos.upload({ localUri: null })).rejects.toBeInstanceOf(EntitlementError);
+    await r.photos.upload({ localUri: 'file:///tmp/test.jpg' }); // 99
+    await r.photos.upload({ localUri: 'file:///tmp/test.jpg' }); // 100
+    await expect(r.photos.upload({ localUri: 'file:///tmp/test.jpg' })).rejects.toBeInstanceOf(EntitlementError);
   });
 });
 

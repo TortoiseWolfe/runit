@@ -283,6 +283,19 @@ that lives in a button handler is bypassed by the second caller.
 - `schedule.start()` refuses to move the run-of-show cursor **backwards** unless
   passed `{ rewind: true }`. `nowScheduleItemId` drives every guest's Now/Next card,
   so a mis-tap on a past row rewound the evening for the whole room. FIDELITY note I.
+- **Capture lives in `src/lib/`, not behind the repository.** A camera is a device
+  concern; putting `ImagePicker` behind `RunitRepository` would make a Supabase
+  adapter carry one. `upload()` takes a URI, which is also the right currency —
+  an adapter can `fetch(uri).blob()`, and the cap check runs before any bytes are
+  materialised.
+- **`capture.web.ts` returns a synthetic 1×1 PNG under `EXPO_PUBLIC_FIDELITY=1`.**
+  Without it the harness hangs: a real `<input type=file>` opens an OS chooser
+  that nothing in `shoot-app.mjs` answers, and headless Chromium refuses
+  `getUserMedia`. `guest-photos.spec.ts` asserts that exact data URI, which is
+  what proves the value came from the capture path and not from a literal.
+- `Photo.localUri` (device path) and `Photo.storagePath` (remote key) are
+  **separate fields on purpose**. Conflating them hands a `file://` to a
+  signed-URL resolver the day an adapter exists.
 - The join screen shows "N already here" (`join-guest-count`). It is **not** in the
   canvas — it exists so the e2e suite can prove joining *increments* the room
   rather than merely that the room reads 173 afterwards. FIDELITY note J.
@@ -305,8 +318,13 @@ that lives in a button handler is bypassed by the second caller.
 
 ## Not built yet
 
-- Real photo capture. `upload()` creates a record with no bytes behind it —
-  permissions, capture, resize, progress, retry and a `failed` state are all
-  absent. This is the largest remaining chunk of real work.
+- Photo capture **progress, retry, and the `failed` state**. Capture itself now
+  works: `src/lib/capture.ts` (native) and `capture.web.ts` take a real photo,
+  resize it to 1600px, and hand `upload()` a URI. What is still missing is an
+  in-flight `uploading` row with progress, a retry affordance, and anything that
+  ever writes `'failed'`. **Before adding an `uploading` row, note that it is
+  already selected into `sigPending` and counted against the tier cap** — so it
+  would appear in the host's approval queue with live Approve/Hide on a photo
+  with no bytes, and move three e2e badge counts.
 - Supabase adapter (`src/data/supabase/README.md` holds the contract).
 - Push notifications, host invites, QR scanning, calendar export.

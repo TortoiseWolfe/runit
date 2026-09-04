@@ -1,4 +1,4 @@
-import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { EventHeader } from '@/features/chat/EventHeader';
 import { usePhotoActions } from '@/state/actions';
@@ -116,6 +116,12 @@ export function PhotosScreen() {
 
         <View style={s.grid}>
           {visible.map((p) => (
+            // The testID stays on the OUTER node deliberately. The e2e suite
+            // counts `tile-*` and asserts their order; wrapping the image in a
+            // new parent and moving the testID would break both. The hue tile is
+            // not a placeholder to be replaced -- it is the layer underneath, and
+            // it stays the permanent rendering for the nine seeded rows, which
+            // have no bytes and never will.
             <View
               key={p.id}
               testID={`tile-${p.id}`}
@@ -123,7 +129,11 @@ export function PhotosScreen() {
                 s.tile,
                 { width: tileSize, height: tileSize, backgroundColor: albumTileColor(p.hue, isDark) },
               ]}
-            />
+            >
+              {p.localUri ? (
+                <Image source={{ uri: p.localUri }} style={s.tileImage} resizeMode="cover" />
+              ) : null}
+            </View>
           ))}
         </View>
       </ScrollView>
@@ -181,6 +191,8 @@ const s = StyleSheet.create({
   },
   // Width and height are supplied at the call site -- see the note above.
   tile: { borderRadius: 6 },
+  // Fills the tile it sits inside; the tile owns the size.
+  tileImage: { width: '100%', height: '100%' },
 
   albumBar: { alignItems: 'center', paddingTop: 14, paddingBottom: 10, borderTopWidth: border },
   shutterSmall: {

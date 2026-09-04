@@ -120,6 +120,10 @@ export class MemoryRepository implements RunitRepository {
   private sigPending: Signal<Photo[]>;
   private sigApproved: Signal<Photo[]>;
   private sigHosts: Signal<{ id: string; displayName: string; role: HostRole }[]>;
+  private sigEntitlements: Signal<Entitlements>;
+
+  /** Live tier + usage. Advisory reads only; enforcement is in the write methods. */
+  entitlements: Observable<Entitlements> = undefined as unknown as Observable<Entitlements>;
 
   constructor(seed: Seed, opts: { now?: () => string } = {}) {
     this.now = opts.now ?? (() => new Date().toISOString());
@@ -150,6 +154,7 @@ export class MemoryRepository implements RunitRepository {
     this.sigPending = new Signal<Photo[]>([]);
     this.sigApproved = new Signal<Photo[]>([]);
     this.sigHosts = new Signal<{ id: string; displayName: string; role: HostRole }[]>([]);
+    this.sigEntitlements = new Signal<Entitlements>(this.computeEntitlements());
     // Class field initialisers (session = {...}, chat = {...}, ...) run BEFORE
     // this constructor body, so their `current`/`feed` slots are still empty at
     // that point. Wiring happens here, once every signal exists.
@@ -162,7 +167,7 @@ export class MemoryRepository implements RunitRepository {
     return `${prefix}_${this.seq}`;
   }
 
-  private entitlements(): Entitlements {
+  private computeEntitlements(): Entitlements {
     return {
       tier: TIERS[this.ev.tier],
       usage: {
@@ -180,6 +185,9 @@ export class MemoryRepository implements RunitRepository {
   }
 
   private recompute(): void {
+    // Published on every recompute, so an advisory check can never be reading
+    // a tier or a usage count the write methods have already moved past.
+    this.sigEntitlements.set(this.computeEntitlements());
     this.sigEvent.set({ ...this.ev });
     // Pinned first, then oldest-to-newest -- the canvas renders its feed in
     // insertion order with new messages at the bottom, chat-style.
@@ -224,7 +232,7 @@ export class MemoryRepository implements RunitRepository {
       if (code.trim().toUpperCase() !== this.ev.code) {
         throw new JoinError('unknown_code', "That code doesn't match an event.");
       }
-      const seat = checkLimit(this.entitlements(), 'guests');
+      const seat = checkLimit(this.computeEntitlements(), 'guests');
       if (!seat.allowed) throw new JoinError('event_full', 'This event is full.');
 
       this.ev = { ...this.ev, guestCount: this.ev.guestCount + 1 };
@@ -286,7 +294,7 @@ export class MemoryRepository implements RunitRepository {
       // Degrade rather than reject. Refusing to post an announcement because
       // the plan cannot PIN it would be hostile; the toggle was already locked
       // in the UI, so this is defence in depth.
-      const e = this.entitlements();
+      const e = this.computeEntitlements();
       const canPin = pinned && checkFeature(e, 'pinnedAnnouncements').allowed;
       const canPush = push && checkFeature(e, 'pushNotifications').allowed;
 
@@ -411,7 +419,7 @@ export class MemoryRepository implements RunitRepository {
     },
 
     accept: async (id: SongRequestId) => {
-      const e = this.entitlements();
+      const e = this.computeEntitlements();
       const gate = checkFeature(e, 'djQueue');
       if (!gate.allowed) throw new EntitlementError(gate.denial);
       this.patchRequest(id, { status: 'accepted' });
@@ -419,7 +427,7 @@ export class MemoryRepository implements RunitRepository {
     },
 
     decline: async (id: SongRequestId) => {
-      const e = this.entitlements();
+      const e = this.computeEntitlements();
       const gate = checkFeature(e, 'djQueue');
       if (!gate.allowed) throw new EntitlementError(gate.denial);
       this.patchRequest(id, { status: 'declined' });
@@ -430,7 +438,7 @@ export class MemoryRepository implements RunitRepository {
       // Gated identically to accept/decline: all three are the DJ console, and
       // an ungated markPlayed is a strictly stronger decline -- it moves a
       // request out of Incoming without the tier that sells the queue.
-      const e = this.entitlements();
+      const e = this.computeEntitlements();
       const gate = checkFeature(e, 'djQueue');
       if (!gate.allowed) throw new EntitlementError(gate.denial);
       this.patchRequest(id, { status: 'played' });
@@ -438,7 +446,7 @@ export class MemoryRepository implements RunitRepository {
     },
 
     playNext: async () => {
-      const e = this.entitlements();
+      const e = this.computeEntitlements();
       const gate = checkFeature(e, 'djQueue');
       if (!gate.allowed) throw new EntitlementError(gate.denial);
       const next = this.sigAccepted.get()[0];
@@ -461,8 +469,8 @@ export class MemoryRepository implements RunitRepository {
     pending: undefined as unknown as Observable<Photo[]>,
     approved: undefined as unknown as Observable<Photo[]>,
 
-    upload: async ({ localUri }: { localUri: string | null }) => {
-      const e = this.entitlements();
+    upload: async ({ localUri }: { localUri: string }) => {
+      const e = this.computeEntitlements();
       const cap = checkLimit(e, 'photos');
       if (!cap.allowed) throw new EntitlementError(cap.denial);
 
@@ -482,7 +490,9 @@ export class MemoryRepository implements RunitRepository {
           uploadedByName: s.kind === 'guest' ? s.nickname : 'you',
           status: moderated ? 'pending' : 'approved',
           hue: hueForPhotoSeq(seq),
-          storagePath: localUri,
+          localUri,
+        // Stays null until an adapter uploads the bytes somewhere remote.
+        storagePath: null,
           createdAt: this.now(),
         },
         ...this.photoList,
@@ -495,7 +505,7 @@ export class MemoryRepository implements RunitRepository {
       // upload() already reads this feature to decide whether a photo lands
       // pending or approved; the queue it creates has to be gated by the same
       // one, or a free tier can moderate a queue it is not sold.
-      const e = this.entitlements();
+      const e = this.computeEntitlements();
       const gate = checkFeature(e, 'photoModeration');
       if (!gate.allowed) throw new EntitlementError(gate.denial);
       const p = this.photoList.find((x) => x.id === id);
@@ -512,7 +522,7 @@ export class MemoryRepository implements RunitRepository {
     hide: async (id: PhotoId) => {
       // The canvas deletes the row outright, losing it. "Hide" and "delete
       // forever" are different, and moderation needs an audit trail.
-      const e = this.entitlements();
+      const e = this.computeEntitlements();
       const gate = checkFeature(e, 'photoModeration');
       if (!gate.allowed) throw new EntitlementError(gate.denial);
       this.photoList = this.photoList.map((x) =>
@@ -522,7 +532,7 @@ export class MemoryRepository implements RunitRepository {
     },
 
     addFolder: async ({ name }: { name: string }) => {
-      const e = this.entitlements();
+      const e = this.computeEntitlements();
       const cap = checkLimit(e, 'folders');
       if (!cap.allowed) throw new EntitlementError(cap.denial);
       const position = Math.max(0, ...this.folderList.map((f) => f.position)) + 1;
@@ -539,7 +549,7 @@ export class MemoryRepository implements RunitRepository {
   hosts = {
     all: undefined as unknown as Observable<{ id: string; displayName: string; role: HostRole }[]>,
     invite: async ({ displayName, role }: { displayName: string; role: HostRole }) => {
-      const e = this.entitlements();
+      const e = this.computeEntitlements();
       const seat = checkLimit(e, 'hosts');
       if (!seat.allowed) throw new EntitlementError(seat.denial);
       if (role !== 'host') {
@@ -574,6 +584,7 @@ export class MemoryRepository implements RunitRepository {
     this.photos.folders = this.sigFolders;
     this.photos.pending = this.sigPending;
     this.photos.approved = this.sigApproved;
+    this.entitlements = this.sigEntitlements;
     this.hosts.all = this.sigHosts;
   }
 

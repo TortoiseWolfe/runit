@@ -1,4 +1,4 @@
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { formatRelative } from '@/lib/format';
 import { usePhotoActions } from '@/state/actions';
@@ -34,7 +34,11 @@ export function PhotoApprovalsPanel() {
           key={p.id}
           style={[s.row, { borderColor: tokens.base300, backgroundColor: tokens.base200 }]}
         >
-          <View style={[s.thumb, { backgroundColor: pendingPhotoColor(p.hue, isDark) }]} />
+          <View style={[s.thumb, { backgroundColor: pendingPhotoColor(p.hue, isDark) }]}>
+            {p.localUri ? (
+              <Image source={{ uri: p.localUri }} style={s.thumbImage} resizeMode="cover" />
+            ) : null}
+          </View>
           <View style={s.rowBody}>
             <Text style={[s.by, { color: tokens.baseContent }]} numberOfLines={1}>
               {p.uploadedByName}
@@ -139,6 +143,7 @@ const s = StyleSheet.create({
     borderRadius: radius.selector, borderWidth: border,
   },
   thumb: { width: 64, height: 64, borderRadius: 10 },
+  thumbImage: { width: '100%', height: '100%' },
   rowBody: { flex: 1, minWidth: 0 },
   by: { fontSize: 14, fontWeight: weight.medium },
   meta: { fontSize: 12 },
