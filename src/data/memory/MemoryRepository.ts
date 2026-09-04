@@ -583,36 +583,26 @@ export class MemoryRepository implements RunitRepository {
     },
 
     accept: async (id: SongRequestId) => {
-      const e = this.computeEntitlements();
-      const gate = checkFeature(e, 'djQueue');
-      if (!gate.allowed) throw new EntitlementError(gate.denial);
       this.patchRequest(id, { status: 'accepted' });
       this.recompute();
     },
 
     decline: async (id: SongRequestId) => {
-      const e = this.computeEntitlements();
-      const gate = checkFeature(e, 'djQueue');
-      if (!gate.allowed) throw new EntitlementError(gate.denial);
       this.patchRequest(id, { status: 'declined' });
       this.recompute();
     },
 
+    // THESE FOUR ARE UNGATED, and were not always. They were the `djQueue`
+    // feature, sold from the Party tier up, which meant the free tier could
+    // collect requests and votes and act on NONE of them. Since playNext is the
+    // only writer of nowPlaying, a house party's Now Playing bar never moved --
+    // the one room this app is best in was the room its music tab did not work in.
     markPlayed: async (id: SongRequestId) => {
-      // Gated identically to accept/decline: all three are the DJ console, and
-      // an ungated markPlayed is a strictly stronger decline -- it moves a
-      // request out of Incoming without the tier that sells the queue.
-      const e = this.computeEntitlements();
-      const gate = checkFeature(e, 'djQueue');
-      if (!gate.allowed) throw new EntitlementError(gate.denial);
       this.patchRequest(id, { status: 'played' });
       this.recompute();
     },
 
     playNext: async () => {
-      const e = this.computeEntitlements();
-      const gate = checkFeature(e, 'djQueue');
-      if (!gate.allowed) throw new EntitlementError(gate.denial);
       const next = this.sigAccepted.get()[0];
       if (!next) return;
       this.patchRequest(next.id, { status: 'played' });

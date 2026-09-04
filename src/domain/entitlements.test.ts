@@ -27,8 +27,17 @@ describe('the ladder is actually a ladder', () => {
     expect(seq).toEqual([...seq].sort((a, b) => a - b));
   });
 
-  it('every tier states five feature lines, as the design draws them', () => {
-    for (const t of TIER_ORDER) expect(TIERS[t].featureLines).toHaveLength(5);
+  // WAS `toHaveLength(5)`, because the canvas draws five rows in every pricing
+  // column. That assertion turned a visual-balance rule into pressure to keep
+  // writing lines, and the file obliged: eight of them named features nothing
+  // enforced. Even columns are not worth advertising fiction for, so the rule is
+  // now a range -- no column is empty, none overflows the design -- and the
+  // audit in tools/audit-tier-claims.mjs guards what the lines may CLAIM.
+  it('every tier states between three and five feature lines', () => {
+    for (const t of TIER_ORDER) {
+      expect(TIERS[t].featureLines.length).toBeGreaterThanOrEqual(3);
+      expect(TIERS[t].featureLines.length).toBeLessThanOrEqual(5);
+    }
   });
 });
 
@@ -69,8 +78,13 @@ describe('checkFeature', () => {
     expect(firstTierWith('pushNotifications')).toBe('event');
   });
 
-  it('gates request caps to Venue', () => {
-    expect(firstTierWith('requestCaps')).toBe('venue');
+  // Venue used to grant this, and nothing read it -- so it granted nothing. The
+  // flag stays in TierFeatures as the build target; `null` is the honest answer
+  // until enforcement exists. Shipping request caps means flipping venue to true
+  // AND adding a checkFeature call, and audit:tiers fails if only the first
+  // happens. Change this line to `.toBe('venue')` on that day.
+  it('does not yet grant request caps to any tier, because nothing enforces them', () => {
+    expect(firstTierWith('requestCaps')).toBeNull();
   });
 });
 

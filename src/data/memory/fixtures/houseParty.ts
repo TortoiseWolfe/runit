@@ -10,7 +10,8 @@
  *   3 of 10 guests   -> joining still works
  *   1 of 1 hosts     -> "+ Add host" is disabled
  *   no moderation    -> uploads auto-approve, host Photos shows an upgrade card
- *   no DJ queue      -> host DJ tab is a read-only ranked list
+ *   FULL DJ queue    -> accept, decline, mark played and play next all work here.
+ *                       They were gated once; see the note in MemoryRepository.
  */
 import type { Seed } from '../MemoryRepository';
 

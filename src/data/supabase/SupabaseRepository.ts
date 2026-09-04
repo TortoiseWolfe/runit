@@ -786,23 +786,19 @@ export class SupabaseRepository implements RunitRepository {
 
     accept: (id: SongRequestId) => this.moderate(id, 'accepted'),
     decline: (id: SongRequestId) => this.moderate(id, 'declined'),
+    // Ungated, with accept, decline and moderate() below -- see the note in
+    // MemoryRepository for what gating these cost the free tier.
     markPlayed: async (id: SongRequestId) => {
-      const gate = checkFeature(this.sigEntitlements.get(), 'djQueue');
-      if (!gate.allowed) throw new EntitlementError(gate.denial);
       await this.moderate(id, 'played');
     },
 
     playNext: async () => {
-      const gate = checkFeature(this.sigEntitlements.get(), 'djQueue');
-      if (!gate.allowed) throw new EntitlementError(gate.denial);
       const { error } = await this.db.rpc('play_next', { p_event: this.requireEvent() });
       if (error) throw error;
     },
   };
 
   private async moderate(id: SongRequestId, status: string): Promise<void> {
-    const gate = checkFeature(this.sigEntitlements.get(), 'djQueue');
-    if (!gate.allowed) throw new EntitlementError(gate.denial);
     const { data, error } = await this.db
       .from('song_requests').update({ status }).eq('id', id).select('id');
     if (error) throw error;
