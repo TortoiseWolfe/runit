@@ -45,8 +45,20 @@ fixes.
 
 ```
 pnpm start                      # host  — Metro, devices, hot reload
+pnpm start:go                   # host  — same, but targeting Expo Go (see below)
 docker compose run --rm checks  # container — everything a CI job would do
 ```
+
+**`pnpm start` does not target Expo Go, and the failure is opaque.**
+`expo-dev-client` is a dependency, and its presence flips `expo start`'s default
+target — the QR encodes `exp+runit://expo-development-client/?url=…`, which a
+custom Expo Go **cannot open**. Scanning it produces a generic "problem running
+the requested app" that names nothing. That cost an hour once.
+
+Use `pnpm start:go` when pairing with an Expo Go client (including the custom
+SDK-57 one on TestFlight), and `pnpm start` when pairing with a dev client built
+by `pnpm android` or EAS. `--go` is absent from `expo start --help` in SDK 57 but
+still works.
 
 ## The constraint everything is shaped by
 
@@ -80,6 +92,7 @@ green on a broken app.
 
 ```
 pnpm start                      # host: Expo dev server
+pnpm start:go                   # host: Expo dev server targeting EXPO GO, not the dev client
 
 pnpm checks:docker              # container: every gate, in one run
 pnpm checks:shell               # container: a bash shell in the same image

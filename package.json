@@ -20,6 +20,7 @@
     "serve:dist": "node tools/serve-dist.mjs",
     "shots": "node tools/shoot-app.mjs",
     "start": "expo start",
+    "start:go": "expo start --go",
     "test": "jest",
     "test:e2e": "playwright test",
     "test:e2e:report": "playwright show-report",
