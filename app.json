@@ -46,7 +46,8 @@
           "cameraPermission": "Runit uses the camera so you can add a photo to this event's shared album.",
           "microphonePermission": false
         }
-      ]
+      ],
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true
