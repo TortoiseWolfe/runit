@@ -4,15 +4,22 @@
  * Regenerate with the Supabase MCP `generate_typescript_types` against project
  * `qwusbxallkbzfladvgfx`, or `supabase gen types typescript --project-id <ref>`.
  *
- * This is the authoritative column list, and it is generated rather than
- * transcribed on purpose: a mistyped snake_case column does not raise -- PostgREST
- * returns the rows without it and the mapper reads `undefined`, so the failure
- * surfaces as a blank name or a missing count somewhere far away.
+ * Generated rather than transcribed on purpose: a mistyped snake_case column does
+ * not raise. PostgREST returns the row without it and the mapper reads
+ * `undefined`, so the failure surfaces as a blank name three screens away.
  *
- * Supabase's generator also emits Insert/Update variants and a page of conditional
- * generics for addressing them. Only `Row` and the function signatures are kept
- * here; `Row<'photos'>` below does the same job as their `Tables<>` helper in one
- * line, and writes are typed at their call sites where the column set is explicit.
+ * THE Insert / Update / Relationships KEYS ARE LOAD-BEARING. An earlier version of
+ * this file kept only `Row`, on the reasoning that writes are typed at their call
+ * sites anyway. That silently broke every write: supabase-js constrains its client
+ * generic to `GenericSchema`, whose `GenericTable` requires all four keys, so a
+ * table missing them fails the constraint, the whole `Database` type is discarded,
+ * and `.insert()`, `.update()` and `.rpc()` all degrade to `never` / `undefined`.
+ * The apparent noise in a generated file is the file doing its job.
+ *
+ * `Relationships` is `[]` throughout because this adapter never uses PostgREST
+ * embeds -- and could not usefully: `guests` has no SELECT policy, so any embed of
+ * it resolves to null for every client. The denormalised `*_name` columns exist
+ * for exactly that reason.
  */
 
 export type Database = {
@@ -20,109 +27,147 @@ export type Database = {
     Tables: {
       broadcast_reads: {
         Row: { broadcast_id: string; guest_id: string; read_at: string };
+        Insert: { broadcast_id: string; guest_id: string; read_at?: string };
+        Update: { broadcast_id?: string; guest_id?: string; read_at?: string };
+        Relationships: [];
       };
       broadcasts: {
         Row: {
-          id: string;
-          event_id: string;
-          author_host_id: string | null;
-          author_name: string;
-          author_role_label: string;
-          kind: string;
-          body: string;
-          pinned: boolean;
-          seen_count: number;
-          created_at: string;
+          id: string; event_id: string; author_host_id: string | null; author_name: string;
+          author_role_label: string; kind: string; body: string; pinned: boolean;
+          seen_count: number; created_at: string;
         };
+        Insert: {
+          id?: string; event_id: string; author_host_id?: string | null; author_name: string;
+          author_role_label: string; kind?: string; body: string; pinned?: boolean;
+          seen_count?: number; created_at?: string;
+        };
+        Update: {
+          id?: string; event_id?: string; author_host_id?: string | null; author_name?: string;
+          author_role_label?: string; kind?: string; body?: string; pinned?: boolean;
+          seen_count?: number; created_at?: string;
+        };
+        Relationships: [];
       };
       events: {
         Row: {
-          id: string;
-          code: string;
-          name: string;
-          venue: string;
-          starts_at: string;
-          timezone: string;
-          doors_label: string;
-          tier: string;
-          active_folder_id: string | null;
-          now_schedule_item_id: string | null;
-          guest_count: number;
-          invited_count: number;
+          id: string; code: string; name: string; venue: string; starts_at: string;
+          timezone: string; doors_label: string; tier: string; active_folder_id: string | null;
+          now_schedule_item_id: string | null; guest_count: number; invited_count: number;
           created_at: string;
         };
+        Insert: {
+          id?: string; code: string; name: string; venue: string; starts_at: string;
+          timezone?: string; doors_label?: string; tier?: string; active_folder_id?: string | null;
+          now_schedule_item_id?: string | null; guest_count?: number; invited_count?: number;
+          created_at?: string;
+        };
+        Update: {
+          id?: string; code?: string; name?: string; venue?: string; starts_at?: string;
+          timezone?: string; doors_label?: string; tier?: string; active_folder_id?: string | null;
+          now_schedule_item_id?: string | null; guest_count?: number; invited_count?: number;
+          created_at?: string;
+        };
+        Relationships: [];
       };
       folders: {
         Row: { id: string; event_id: string; name: string; position: number; photo_count: number };
+        Insert: { id?: string; event_id: string; name: string; position?: number; photo_count?: number };
+        Update: { id?: string; event_id?: string; name?: string; position?: number; photo_count?: number };
+        Relationships: [];
       };
       guests: {
-        Row: {
-          id: string;
-          event_id: string;
-          auth_user_id: string;
-          nickname: string;
-          created_at: string;
-        };
+        Row: { id: string; event_id: string; auth_user_id: string; nickname: string; created_at: string };
+        Insert: { id?: string; event_id: string; auth_user_id: string; nickname: string; created_at?: string };
+        Update: { id?: string; event_id?: string; auth_user_id?: string; nickname?: string; created_at?: string };
+        Relationships: [];
       };
       hosts: {
         Row: {
-          id: string;
-          event_id: string;
-          auth_user_id: string | null;
-          display_name: string;
-          role: string;
-          role_label: string;
-          created_at: string;
+          id: string; event_id: string; auth_user_id: string | null; display_name: string;
+          role: string; role_label: string; created_at: string;
         };
+        Insert: {
+          id?: string; event_id: string; auth_user_id?: string | null; display_name: string;
+          role: string; role_label: string; created_at?: string;
+        };
+        Update: {
+          id?: string; event_id?: string; auth_user_id?: string | null; display_name?: string;
+          role?: string; role_label?: string; created_at?: string;
+        };
+        Relationships: [];
       };
       now_playing: {
         Row: {
-          event_id: string;
-          title: string;
-          artist: string;
-          from_request_id: string | null;
-          started_at: string | null;
+          event_id: string; title: string; artist: string;
+          from_request_id: string | null; started_at: string | null;
         };
+        Insert: {
+          event_id: string; title: string; artist?: string;
+          from_request_id?: string | null; started_at?: string | null;
+        };
+        Update: {
+          event_id?: string; title?: string; artist?: string;
+          from_request_id?: string | null; started_at?: string | null;
+        };
+        Relationships: [];
       };
       photos: {
         Row: {
-          id: string;
-          event_id: string;
-          folder_id: string;
-          uploaded_by_guest_id: string | null;
-          uploaded_by_name: string;
-          status: string;
-          hue: number;
-          storage_path: string | null;
+          id: string; event_id: string; folder_id: string; uploaded_by_guest_id: string | null;
+          uploaded_by_name: string; status: string; hue: number; storage_path: string | null;
           created_at: string;
         };
+        Insert: {
+          id?: string; event_id: string; folder_id: string; uploaded_by_guest_id?: string | null;
+          uploaded_by_name: string; status?: string; hue?: number; storage_path?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string; event_id?: string; folder_id?: string; uploaded_by_guest_id?: string | null;
+          uploaded_by_name?: string; status?: string; hue?: number; storage_path?: string | null;
+          created_at?: string;
+        };
+        Relationships: [];
       };
       schedule_items: {
         Row: {
-          id: string;
-          event_id: string;
-          position: number;
-          time_label: string | null;
-          title: string;
-          place: string;
-          started_at: string | null;
+          id: string; event_id: string; position: number; time_label: string | null;
+          title: string; place: string; started_at: string | null;
         };
+        Insert: {
+          id?: string; event_id: string; position: number; time_label?: string | null;
+          title: string; place?: string; started_at?: string | null;
+        };
+        Update: {
+          id?: string; event_id?: string; position?: number; time_label?: string | null;
+          title?: string; place?: string; started_at?: string | null;
+        };
+        Relationships: [];
       };
       song_requests: {
         Row: {
-          id: string;
-          event_id: string;
-          title: string;
-          artist: string;
-          requested_by_guest_id: string | null;
-          requested_by_name: string;
-          status: string;
-          vote_count: number;
-          created_at: string;
+          id: string; event_id: string; title: string; artist: string;
+          requested_by_guest_id: string | null; requested_by_name: string; status: string;
+          vote_count: number; created_at: string;
         };
+        Insert: {
+          id?: string; event_id: string; title: string; artist?: string;
+          requested_by_guest_id?: string | null; requested_by_name: string; status?: string;
+          vote_count?: number; created_at?: string;
+        };
+        Update: {
+          id?: string; event_id?: string; title?: string; artist?: string;
+          requested_by_guest_id?: string | null; requested_by_name?: string; status?: string;
+          vote_count?: number; created_at?: string;
+        };
+        Relationships: [];
       };
       song_votes: {
         Row: { request_id: string; guest_id: string; created_at: string };
+        Insert: { request_id: string; guest_id: string; created_at?: string };
+        Update: { request_id?: string; guest_id?: string; created_at?: string };
+        Relationships: [];
       };
     };
     Views: Record<never, never>;
@@ -138,16 +183,6 @@ export type Database = {
   };
 };
 
-/** `Row<'photos'>` — the one accessor the adapter needs. */
+/** `Row<'photos'>` — the one accessor the adapter needs beyond the client generic. */
 export type Row<T extends keyof Database['public']['Tables']> =
   Database['public']['Tables'][T]['Row'];
-
-/** Table names that carry realtime, for channel wiring. Mirrors the publication. */
-export type PublishedTable =
-  | 'events'
-  | 'broadcasts'
-  | 'schedule_items'
-  | 'song_requests'
-  | 'now_playing'
-  | 'folders'
-  | 'photos';

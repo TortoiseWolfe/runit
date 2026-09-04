@@ -12,6 +12,7 @@ import { Stack } from 'expo-router';
 import { MemoryRepository } from '@/data/memory/MemoryRepository';
 import { weddingSeed } from '@/data/memory/fixtures/wedding';
 import { flakyTransfer } from '@/data/memory/fixtures/flakyTransfer';
+import { SupabaseRepository } from '@/data/supabase/SupabaseRepository';
 /* eslint-enable no-restricted-imports */
 
 import { RepositoryProvider } from '@/state/RepositoryProvider';
@@ -96,12 +97,29 @@ export default function RootLayout() {
     new URLSearchParams(window.location.search).get('flaky') === '1';
   const flaky = flakyEnv || flakyQuery;
 
+  /**
+   * The one place an implementation is named.
+   *
+   * NOT a straight swap, and the reason is worth stating: all 98 e2e runs boot
+   * `dist/` against `weddingSeed` through MemoryRepository, with a webServer that
+   * only serves static files. Repointing this line unconditionally would make the
+   * whole Playwright suite depend on a live network and a seeded database -- so
+   * the suite would go from proving the screens to proving nothing, in one commit.
+   *
+   * So the backend is chosen by env. EXPO_PUBLIC_* is inlined by Metro at bundle
+   * time, so a build made without it does not contain the Supabase branch at all;
+   * the harness never sets it and keeps its 98 runs unchanged. The honest cost is
+   * that those runs then prove nothing about the adapter, which is what the
+   * two-devices-on-one-code gate exists to cover.
+   */
   const repository = useMemo(
     () =>
-      MemoryRepository.create(
-        weddingSeed,
-        flaky ? { transfer: flakyTransfer({ steps: [0.4], failAttempts: [1] }) } : {},
-      ),
+      process.env.EXPO_PUBLIC_BACKEND === 'supabase'
+        ? SupabaseRepository.create()
+        : MemoryRepository.create(
+            weddingSeed,
+            flaky ? { transfer: flakyTransfer({ steps: [0.4], failAttempts: [1] }) } : {},
+          ),
     [flaky],
   );
 
