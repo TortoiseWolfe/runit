@@ -18,10 +18,21 @@ if [ "$want" != "$have" ]; then
 fi
 echo "  Node $have (matches .nvmrc)"
 
-# Same doctrine, the axis that was left unguarded. The base image ships exactly
-# ONE browser set, and pnpm blocks the post-install download that would otherwise
-# heal a mismatch -- so @playwright/test and the image tag have to agree. This
-# fails loudly and prints the fix, unlike the Node drift which was silent.
+step "install (frozen lockfile)"
+pnpm install --frozen-lockfile
+
+# Same doctrine as the Node assertion, on the axis that was left unguarded: the base
+# image ships exactly ONE browser set, and pnpm blocks the post-install download that
+# would otherwise heal a mismatch -- so @playwright/test and the image tag have to
+# agree. This fails loudly and prints the fix, unlike the Node drift which was silent.
+#
+# IT MUST RUN AFTER THE INSTALL, and it used to run before it. The assertion reads
+# node_modules/@playwright/test/package.json, and on a COLD machine there is no
+# node_modules yet -- which is EVERY CI run, because the named volume is created fresh
+# each time. It passed locally only because that volume survives between runs. So the
+# gate worked on a warm machine and failed on a cold one, and CI was red here, at step
+# two, before reaching a single real check. The Node assertion above stays first
+# because it reads process.versions.node and needs nothing installed.
 step "playwright version matches the base image"
 want_pw="$(grep -oP 'playwright:v\K[0-9]+\.[0-9]+\.[0-9]+' docker/checks.Dockerfile)"
 have_pw="$(node -p "require('@playwright/test/package.json').version")"
@@ -33,9 +44,6 @@ if [ "$want_pw" != "$have_pw" ]; then
   exit 1
 fi
 echo "  Playwright $have_pw (matches the base image tag)"
-
-step "install (frozen lockfile)"
-pnpm install --frozen-lockfile
 
 step "typecheck"
 pnpm typecheck
