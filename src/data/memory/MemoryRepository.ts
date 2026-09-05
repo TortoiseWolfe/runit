@@ -16,7 +16,8 @@ import type {
 import { subjectKey } from '../types';
 import {
   EntitlementError, JoinError, ScheduleError, type UploadOutcome,
-  type EventDetails, type EventPreview, type Observable, type RunitRepository, type Unsubscribe,
+  type EventDetails, type EventPreview, type NewEvent,
+  type Observable, type RunitRepository, type Unsubscribe,
 } from '../repository';
 import { checkFeature, checkLimit, type Entitlements } from '@/domain/entitlements';
 import { TIERS } from '@/domain/tiers';
@@ -84,6 +85,22 @@ class Signal<T> implements Observable<T> {
     };
   }
 }
+
+/**
+ * The code and key alphabet, matching `create_event` in the migration.
+ *
+ * No 0/O and no 1/I/L: a guest types the code off a place card in a dim room and a host
+ * reads the key off a note. Kept in step with the SQL by hand, which is a small drift
+ * risk -- the failure mode is a fixture minting a character production would not, which
+ * a shape assertion in the e2e catches.
+ */
+const ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+
+const mintFromAlphabet = (len: number): string =>
+  Array.from({ length: len }, () => ALPHABET[Math.floor(Math.random() * ALPHABET.length)]!).join('');
+
+/** XV24HJ78DBAB -> XV24-HJ78-DBAB. Presentation only; claimHost canonicalises it back. */
+const group = (key: string): string => `${key.slice(0, 4)}-${key.slice(4, 8)}-${key.slice(8, 12)}`;
 
 /**
  * The highest number any id in the seed ends with.
@@ -503,6 +520,57 @@ export class MemoryRepository implements RunitRepository {
       // The joined event first, so a fixture that seeds both cannot answer one code
       // two ways -- which is the only way a preview and a join could disagree.
       this.sigPreview.set(from(this.ev) ?? from(this.previewable));
+    },
+
+    create: async (input: NewEvent) => {
+      const code = mintFromAlphabet(6);
+      const key = mintFromAlphabet(12);
+      const hostId = this.id('hst');
+
+      // Everything create_event does, in the same order and for the same reasons -- and
+      // the folder matters most: an event with no active folder refuses every upload,
+      // so a party created without one has a camera that silently does nothing.
+      const folderId = this.id('fld');
+      this.folderList = [{ id: folderId, name: 'All photos', position: 0, photoCount: 0 }];
+      this.ev = {
+        id: this.id('evt'),
+        code,
+        name: input.name,
+        venue: input.venue,
+        startsAt: input.startsAt,
+        timezone: input.timezone,
+        doorsLabel: input.doorsLabel,
+        // The column default, and honest: there is no purchase path, so any other tier
+        // would give the ladder away and leave the gating layer unexercised.
+        tier: 'house_party',
+        activeFolderId: folderId,
+        nowScheduleItemId: null,
+        guestCount: 0,
+        invitedCount: 0,
+      };
+      this.hostList = [
+        { id: hostId, displayName: input.hostName.trim() || 'Host', role: 'host', roleLabel: 'Host' },
+      ];
+      this.broadcastList = [];
+      this.scheduleList = [];
+      this.requestList = [];
+      this.photoList = [];
+      // The minted key becomes THIS fixture's key, so claimHost here behaves the way
+      // claim_host does against Postgres: the key you were handed is the key that works.
+      this.hostKey = key;
+      this.sigSession.set({
+        kind: 'host', hostId, displayName: this.hostList[0]!.displayName,
+        role: 'host', roleLabel: 'Host',
+      });
+      this.recompute();
+      return { code, hostKey: group(key) };
+    },
+
+    rotateHostKey: async () => {
+      this.requireEvent();
+      const key = mintFromAlphabet(12);
+      this.hostKey = key;
+      return group(key);
     },
 
     setActiveFolder: async (id: FolderId) => {

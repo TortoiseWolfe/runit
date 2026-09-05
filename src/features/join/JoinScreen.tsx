@@ -9,7 +9,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 
 import { Screen } from "@/components/ui/Screen";
 import { Toast } from "@/components/ui/Toast";
@@ -38,6 +38,7 @@ import {
  */
 export function JoinScreen() {
   const { tokens, fade } = useTheme();
+  const router = useRouter();
   const event = useEvent();
   const preview = usePreview();
   const { join } = useJoinActions();
@@ -344,6 +345,29 @@ export function JoinScreen() {
               No account, no phone number. Hosts can see nicknames; guests
               can&apos;t see each other.
             </Text>
+
+            {/* THE SUPPLY SIDE'S ONE DOOR, and it is deliberately quiet.
+                Nearly everyone arriving here is a guest holding a code, so this must not
+                compete with the field above it. But before this link there was no path
+                to making an event at all: every event in existence came from someone
+                running seed-events.sql with the database password, which is why "where
+                is the hostess supposed to get a key to her own party" had no good
+                answer. Issue #13.
+
+                An input here was rejected. The fine print directly above is a product
+                promise about accounts, and a sign-in field underneath it would make that
+                promise read as false. A link keeps it literally true. */}
+            <Pressable
+              onPress={() => router.push("/create")}
+              accessibilityRole="button"
+              accessibilityLabel="Create an event you are hosting"
+              hitSlop={10}
+              testID="join-create-event"
+            >
+              <Text style={[s.createLink, { color: tokens.primary }]}>
+                Running an event? Make one →
+              </Text>
+            </Pressable>
           </View>
 
           <Pressable
@@ -396,6 +420,10 @@ const s = StyleSheet.create({
     marginTop: 6,
   },
   subtitle: { fontSize: 15, marginTop: 8 },
+  // 13pt of text, under SC 2.5.8's 24 minimum, hence the hitSlop on the Pressable. It
+  // has no interactive neighbour, which is the condition under which slop is safe --
+  // RN's own docs note slop never extends past the parent and loses to sibling z-order.
+  createLink: { fontSize: 13, fontWeight: weight.semibold, marginTop: 10 },
   alreadyHere: { fontSize: 13, marginTop: 6 },
   calendarPill: {
     alignSelf: "flex-start",

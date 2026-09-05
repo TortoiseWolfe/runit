@@ -14,8 +14,8 @@ import { Signal, setEqual, shallowArrayEqual } from './signal';
 import { UploadOverlay } from './UploadOverlay';
 import {
   EntitlementError, JoinError, ScheduleError,
-  type EventDetails, type EventPreview, type JoinReason, type Observable,
-  type RunitRepository, type UploadOutcome,
+  type EventDetails, type EventPreview, type JoinReason, type NewEvent,
+  type Observable, type RunitRepository, type UploadOutcome,
 } from '../repository';
 import type {
   BlockedGuest, Broadcast, Folder, FolderId, GuestId, Host, HostRole, NowPlaying, Photo,
@@ -509,9 +509,22 @@ export class SupabaseRepository implements RunitRepository {
     // `hosts` and `song_votes` are NOT in the realtime publication. hosts because
     // it barely changes; song_votes deliberately, so sixty guests voting on six
     // songs costs six messages each rather than sixty (migration decision 3).
+    // NO GUEST ROW IS A REAL STATE, and it took create_event to expose it. This read
+    // `this.requireGuest()` inline, which threw 'Not joined as a guest yet.' -- fine
+    // while every path here arrived through joinAsGuest, and wrong the moment a founder
+    // did not. She made the event; she never joined it, and create_event deliberately
+    // does not seat her (a brand-new party reading "1 already here" before anyone
+    // arrives is worse than the gap it closes).
+    //
+    // A host with no guest row has no votes, so the empty set is the right answer rather
+    // than a fallback. loadBlocks() immediately below already reasoned this way; this
+    // half simply had no caller to force it.
+    const guestId = this.myGuestId;
     const [hosts, votes] = await Promise.all([
       this.db.from('hosts').select('*').eq('event_id', eventId),
-      this.db.from('song_votes').select('request_id').eq('guest_id', this.requireGuest()),
+      guestId === null
+        ? Promise.resolve({ data: [] as { request_id: string }[], error: null })
+        : this.db.from('song_votes').select('request_id').eq('guest_id', guestId),
     ]);
     if (hosts.error) throw hosts.error;
     if (votes.error) throw votes.error;
@@ -950,6 +963,78 @@ export class SupabaseRepository implements RunitRepository {
       // an empty read is just an empty read.
       const row = data?.[0];
       this.sigPreview.set(row ? toPreview(row) : null);
+    },
+
+    create: async (input: NewEvent) => {
+      // A session first, for the same reason lookUp needs one: create_event is granted
+      // to `authenticated`, which is the role an ANONYMOUS session already carries. The
+      // seat it mints is bound to that auth.uid() -- which is precisely why it also
+      // hands back a recovery key.
+      await this.ensureSession();
+
+      const { data, error } = await this.db.rpc('create_event', {
+        p_name: input.name,
+        p_starts_at: input.startsAt,
+        p_timezone: input.timezone,
+        p_venue: input.venue,
+        p_doors_label: input.doorsLabel,
+        p_host_name: input.hostName,
+      });
+      if (error) {
+        // The function's own guards, discriminated on SQLSTATE rather than message so
+        // the wording can change without breaking this.
+        if (isPgError(error) && error.code === '22023') {
+          throw new Error('An event needs a name and a time zone.');
+        }
+        if (isPgError(error) && error.code === '54023') {
+          throw new Error('That is a lot of events. Ten is the limit on one device.');
+        }
+        if (isPgError(error) && error.code === '28000') {
+          throw new JoinError('session_unavailable', { cause: error });
+        }
+        throw error;
+      }
+
+      const row = data?.[0];
+      if (!row) {
+        throw new Error(
+          'create_event returned no row. It returns exactly one on success, so this is ' +
+            'a schema mismatch rather than a refusal -- check the function signature.',
+        );
+      }
+
+      // Now open it, exactly the way joinAsGuest opens the event it just joined. Without
+      // this the host would hold a code for an event the app is not watching.
+      this.eventId = row.event_id;
+      await this.startTables(this.eventId);
+      await this.loadFetchOnce();
+      const mine = this.hostRows.find((h) => h.id === row.host_id);
+      if (!mine) {
+        throw new Error(
+          'Created the event but could not read back its host row. hosts_read admits ' +
+            'every member, so this is a policy regression rather than a refusal.',
+        );
+      }
+      this.sigSession.set({
+        kind: 'host', hostId: mine.id, displayName: mine.displayName,
+        role: mine.role, roleLabel: mine.roleLabel,
+      });
+      this.recompute();
+
+      return { code: row.code, hostKey: row.host_key };
+    },
+
+    rotateHostKey: async () => {
+      const eventId = this.requireEvent();
+      const { data, error } = await this.db.rpc('rotate_host_key', { p_event: eventId });
+      if (error) {
+        if (isPgError(error) && error.code === '42501') {
+          throw new Error('Only a host of this event can issue a new key.');
+        }
+        throw error;
+      }
+      if (!data) throw new Error('rotate_host_key returned nothing, which it never does on success.');
+      return data;
     },
 
     setActiveFolder: async (id: FolderId) => {

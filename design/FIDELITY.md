@@ -756,3 +756,70 @@ Lane E also turned out not to have been running at all — see issue #31. A setu
 folders section had never executed once, and the lane skips silently without a database URL.
 The three new tests here were mutation-checked instead of trusted: deleting the lookup,
 reverting the composed subtitle, and no-oping the save each fail the tests that name them.
+
+## T. Making an event, and the key that gets you back to it
+The canvas has no way to make an event, because a prototype for one reader never needs
+one — the same shape as the keyboard (note Q), leaving an event (note R) and editing the
+details (note S). What made this one different is that the gap was total: **every event,
+host seat, folder and host key in existence came from a human running
+`supabase/seed-events.sql` with the database password.** A host could operate an event
+somebody else conjured. She could not have one.
+
+The question that named it, from the user: *"where is the hostess supposed to get a key to
+her own party, feels like we're missing something obvious at the beginning."* The answer
+was that she got it from a developer, by email, after that developer ran SQL.
+
+**She needs no key to get in, and that reframed the work.** `create_event` binds her seat
+to `auth.uid()` in the same transaction that makes the event — she is the host because she
+made it. The key was built for the *second* person: a DJ, a planner, the bride's sister.
+So the ordering had been backwards. We shipped the mechanism for *delegating* host access
+(`claim_host`, `host_claims`) before the mechanism for *having* it, and the seed script
+stood in for the missing half.
+
+**But the key is still mandatory, for a different reason.** That `auth.uid()` is an
+anonymous session in a keystore on one phone. An Android reinstall wipes it. Without a key
+she loses her own event permanently — while it keeps running, with her guests in it and
+nobody able to broadcast, approve a photo or answer a report. `claim_host` already
+*rebound* rather than refused, with a comment naming exactly this; it simply had no way to
+be given a key. So `create_event` mints one, and it is shown once, on a panel that replaces
+the form. Not a toast — gone in four seconds. Not a modal — dismissed by a stray tap on the
+backdrop. Only the bcrypt hash is stored, so that panel is the one moment the string exists.
+
+**One transaction, because an event is not one row.** It is a row, a folder, an
+`active_folder_id` pointing at that folder, a host seat bound to a person, and a
+credential. Four of those five are refused to `authenticated` on purpose, and the folder is
+the one that would bite silently: an event without one refuses every upload, so a party
+created in pieces would have a camera that quietly does nothing. `folders_insert` also
+requires `is_host`, which is not true until one statement later — so it *has* to happen
+inside the function.
+
+**New events are `house_party`, and the screen says so.** There is no purchase path (#30),
+so any other default would be giving the ladder away and leaving the entitlement layer
+permanently unexercised in production. *"New events run on House party — up to 10 guests"*
+is better than discovering the cap at the tenth guest.
+
+**A cap of ten events per identity**, because this is an INSERT reachable by anyone who can
+sign in anonymously, and that is one HTTP call. The rate limit bounds how fast identities
+appear; nothing else bounded how many events one identity makes.
+
+**What the tests found that review did not.** `loadFetchOnce` read `this.requireGuest()`
+inline to fetch song votes — correct while every path into it arrived through
+`joinAsGuest`, and wrong the moment a founder did not. She made the event; she never joined
+it, and `create_event` deliberately does not seat her (a brand-new party reading *"1
+already here"* before anyone arrives is worse than the gap it closes). `loadBlocks`
+immediately below had already reasoned this way and handled it; the other half simply had
+no caller to force it. A host with no guest row now gets an empty vote set, which is the
+right answer rather than a fallback.
+
+The keyboard audit caught the other one, on the worst possible button: the key panel's
+ScrollView had no `keyboardShouldPersistTaps`, so with the keyboard still up the first tap
+on *"I have written it down"* would be swallowed. A host who reads that as broken and
+navigates away has lost the only copy of her key.
+
+**What proved it.** Lane B runs `MemoryRepository`, so its 186 journeys prove the screens
+and nothing about the grant. **Lane E proves the rest, and it is the only lane that can**:
+58 assertions, 0 failures, run live — a founder is host immediately with no key changing
+hands; the event arrives with an active folder; only the hash is stored; **a different
+identity presenting the key gets back in**, which is what "new phone" means; and rotation
+issues a new key while the old one stops working, which is the half that makes rotation
+mean anything.

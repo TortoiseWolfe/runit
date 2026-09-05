@@ -103,7 +103,7 @@ pnpm audit:styles               # Lane A: the RN colour-parser gate
 pnpm audit:targets              # Lane A2: touch targets, WCAG 2.2 SC 2.5.8 (AA)
 pnpm audit:keyboard             # Lane A3: keyboard strategy + return-key contract
 pnpm export:web && pnpm shots   # Lane B: screenshots at 402x874 + colour gate
-pnpm test:e2e                   # Lane B: 170 Playwright journeys, dark + light
+pnpm test:e2e                   # Lane B: 186 Playwright journeys, dark + light
 pnpm feedback:sync              # TestFlight tester feedback -> GitHub issues
 pnpm render:canvas              # regenerate design/renders/ from the canvas
 ```
@@ -182,7 +182,7 @@ gate** that composites every rendered text colour over its painted backdrop and
 fails below WCAG AA. Contrast, unlike `hitSlop`, is honestly measurable in this
 lane: `alpha()` emits a real `rgba()` over real DOM backgrounds.
 
-`pnpm test:e2e` runs 170 journey tests (`tests/e2e/`) across both colour
+`pnpm test:e2e` runs 186 journey tests (`tests/e2e/`) across both colour
 schemes: join and its rejection path, the three guest tabs, the host console,
 the pricing ladder and every denial it can render, and the painted theme
 tokens. Each spec was written against the canvas and then attacked by a critic
@@ -259,7 +259,7 @@ would hit.
 see row-level security behave. It runs `supabase/verify-policies.sql`, which seeds an
 event, a guest and a host inside a `DO` block, switches
 role with `set local role authenticated` and a forged `request.jwt.claims`, asserts
-**forty-five** behaviours, and RAISES at the end so nothing commits -- the "error" it
+**fifty-eight** behaviours, and RAISES at the end so nothing commits -- the "error" it
 prints IS the report.
 
 **It did not run at all until 2026-09-05, and nothing said so.** A setup line inserted
@@ -397,6 +397,16 @@ that lives in a button handler is bypassed by the second caller.
   that window gives the wrong one: asking for 3:00 AM on a spring-forward morning, one
   pass returns an instant that reads back as 4:00. `format.test.ts` fails if the second
   pass is removed. And never `new Date(d.toLocaleString(...))` -- FIDELITY note M.
+- **A HOST HAS NO `guests` ROW.** `create_event` binds her seat and deliberately does not
+  seat her as a guest -- a brand-new party reading "1 already here" before anyone arrives
+  is worse than the gap. So anything reading `requireGuest()` on a path a host can reach
+  will throw: `loadFetchOnce` did, and only creating an event exposed it. `loadBlocks` is
+  the pattern to copy -- a null guest id is a real state with an empty answer, not a
+  fallback.
+- **The recovery key exists exactly once, in `create_event`'s return value.** Only the
+  bcrypt hash is stored. A screen that drops that string has destroyed it, and no support
+  route, backup or service-role dump gets it back. `rotate_host_key` is the only way to
+  issue another, and it retires the old one.
 - **`doorsLabel` is the doors line ONLY.** It used to be the canvas's whole subtitle,
   date and venue included, because nothing could derive a day. `JoinScreen` composes
   `formatEventDate · doorsLabel · venue` now. A date stored as prose cannot disagree
@@ -449,15 +459,15 @@ file:line evidence in it, because a roadmap living in prose is how six missing
 capabilities came to hide inside one line. `gh issue list --repo TortoiseWolfe/runit`
 is the scope; issue #1 is the ordering.
 
-**Nothing brings an event into existence.** Every path that creates an event, a host,
-a host credential or a tier still runs through `supabase/seed-events.sql` and a database
-password. #13 (`create_event`) · #16 (`invite_host`) · #17 (multi-event) · #18 (host
-sign-in + custom SMTP) · #19 (account deletion, mandatory the day #18 ships).
+**A host can now make her own event** (`/create`, reached from a quiet link on the join
+screen). What is still missing: #16 (`invite_host` -- nothing can mint a seat for a DJ or
+a planner) · #17 (multi-event) · #18 (host sign-in + custom SMTP) · #19 (account
+deletion, mandatory the day #18 ships).
 
-**Closed:** #15 (`event_preview` -- an invitation now carries a name, a date and a venue
-before it is accepted) and #14 (a host edits name/date/venue/timezone/doors at
-`/host/event`; the column grant reaches five columns and still refuses `tier` and
-`code`). FIDELITY note S.
+**Closed:** #15 (`event_preview`) · #14 (a host edits name/date/venue/timezone/doors at
+`/host/event`) · #13 (`create_event` -- one transaction: the event, a folder, an
+`active_folder_id`, the founding host seat and a recovery key) · #32 (that key, shown
+once, and rotatable). FIDELITY notes S and T.
 
 **Advertised and unenforced.** #21 (three of four granted features are enforced only in
 `MemoryRepository`, so a free-tier host can pin against Supabase) · #22 (`maxGuests` in

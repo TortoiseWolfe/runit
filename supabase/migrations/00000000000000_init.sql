@@ -820,6 +820,172 @@ revoke execute on function public.claim_host(text, text) from public, anon;
 grant  execute on function public.claim_host(text, text) to authenticated;
 
 -- ========================================================================
+-- CREATING AN EVENT -- the supply side, which did not exist
+-- ========================================================================
+--
+-- Until this, every event, host, host key and folder in existence came from a human
+-- running seed-events.sql with the database password. `events` and `hosts` have no
+-- INSERT policy for anyone, deliberately, so a client cannot assemble an event out of
+-- separate writes -- and it should not be able to. An event is not one row: it is a
+-- row, a folder, an active_folder_id pointing at that folder, a host seat bound to a
+-- person, and a credential. Four of those five are refused to `authenticated`, and an
+-- event missing any of them is broken in a way that shows up much later. So this is one
+-- transaction or it is nothing.
+--
+-- THE FOUNDER NEEDS NO KEY TO GET IN. Her seat is bound to auth.uid() here, in the same
+-- statement that makes the event. The key exists for a DIFFERENT problem: auth.uid() is
+-- an anonymous session in a keystore on one phone, and an Android reinstall wipes it.
+-- Without a key she loses her own event permanently -- while it keeps running, with her
+-- guests in it and nobody able to broadcast, approve a photo, or answer a report.
+-- claim_host() already REBINDS rather than refuses, for exactly this reason; it simply
+-- had no way to be given a key. Now it does.
+--
+-- THE PLAINTEXT IS RETURNED ONCE. Only the bcrypt hash is stored, so this return value
+-- is the single moment it exists anywhere outside the caller's screen. Show it and mean
+-- it.
+--
+-- NEW EVENTS ARE `house_party`, the column default, and that is honest rather than
+-- stingy: there is no purchase path (#30), so any other tier would be giving the ladder
+-- away and leaving the entitlement layer permanently unexercised in production. The UI
+-- should say which plan it is rather than let a host discover the cap at ten guests.
+create or replace function public.create_event(
+  p_name        text,
+  p_starts_at   timestamptz,
+  p_timezone    text,
+  p_venue       text default '',
+  p_doors_label text default '',
+  p_host_name   text default 'Host'
+)
+returns table (event_id uuid, code text, host_id uuid, host_key text)
+language plpgsql security definer set search_path = public, extensions as $$
+declare
+  -- No 0/O and no 1/I/L. A guest types this off a place card in a dim room, and a host
+  -- reads the key off a note. Same alphabet for both, for the same reason.
+  k_alphabet constant text := 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  k_len      constant int  := length(k_alphabet);
+  v_event  uuid;
+  v_folder uuid;
+  v_host   uuid;
+  v_code   text;
+  v_key    text;
+  v_owned  int;
+begin
+  if auth.uid() is null then
+    raise exception 'not authenticated' using errcode = '28000';
+  end if;
+
+  if coalesce(btrim(p_name), '') = '' then
+    raise exception 'event_needs_a_name' using errcode = '22023';
+  end if;
+
+  if coalesce(btrim(p_timezone), '') = '' then
+    raise exception 'event_needs_a_timezone' using errcode = '22023';
+  end if;
+
+  -- A cap, because this is an INSERT reachable by anyone who can sign in anonymously,
+  -- and anonymous sign-in is one HTTP call. The rate limit bounds how fast identities
+  -- appear; nothing else bounds how many events one identity makes. Ten is generous for
+  -- the planner this is built for and small enough that a script is not worth writing.
+  select count(*) into v_owned
+    from public.hosts h
+   where h.auth_user_id = auth.uid() and h.role = 'host';
+  if v_owned >= 10 then
+    raise exception 'too_many_events' using errcode = '54023';
+  end if;
+
+  -- Mint a code, retrying on collision rather than trusting 31^6. `code` is UNIQUE, so
+  -- the database is the arbiter and the loop is just how we ask again.
+  for i in 1..10 loop
+    v_code := (select string_agg(substr(k_alphabet, 1 + floor(random() * k_len)::int, 1), '' order by g)
+                 from generate_series(1, 6) g);
+    begin
+      insert into public.events (code, name, venue, starts_at, timezone, doors_label)
+      values (v_code, btrim(p_name), coalesce(btrim(p_venue), ''), p_starts_at,
+              btrim(p_timezone), coalesce(btrim(p_doors_label), ''))
+      returning id into v_event;
+      exit;
+    exception when unique_violation then
+      v_event := null;
+    end;
+  end loop;
+
+  if v_event is null then
+    raise exception 'could_not_mint_a_code' using errcode = '40001';
+  end if;
+
+  -- AN EVENT WITH NO FOLDER REFUSES EVERY UPLOAD. `activeFolderId` maps a null column to
+  -- '', which matches no folder, so upload() is refused rather than filing bytes
+  -- somewhere wrong. Creating the event without this would ship a party where the camera
+  -- silently does nothing -- and folders_insert requires is_host, which is not true for
+  -- one more statement, so it has to happen in here.
+  insert into public.folders (event_id, name, position)
+  values (v_event, 'All photos', 0)
+  returning id into v_folder;
+
+  update public.events set active_folder_id = v_folder where id = v_event;
+
+  insert into public.hosts (event_id, auth_user_id, display_name, role, role_label)
+  values (v_event, auth.uid(), coalesce(nullif(btrim(p_host_name), ''), 'Host'), 'host', 'Host')
+  returning id into v_host;
+
+  v_key := (select string_agg(substr(k_alphabet, 1 + floor(random() * k_len)::int, 1), '' order by g)
+              from generate_series(1, 12) g);
+
+  -- The hash is over the UNGROUPED upper-case form, which is what claim_host()
+  -- canonicalises its input to. The dashes below are presentation only.
+  insert into public.host_claims (host_id, secret_hash)
+  values (v_host, extensions.crypt(v_key, extensions.gen_salt('bf')));
+
+  return query select v_event, v_code, v_host,
+                      substr(v_key,1,4) || '-' || substr(v_key,5,4) || '-' || substr(v_key,9,4);
+end $$;
+
+revoke execute on function public.create_event(text, timestamptz, text, text, text, text)
+  from public, anon;
+grant  execute on function public.create_event(text, timestamptz, text, text, text, text)
+  to authenticated;
+
+-- Rotating the key, for the host who lost the note or showed it to the wrong person.
+--
+-- Scoped to the CALLER'S OWN SEAT. A host cannot rotate a co-host's key -- that would be
+-- a way to take a seat away from someone rather than to recover your own, and the two
+-- want different words on the button. `claimed_at` resets because the new key has not
+-- been used yet, which is what makes it readable as "issued, not yet redeemed".
+create or replace function public.rotate_host_key(p_event uuid)
+returns text
+language plpgsql security definer set search_path = public, extensions as $$
+declare
+  k_alphabet constant text := 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  k_len      constant int  := length(k_alphabet);
+  v_host uuid;
+  v_key  text;
+begin
+  if auth.uid() is null then
+    raise exception 'not authenticated' using errcode = '28000';
+  end if;
+
+  select h.id into v_host from public.hosts h
+   where h.event_id = p_event and h.auth_user_id = auth.uid()
+   limit 1;
+  if v_host is null then
+    raise exception 'not_a_host' using errcode = '42501';
+  end if;
+
+  v_key := (select string_agg(substr(k_alphabet, 1 + floor(random() * k_len)::int, 1), '' order by g)
+              from generate_series(1, 12) g);
+
+  insert into public.host_claims (host_id, secret_hash)
+  values (v_host, extensions.crypt(v_key, extensions.gen_salt('bf')))
+  on conflict (host_id) do update
+    set secret_hash = excluded.secret_hash, claimed_at = null;
+
+  return substr(v_key,1,4) || '-' || substr(v_key,5,4) || '-' || substr(v_key,9,4);
+end $$;
+
+revoke execute on function public.rotate_host_key(uuid) from public, anon;
+grant  execute on function public.rotate_host_key(uuid) to authenticated;
+
+-- ========================================================================
 -- THE GUEST LIST -- the first personal data beyond a chosen nickname
 -- ========================================================================
 --

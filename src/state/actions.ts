@@ -10,7 +10,7 @@ import { useRouter } from 'expo-router';
 import { denialMessage } from '@/domain/denials';
 import {
   EntitlementError, JoinError, ScheduleError,
-  type EventDetails, type UploadOutcome,
+  type CreatedEvent, type EventDetails, type NewEvent, type UploadOutcome,
 } from '@/data/repository';
 import { capturePhoto } from '@/lib/capture';
 import { checkLimit } from '@/domain/entitlements';
@@ -220,6 +220,44 @@ export function usePhotoActions() {
   );
 }
 
+/**
+ * Bringing an event into existence.
+ *
+ * Its own hook rather than a member of useHostActions, because the caller is by
+ * definition NOT a host yet -- that is the whole point of the call. Bundling it there
+ * would put the one action a non-host needs behind a name that says otherwise.
+ */
+export function useCreateActions() {
+  const repo = useRepository();
+  const { show } = useToast();
+  return useMemo(
+    () => ({
+      /**
+       * Returns the created event on success and `null` on failure, so the screen can
+       * show the key without also having to decide what an error means.
+       *
+       * Caught and toasted here rather than left to bubble: `create_event` raises named
+       * conditions -- no name, no timezone, ten events already -- and each is something
+       * a person can act on. An unhandled rejection would leave a host looking at a
+       * spinner that stopped.
+       */
+      createEvent: async (input: NewEvent): Promise<CreatedEvent | null> => {
+        try {
+          const made = await repo.event.create(input);
+          // NO ROUTER PUSH HERE. The screen swaps itself to the key panel and moves on
+          // only when the host says she has written it down -- navigating away would
+          // destroy the one copy of a key that exists nowhere else.
+          return made;
+        } catch (e) {
+          show(e instanceof Error ? e.message : 'Could not create that event.');
+          return null;
+        }
+      },
+    }),
+    [repo, show],
+  );
+}
+
 export function useHostActions() {
   const repo = useRepository();
   const guarded = useGuardedAction();
@@ -266,6 +304,20 @@ export function useHostActions() {
        * adapter is what turns it into an error -- and an uncaught one would surface as
        * an unhandled rejection with the host still looking at a form they think saved.
        */
+      /**
+       * A fresh recovery key, retiring the old one.
+       *
+       * Returns the plaintext for the caller to display once; there is no second chance
+       * to read it, so a screen that drops this return value has destroyed it.
+       */
+      rotateHostKey: async (): Promise<string | null> => {
+        try {
+          return await repo.event.rotateHostKey();
+        } catch (e) {
+          show(e instanceof Error ? e.message : 'Could not issue a new key.');
+          return null;
+        }
+      },
       saveEventDetails: async (input: EventDetails) => {
         try {
           await repo.event.updateDetails(input);
