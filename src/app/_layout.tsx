@@ -11,6 +11,7 @@ import { Stack } from 'expo-router';
    change here and nothing else. */
 import { MemoryRepository } from '@/data/memory/MemoryRepository';
 import { weddingSeed } from '@/data/memory/fixtures/wedding';
+import { emptySeed } from '@/data/memory/fixtures/empty';
 import { flakyTransfer } from '@/data/memory/fixtures/flakyTransfer';
 import { SupabaseRepository } from '@/data/supabase/SupabaseRepository';
 /* eslint-enable no-restricted-imports */
@@ -113,6 +114,20 @@ export default function RootLayout() {
   const flaky = flakyEnv || flakyQuery;
 
   /**
+   * Boot with NO event, the way a cold open against Supabase actually looks.
+   *
+   * Same shape as `?flaky=1` above and gated the same way, for the same reason: it is a
+   * fixture, not a feature, and it must not exist in a build that did not ask for it.
+   * Without this the suite can only render worlds where the data is already there --
+   * which is how three inert controls reached a phone.
+   */
+  const emptyWorld =
+    fidelity &&
+    typeof window !== 'undefined' &&
+    typeof window.location?.search === 'string' &&
+    new URLSearchParams(window.location.search).get('empty') === '1';
+
+  /**
    * The one place an implementation is named.
    *
    * NOT a straight swap, and the reason is worth stating: all 98 e2e runs boot
@@ -132,10 +147,10 @@ export default function RootLayout() {
       process.env.EXPO_PUBLIC_BACKEND === 'supabase'
         ? SupabaseRepository.create()
         : MemoryRepository.create(
-            weddingSeed,
+            emptyWorld ? emptySeed : weddingSeed,
             flaky ? { transfer: flakyTransfer({ steps: [0.4], failAttempts: [1] }) } : {},
           ),
-    [flaky],
+    [flaky, emptyWorld],
   );
 
   return (

@@ -23,7 +23,22 @@ import { TIERS } from '@/domain/tiers';
 import { hueForPhotoSeq } from '@/theme/oklch';
 
 export interface Seed {
-  event: RunitEvent;
+  /**
+   * NULL IS A REAL WORLD, and this type used to forbid it.
+   *
+   * `nowPlaying` and `approvedPhotos` beside it were already nullable, so absence was
+   * modelled per field -- and someone decided the event always exists. Against Supabase
+   * it usually does not: `events_read` admits members only, so `event.current` is null
+   * until joinAsGuest returns. SupabaseRepository even starts its signal at null and
+   * says so in a comment.
+   *
+   * The consequence was not academic. Every e2e journey booted a seeded event, so
+   * `disabled={!event}` on the calendar pill, Show QR and Share invite was the dead half
+   * of a boolean the suite could only ever evaluate one way -- and join.spec.ts CLICKS
+   * that pill and passes. Three separate device reports found what one fixture would
+   * have.
+   */
+  event: RunitEvent | null;
   hosts: Host[];
   broadcasts: Broadcast[];
   schedule: ScheduleItem[];
@@ -101,7 +116,19 @@ const byVotesDesc = (a: SongRequest, b: SongRequest) =>
   b.voteCount - a.voteCount || a.createdAt.localeCompare(b.createdAt);
 
 export class MemoryRepository implements RunitRepository {
-  private ev: RunitEvent;
+  private ev: RunitEvent | null;
+
+  /**
+   * The event, or the same refusal the Supabase adapter gives.
+   *
+   * Parity matters more than convenience here: SupabaseRepository throws
+   * 'Not joined to an event yet.' from requireEvent(), and if this adapter quietly
+   * coped with a null event the e2e suite would prove a leniency that does not ship.
+   */
+  private requireEvent(): RunitEvent {
+    if (!this.ev) throw new Error('Not joined to an event yet.');
+    return this.ev;
+  }
   private hostList: Host[];
   private broadcastList: Broadcast[];
   private scheduleList: ScheduleItem[];
@@ -170,7 +197,7 @@ export class MemoryRepository implements RunitRepository {
     // exercise without a network.
     this.hostKey = opts.hostKey ?? DEMO_HOST_KEY;
     this.transfer = opts.transfer ?? (async () => {});
-    this.ev = { ...seed.event };
+    this.ev = seed.event ? { ...seed.event } : null;
     this.hostList = [...seed.hosts];
     this.broadcastList = [...seed.broadcasts];
     this.scheduleList = [...seed.schedule];
@@ -265,9 +292,9 @@ export class MemoryRepository implements RunitRepository {
 
   private computeEntitlements(): Entitlements {
     return {
-      tier: TIERS[this.ev.tier],
+      tier: TIERS[this.ev?.tier ?? 'house_party'],
       usage: {
-        guests: this.ev.guestCount,
+        guests: this.ev?.guestCount ?? 0,
         hosts: this.hostList.length,
         // folder.photoCount already counts APPROVED photos, so adding the
         // approved rows again would double-count them: a free-tier upload
@@ -284,7 +311,7 @@ export class MemoryRepository implements RunitRepository {
     // Published on every recompute, so an advisory check can never be reading
     // a tier or a usage count the write methods have already moved past.
     this.sigEntitlements.set(this.computeEntitlements());
-    this.sigEvent.set({ ...this.ev });
+    this.sigEvent.set(this.ev ? { ...this.ev } : null);
     // Pinned first, then oldest-to-newest -- the canvas renders its feed in
     // insertion order with new messages at the bottom, chat-style.
     this.sigFeed.set(
@@ -369,13 +396,14 @@ export class MemoryRepository implements RunitRepository {
     joinAsGuest: async ({ code, nickname }: { code: string; nickname: string }) => {
       // The canvas sets joined:true unconditionally -- it never validates the
       // code and never checks capacity. Both are real failure modes.
-      if (code.trim().toUpperCase() !== this.ev.code) {
+      if (code.trim().toUpperCase() !== this.ev?.code) {
         throw new JoinError('unknown_code');
       }
       const seat = checkLimit(this.computeEntitlements(), 'guests');
       if (!seat.allowed) throw new JoinError('event_full');
 
-      this.ev = { ...this.ev, guestCount: this.ev.guestCount + 1 };
+      const ev = this.requireEvent();
+      this.ev = { ...ev, guestCount: ev.guestCount + 1 };
       this.sigSession.set({
         kind: 'guest',
         guestId: this.myGuestId,
@@ -400,7 +428,7 @@ export class MemoryRepository implements RunitRepository {
      * fixture value, not a secret.
      */
     claimHost: async ({ code, key }: { code: string; key: string }) => {
-      if (code.trim().toUpperCase() !== this.ev.code) {
+      if (code.trim().toUpperCase() !== this.ev?.code) {
         throw new JoinError('unknown_code');
       }
       const canonical = (v: string) => v.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
@@ -445,11 +473,11 @@ export class MemoryRepository implements RunitRepository {
   event = {
     current: undefined as unknown as Observable<RunitEvent | null>,
     setActiveFolder: async (id: FolderId) => {
-      this.ev = { ...this.ev, activeFolderId: id };
+      this.ev = { ...this.requireEvent(), activeFolderId: id };
       this.recompute();
     },
     setTier: async (tier: TierId) => {
-      this.ev = { ...this.ev, tier };
+      this.ev = { ...this.requireEvent(), tier };
       this.recompute();
     },
   };
@@ -511,7 +539,7 @@ export class MemoryRepository implements RunitRepository {
       // "is starting" broadcast to all of them. The past rows are the current
       // row's immediate neighbours in a flush list, so this is a thumb slip, not
       // an exotic case. Forwards is untouched; only backwards asks twice.
-      const current = this.scheduleList.findIndex((s) => s.id === this.ev.nowScheduleItemId);
+      const current = this.scheduleList.findIndex((s) => s.id === this.requireEvent().nowScheduleItemId);
       if (!opts.rewind && current !== -1 && target < current) {
         throw new ScheduleError(
           'would_rewind',
@@ -524,7 +552,7 @@ export class MemoryRepository implements RunitRepository {
       this.scheduleList = this.scheduleList.map((s) =>
         s.id === id ? { ...s, startedAt: at } : s,
       );
-      this.ev = { ...this.ev, nowScheduleItemId: id };
+      this.ev = { ...this.requireEvent(), nowScheduleItemId: id };
       const host = this.hostList[0];
       if (host) {
         this.broadcastList = [
@@ -645,7 +673,7 @@ export class MemoryRepository implements RunitRepository {
       const s = this.sigSession.get();
       const seq = this.nextPhotoSeq;
       this.nextPhotoSeq += 1;
-      const folderId = this.ev.activeFolderId;
+      const folderId = this.requireEvent().activeFolderId;
       const id = this.id('pho');
 
       // The row is created as `uploading` and only becomes visible to the host

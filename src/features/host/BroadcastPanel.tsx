@@ -71,13 +71,20 @@ export function BroadcastPanel() {
       keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
       automaticallyAdjustKeyboardInsets
     >
-      {/* The invite row. Both affordances are disabled until there IS an event, which
-          against Supabase is until the host has joined -- events_read admits members
-          only, so `event` is null before that. */}
+      {/* THE INVITE ROW IS NOT DRAWN UNTIL THERE IS SOMETHING TO INVITE ANYONE TO.
+          These two were `disabled={!event}`, and both were reported from a phone on the
+          same evening -- "press show QR and nothing happens", "press Share Invite
+          nothing happens". They were not broken handlers. They were disabled buttons,
+          and a disabled button with no explanation reads as broken software.
+
+          Same boolean, same fix, same rule as the calendar pill on JoinScreen: a control
+          that cannot act is not drawn. tests/e2e/empty-world.spec.ts asserts the general
+          form -- nothing visible may be aria-disabled -- so the next one of these fails a
+          test instead of a person's evening. */}
+      {event ? (
       <View style={s.inviteRow}>
         <Pressable
           onPress={onShare}
-          disabled={!event}
           accessibilityRole="button"
           accessibilityLabel="Share the join code and link"
           hitSlop={8}
@@ -87,7 +94,6 @@ export function BroadcastPanel() {
         </Pressable>
         <Pressable
           onPress={() => setShowQr((v) => !v)}
-          disabled={!event}
           accessibilityRole="button"
           accessibilityState={{ expanded: showQr }}
           accessibilityLabel={showQr ? 'Hide the QR code' : 'Show a QR code to scan'}
@@ -99,6 +105,7 @@ export function BroadcastPanel() {
           </Text>
         </Pressable>
       </View>
+      ) : null}
 
       {showQr && event && (
         <View style={s.qrHolder}>

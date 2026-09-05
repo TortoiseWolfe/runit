@@ -187,9 +187,21 @@ export function JoinScreen() {
                 guest actually uses, and is a string plus a temp file. FIDELITY note K makes
                 the same argument about the microphone: do not ask for a permission the
                 feature does not need. */}
+            {/* RENDERED ONLY WHEN THERE IS SOMETHING TO ADD, and that is the fix for a
+                device report. It used to be `disabled={!event}`, and against Supabase
+                `events_read` admits members only -- so on a cold open `event` is null,
+                the title falls back to "An event", the date and venue are blank, and
+                this pill sits there inert. It was reported as "the first button doesn't
+                even work", which is exactly how a disabled control with no explanation
+                reads: as broken software.
+
+                A control that cannot act should not be drawn. `tests/e2e/empty-world.spec.ts`
+                holds the general form of this -- nothing visible may be aria-disabled --
+                because the same boolean also made Show QR and Share invite inert, and
+                each was found separately, on a phone. */}
+            {event ? (
             <Pressable
               onPress={onAddToCalendar}
-              disabled={!event}
               accessibilityRole="button"
               accessibilityLabel="Add this event to your calendar"
               hitSlop={8}
@@ -205,6 +217,7 @@ export function JoinScreen() {
                 + Add to calendar
               </Text>
             </Pressable>
+            ) : null}
           </View>
 
           <View style={[s.card, { backgroundColor: tokens.base200 }]}>
