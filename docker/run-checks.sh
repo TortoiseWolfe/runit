@@ -57,6 +57,14 @@ pnpm audit:targets
 # other lane can see this. A tier that grants a feature nothing reads sells
 # nothing, and the failure is invisible until money changes hands -- which is
 # precisely when nobody is re-reading tiers.ts.
+# Third in the static band, and for the same reason as the two above: no lane that
+# runs in CI can see a soft keyboard. Chromium has none to raise, react-native-web
+# renders KeyboardAvoidingView as a plain View with `behavior` stripped, and its View
+# filters keyboardShouldPersistTaps/submitBehavior out before they reach the DOM -- so
+# a Playwright assertion passes identically on a correct fix and on no fix at all.
+step "keyboard audit  (a text field the keyboard covers is a screen you cannot use)"
+pnpm audit:keyboard
+
 step "tier claim audit  (the ladder may not advertise what nothing enforces)"
 pnpm audit:tiers
 

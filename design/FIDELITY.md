@@ -451,3 +451,145 @@ What survives:
 Restoring the screen is a route file, a `Stack.Screen`, and pointing `useGuardedAction`
 back at it — **but it should not come back without a purchase path**, because a paywall
 that cannot take money is the thing that got it cut.
+
+## Q. The keyboard, which the canvas never had to draw
+
+A design canvas has no soft keyboard, so nothing in `Runit.dc.html` says what should
+happen when one appears. The app shipped with **no keyboard handling at all** — no
+`KeyboardAvoidingView`, no `keyboardShouldPersistTaps`, no `returnKeyType`, one
+`onSubmitEditing` in the whole codebase — and build #3 reached TestFlight unable to
+complete a join, because "Run it" sits under the keyboard with no way to scroll to it.
+
+### Android does NOT resize. This was measured, not assumed.
+
+The reflex belief is that `android:windowSoftInputMode="adjustResize"` (present at
+`android/app/src/main/AndroidManifest.xml`) makes Android shrink its window, so only
+iOS needs help. **That is false here, and two facts make it false:**
+
+- `android/gradle.properties` sets `edgeToEdgeEnabled=true`, and the app targets SDK
+  36. Under edge-to-edge on API 35+, `SOFT_INPUT_ADJUST_RESIZE` is ignored — the IME
+  overlays the window exactly as on iOS.
+- **`/android` is gitignored.** It is `expo prebuild` output, so that manifest line is
+  Expo's template default rather than a decision this repo made, and
+  `expo prebuild --clean` would discard any hand edit. If a manifest value is ever
+  wanted it has to go through `app.json`'s `android.softwareKeyboardLayoutMode`.
+
+Measured on the emulator (1080×2400 @420dpi, Android 36) with `mInputShown=true` and a
+**docked** Gboard:
+
+```
+app-root  before (0,0,1080,2400)   after (0,0,1080,2400)   -- unchanged
+"Run it"  before (481,1566,598,1627)  after (481,1566,598,1627)  -- unchanged
+IME top edge ~1494   =>  the CTA is painted UNDERNEATH it and is unreachable
+```
+
+`design/device/android-join-keyboard.BROKEN-before-fix.png` is that state.
+
+**A trap worth naming:** the first capture caught Gboard in **floating** mode (a small
+vertical pill), which never resizes anything by design and would have "confirmed" the
+finding for the wrong reason. `adb shell pm clear com.google.android.inputmethod.latin`
+resets it to docked. CLAUDE.md already warns that floating Gboard makes a field look
+dead; it also makes a measurement look sound.
+
+So `behavior="padding"` is set on **both** platforms, not iOS-only.
+
+### One mechanism per subtree, never two
+
+Stacking a `KeyboardAvoidingView` on a ScrollView that already insets itself makes iOS
+compensate twice and pushes content off the top. The rule:
+
+| screen | shape | mechanism |
+|---|---|---|
+| Join | content pinned to the visible bottom (`footer` `marginTop:'auto'`) | `KeyboardAvoidingView` |
+| Music | composer is a flex sibling *after* the ScrollView | `KeyboardAvoidingView` |
+| Host broadcast | a plain scrolling document, chrome above it | `automaticallyAdjustKeyboardInsets` |
+
+Broadcast gets the scroll insets because a KAV must be **outermost** for its offset to
+be zero, and `HostConsoleChrome` sits above the `<Slot/>` — a KAV there would need a
+hand-measured header height that drifts the first time the chrome changes.
+
+### The KAV goes OUTSIDE `<Screen>`, and that is arithmetic
+
+RN computes `padding = frame.y + frame.height − keyboardTop`, where `frame` comes from
+its own `onLayout` — **parent-relative** — while `keyboardTop` is screen-absolute.
+
+- Inside `<Screen>`: the frame starts below the safe-area padding, so it under-pads by
+  exactly `insets.top + insetDelta.page` and `keyboardVerticalOffset` would have to
+  become a live expression of the top inset.
+- Outermost: the parent is the router's screen container, which starts at window y=0
+  because `headerShown: false` is global. The arithmetic lands on the keyboard height
+  and **the offset is 0 and is omitted.**
+
+If a header is ever added to `/join`, that stops being true.
+
+### `flexGrow: 1` is load-bearing
+
+`s.footer` pins "Runit · Event plan" with `marginTop: 'auto'`, which only has free
+space to absorb if the scroll content container fills the frame the way `Screen`'s
+`flex: 1` filled it before. **If the footer creeps up under the CTA, that is what is
+missing.** Verified by shooting the pre-change screen in the same environment and
+diffing: 394 of 3.1M pixels differ (0.0125%), **max channel delta 7/255**, 296 of them
+by 1–2 — sub-pixel antialiasing from rasterising text inside a scroll container, not a
+shift. A real move would be contiguous bands with deltas of 100+.
+
+`paddingHorizontal` stays on `<Screen>` rather than moving to the content container: it
+is the containing block `<Toast>`'s `left/right: 20` resolves against, and moving it
+would widen the toast by 48pt.
+
+### `keyboardShouldPersistTaps` is part of the same edit, not a nicety
+
+Introducing a ScrollView **imports RN's `'never'` default**, under which the first tap
+on a button while the keyboard is up is swallowed dismissing it. Without
+`"handled"` this change would have made the reported symptom worse. On
+`BroadcastPanel` it fixes a live bug rather than a hypothetical one: Send sits in the
+same ScrollView as the textarea, so a host currently taps Send twice.
+
+### The toast was rendering behind the keyboard
+
+`Toast.tsx` computes `bottom = tabBar.contentHeight + max(insets.bottom, 12) + 29` ≈
+126pt on **every** screen, including `/join`, which has no tab bar. A keyboard is
+~291pt. Measured on device, the failure toast sits at y 2013–2064 against an IME top
+edge of ~1494 — entirely hidden. Since the CTA is now pressable *with the keyboard up*,
+this became reachable rather than theoretical, so `onJoin` calls `Keyboard.dismiss()`
+first. Confirmed: `mInputShown=false`, and the dump contains
+`That code doesn't match an event.`
+
+**Deferred deliberately:** `Toast` deriving a tab-bar offset on a tab-bar-less screen
+is still wrong — it sits 63pt higher than the design intends on `/join`. It is not
+fixed here because it touches a component every screen mounts, and because no lane can
+prove it either way: `join.spec.ts` reads the toast by testID and `aria-live` only,
+never position, and `shoot-app.mjs` waits for toasts to disappear before every shot.
+
+### `react-native-keyboard-controller` was rejected
+
+Its native code does not exist in the custom SDK-57 Expo Go the project pairs with
+(`pnpm start:go`), so every Expo Go session would render a different app from the one
+on TestFlight. Lane B also boots the same `dist/` the journeys run over, making an
+unproven web path a whole-suite risk for no web benefit. RN built-ins only.
+
+### What proved this, and what could not
+
+**Lane B proves nothing about keyboards, and that is structural rather than
+approximate.** `react-native-web`'s `KeyboardAvoidingView` destructures `behavior` and
+`keyboardVerticalOffset` away and renders a plain `<View {...rest}/>`; its `View`
+filters props through an allowlist that excludes `keyboardShouldPersistTaps`,
+`submitBehavior` and `automaticallyAdjustKeyboardInsets`, so none of them reaches the
+DOM; and Chromium has no soft keyboard to raise. A Playwright assertion would pass
+identically on a correct fix and on no fix at all. Lane B's job here was the opposite
+one — proving **nothing moved** — and it did that.
+
+`tools/audit-keyboard.mjs` (lane A3) exists for the same reason `audit-touch-targets`
+does: static is the only automatable option. It refuses to prove that a KAV *wraps* a
+given `TextInput` — JoinScreen's KAV wraps `Screen`, in another file — because
+resolving JSX ancestry across component boundaries would be a heuristic wearing a
+parser's clothes.
+
+**The load-bearing evidence is Lane C**, and the strongest single assertion is that a
+join completes **without ever touching the CTA**: `input text` plus three
+`keyevent 66`s walked code → nickname → host key → submit and landed in Chat reading
+**"173 here"**, up from 172. That holds even if keyboard avoidance misbehaves, which is
+why the return-key chain is treated as load-bearing rather than as polish.
+
+**Every iOS claim here is derived from RN's `KeyboardAvoidingView` source arithmetic,
+not measured.** There is no Mac in this environment (deviation 2). iOS is unverified
+until a TestFlight build runs on a physical phone.

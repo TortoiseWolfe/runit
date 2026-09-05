@@ -1,5 +1,7 @@
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
+} from 'react-native';
 import { EventQr } from '@/components/ui/EventQr';
 import { shareMessage } from '@/lib/invite';
 import { shareText } from '@/lib/share';
@@ -44,7 +46,31 @@ export function BroadcastPanel() {
   };
 
   return (
-    <ScrollView style={s.scroll} contentContainerStyle={s.content} testID="host-broadcast">
+    /*
+      No KeyboardAvoidingView here, and that is the rule rather than an oversight: a
+      KAV must be OUTERMOST for its offset to be 0, and HostConsoleChrome sits above
+      the <Slot/> in host/_layout.tsx -- so one here would need a hand-measured header
+      height that drifts the first time the chrome changes. This screen is a plain
+      scrolling document, so it insets itself instead.
+
+      keyboardShouldPersistTaps fixes a LIVE bug: the Send Pressable is inside this
+      same ScrollView as the textarea, so under RN's 'never' default a host's first
+      tap on Send is swallowed dismissing the keyboard. Two taps to send an
+      announcement, and nothing on screen to explain why.
+
+      keyboardDismissMode matters more here than anywhere else: the field is
+      multiline, so its Return inserts a newline and there is no return key to close
+      the keyboard with. 'interactive' is iOS-only and silently degrades to 'none' on
+      Android, which would leave Android hosts with no way out at all.
+    */
+    <ScrollView
+      style={s.scroll}
+      contentContainerStyle={s.content}
+      testID="host-broadcast"
+      keyboardShouldPersistTaps="handled"
+      keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+      automaticallyAdjustKeyboardInsets
+    >
       {/* The invite row. Both affordances are disabled until there IS an event, which
           against Supabase is until the host has joined -- events_read admits members
           only, so `event` is null before that. */}

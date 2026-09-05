@@ -9,6 +9,7 @@
   "main": "expo-router/entry",
   "scripts": {
     "android": "expo run:android",
+    "audit:keyboard": "node tools/audit-keyboard.mjs",
     "audit:styles": "node tools/audit-native-styles.mjs",
     "audit:targets": "node tools/audit-touch-targets.mjs",
     "audit:tiers": "node tools/audit-tier-claims.mjs",
