@@ -47,10 +47,10 @@ const SRC = join(ROOT, 'src');
  * gate whose selector stops matching passes having measured nothing, so falling
  * below the floor is itself a failure.
  */
-// Raised 5 -> 10 by the host event-details form. Set at the exact current count, the
+// Raised 5 -> 10 by the host event-details form, then -> 16 by create-an-event. Set at the exact current count, the
 // way it was originally: a floor left below reality has stopped being a floor.
-const TEXTINPUT_FLOOR = 10;
-const SCROLLVIEW_FLOOR = 4;
+const TEXTINPUT_FLOOR = 16;
+const SCROLLVIEW_FLOOR = 6;
 
 /**
  * A JSX ELEMENT opener, not a type argument.

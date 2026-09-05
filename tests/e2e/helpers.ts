@@ -48,12 +48,21 @@ export async function ready(page: Page, scheme: 'dark' | 'light') {
 }
 
 /** Land on the join screen with the app hydrated. */
-export async function open(page: Page, scheme: 'dark' | 'light', path = '/join') {
+export async function open(
+  page: Page,
+  scheme: 'dark' | 'light',
+  path = '/join',
+  anchor = 'join-submit',
+) {
   // `path` is a parameter so a test can arrive the way a guest tapping an invite does,
   // with the code in the query string. Every existing caller keeps the default.
+  //
+  // `anchor` is what proves the screen actually mounted, and it has to move with `path`:
+  // waiting for `join-submit` on /create passes only by timing out, which is a ten-second
+  // way of asserting nothing. Defaulted so every existing caller is unchanged.
   await page.goto(path);
   await ready(page, scheme);
-  await expect(page.getByTestId('join-submit')).toBeVisible();
+  await expect(page.getByTestId(anchor)).toBeVisible();
 }
 
 /** Join as a guest and land on Chat. */

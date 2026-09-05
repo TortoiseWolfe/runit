@@ -44,6 +44,10 @@ declare
   fid2 uuid := '88888888-8888-8888-8888-888888888888';
   p2   uuid := '99999999-9999-9999-9999-999999999999';
   gb uuid; pho uuid; rep1 uuid; rep2 uuid; who uuid; lbl text; rname text;
+  -- create_event fixtures: a founder with no seat anywhere, and the phone she buys next.
+  cuid uuid := 'aaaaaaaa-0000-0000-0000-000000000001';
+  nuid uuid := 'aaaaaaaa-0000-0000-0000-000000000002';
+  ce record; kold text; knew text;
   out text[] := '{}';
   fails int := 0;
 
@@ -64,6 +68,9 @@ begin
   -- which is the check no INSERT policy could have made.
   insert into auth.users (id, instance_id, aud, role, email, is_anonymous, created_at, updated_at)
   values (buid,'00000000-0000-0000-0000-000000000000','authenticated','authenticated',null,true,now(),now());
+  insert into auth.users (id, instance_id, aud, role, email, is_anonymous, created_at, updated_at)
+  values (cuid,'00000000-0000-0000-0000-000000000000','authenticated','authenticated',null,true,now(),now()),
+         (nuid,'00000000-0000-0000-0000-000000000000','authenticated','authenticated',null,true,now(),now());
   insert into public.events (id, code, name, venue, starts_at, timezone, tier, invited_count)
   values (eid2,'TEST02','Other','Hall',now(),'America/New_York','event',10);
   insert into public.folders (id,event_id,name,position) values (fid2,eid2,'Main',0);
@@ -404,6 +411,89 @@ begin
   get diagnostics n = row_count;
   out := out || format('%s a guest resolving affects zero rows, silently (got %s, want 0)',
                        case when n = 0 then 'PASS' else 'FAIL' end, n);
+
+  --------------------------------------------- MAKING AN EVENT (#13, #32)
+  -- A fresh identity, because the whole claim is that somebody with no seat anywhere
+  -- can bring an event into existence and be its host without a key changing hands.
+  execute 'reset role';
+  perform set_config('request.jwt.claims', json_build_object('sub',cuid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+
+  select * into ce from public.create_event(
+    'Ruth''s 40th', now() + interval '3 days', 'America/New_York', 'The garden', 'Doors 7:00 PM', 'Ruth');
+
+  out := out || format('%s create_event mints a code off the safe alphabet (%s)',
+                       case when ce.code ~ '^[A-HJ-NP-Z2-9]{6}$' then 'PASS' else 'FAIL' end, ce.code);
+  out := out || format('%s the founder is host immediately, with no key changing hands',
+                       case when public.is_host(ce.event_id) then 'PASS' else 'FAIL' end);
+
+  -- An event with no folder refuses every upload, and folders_insert needs is_host --
+  -- which is not true until one statement later. So it has to happen inside the RPC.
+  select count(*) into n from public.events e
+   where e.id = ce.event_id and e.active_folder_id is not null;
+  out := out || format('%s a new event arrives with an active folder (%s, want 1)',
+                       case when n = 1 then 'PASS' else 'FAIL' end, n);
+
+  select e.tier into lbl from public.events e where e.id = ce.event_id;
+  out := out || format('%s a new event is house_party, not a tier nobody paid for (%s)',
+                       case when lbl = 'house_party' then 'PASS' else 'FAIL' end, lbl);
+
+  -- THE KEY EXISTS ONLY IN THE RETURN VALUE. If this ever finds a row, the plaintext is
+  -- sitting in the database and every backup and support session hands over the event.
+  select count(*) into n from public.host_claims hc
+   where hc.host_id = ce.host_id and hc.secret_hash = upper(replace(ce.host_key,'-',''));
+  out := out || format('%s only the bcrypt hash is stored, never the key itself (%s, want 0)',
+                       case when n = 0 then 'PASS' else 'FAIL' end, n);
+
+  -- THE RECOVERY, which is the whole reason a key is minted for someone who did not need
+  -- one to get in. auth.uid() is an anonymous session in a keystore on one phone, and an
+  -- Android reinstall wipes it. A DIFFERENT uid presenting the key is exactly "new phone".
+  execute 'reset role';
+  perform set_config('request.jwt.claims', json_build_object('sub',nuid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  out := out || format('%s a new phone is not the host until it presents the key',
+                       case when public.is_host(ce.event_id) = false then 'PASS' else 'FAIL' end);
+
+  who := public.claim_host(ce.code, ce.host_key);
+  out := out || format('%s the recovery key gets her back into her own event (%s)',
+                       case when who = ce.host_id then 'PASS' else 'FAIL' end, coalesce(who::text,'null'));
+
+  -- Typed off a note in a dim room: dashes and case are presentation, not credential.
+  who := public.claim_host(lower(ce.code), lower(replace(ce.host_key,'-',' ')));
+  out := out || format('%s the key survives lower case and spaces',
+                       case when who = ce.host_id then 'PASS' else 'FAIL' end);
+
+  -- ROTATION, for the note that got lost or shown to the wrong person.
+  kold := ce.host_key;
+  knew := public.rotate_host_key(ce.event_id);
+  out := out || format('%s rotate_host_key issues a new one (%s)',
+                       case when knew ~ '^[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$'
+                            then 'PASS' else 'FAIL' end, knew);
+  out := out || format('%s and it is not the old one',
+                       case when knew <> kold then 'PASS' else 'FAIL' end);
+
+  -- THE HALF THAT MAKES ROTATION MEAN ANYTHING. A rotation that leaves the old key
+  -- working is a rotation in name only, and it is the failure someone would discover
+  -- after handing the old note to the wrong person.
+  begin
+    perform public.claim_host(ce.code, kold);
+    out := out || format('FAIL the OLD key still opens the event after rotation');
+  exception when others then
+    out := out || format('%s the old key stops working once rotated (%s)',
+                         case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  -- A stranger holding neither key can do neither thing.
+  execute 'reset role';
+  perform set_config('request.jwt.claims', json_build_object('sub',guid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  begin
+    perform public.rotate_host_key(ce.event_id);
+    out := out || format('FAIL a stranger rotated somebody else''s host key');
+  exception when others then
+    out := out || format('%s only a host of that event can rotate its key (%s)',
+                         case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
 
   select count(*) into fails from unnest(out) x where x like 'FAIL%';
   raise exception using message =

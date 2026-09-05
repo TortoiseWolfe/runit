@@ -719,3 +719,120 @@ describe('entitlements', () => {
     expect(repo.entitlements.get().usage.photosStored).toBe(before.usage.photosStored + 1);
   });
 });
+
+/* -------------------------------------------------- creating an event (#13, #32) */
+
+const CREATED = {
+  event_id: EVENT,
+  code: 'JT32SU',
+  host_id: 'h0000000-0000-0000-0000-000000000001',
+  host_key: 'DUBT-87MS-Q5UQ',
+};
+
+const hostRow = {
+  id: CREATED.host_id, event_id: EVENT, display_name: 'Ruth',
+  role: 'host', role_label: 'Host', auth_user_id: 'u1', created_at: FIXED,
+};
+
+/**
+ * A client that can answer create_event and then read the event back.
+ *
+ * `first` is registered BEFORE the success responder because the first responder to
+ * return a Result wins -- layering a refusal on afterwards would be silently ignored,
+ * and the test would pass while asserting nothing.
+ */
+function creatable(first?: (op: { kind: string; table: string }) => unknown) {
+  const c = new FakeClient();
+  c.seed('events', [eventRow()]).seed('hosts', [hostRow]).seed('song_votes', []);
+  if (first) c.on(first as never);
+  c.on((op) =>
+    op.kind === 'rpc' && op.table === 'create_event' ? { data: [CREATED], error: null } : undefined,
+  );
+  return c;
+}
+
+const NEW_EVENT = {
+  name: "Ruth's 40th", venue: 'The garden', startsAt: FIXED,
+  timezone: 'America/New_York', doorsLabel: 'Doors 7:00 PM', hostName: 'Ruth',
+};
+
+describe('creating an event', () => {
+  it('sends every field the RPC takes, under the p_ names it expects', async () => {
+    const c = creatable();
+    await build(c).event.create(NEW_EVENT);
+
+    // The argument NAMES are the contract with Postgres and nothing else checks them:
+    // PostgREST resolves overloads by argument name, so a typo here is not a type
+    // error, it is a 404 at runtime against a function that exists.
+    expect(c.find('rpc', 'create_event')[0]!.payload).toEqual({
+      p_name: "Ruth's 40th",
+      p_starts_at: FIXED,
+      p_timezone: 'America/New_York',
+      p_venue: 'The garden',
+      p_doors_label: 'Doors 7:00 PM',
+      p_host_name: 'Ruth',
+    });
+  });
+
+  it('returns the code and the key, which exist nowhere else', async () => {
+    const made = await build(creatable()).event.create(NEW_EVENT);
+    expect(made).toEqual({ code: 'JT32SU', hostKey: 'DUBT-87MS-Q5UQ' });
+  });
+
+  it('leaves the creator in a HOST session, so there is nothing to claim afterwards', async () => {
+    const repo = build(creatable());
+    await repo.event.create(NEW_EVENT);
+
+    // The whole point of #13: she is the host because she made it. A guest session here
+    // would send her to the join screen holding a code for her own party.
+    expect(repo.session.current.get()).toMatchObject({
+      kind: 'host', hostId: CREATED.host_id, displayName: 'Ruth',
+    });
+    expect(repo.event.current.get()).toMatchObject({ id: EVENT });
+  });
+
+  it('signs in first, because create_event is granted to authenticated and to nobody else', async () => {
+    const c = creatable();
+    await build(c).event.create(NEW_EVENT);
+    expect(c.signInCalls).toBe(1);
+  });
+
+  it('names the limit rather than reporting a raw Postgres error', async () => {
+    const c = creatable((op) =>
+      op.kind === 'rpc' && op.table === 'create_event' ? pgError('54023', 'too_many_events') : undefined,
+    );
+    await expect(build(c).event.create(NEW_EVENT)).rejects.toThrow(/Ten is the limit/);
+  });
+
+  it('treats a missing row as a schema mismatch, not as a silent success', async () => {
+    // `returns table` gives an ARRAY. An empty one cannot happen on success, so it means
+    // the function signature moved -- and reading data?.[0] off it would hand the screen
+    // `undefined` to show a host as her only way back into her own event.
+    const c = creatable((op) =>
+      op.kind === 'rpc' && op.table === 'create_event' ? { data: [], error: null } : undefined,
+    );
+    await expect(build(c).event.create(NEW_EVENT)).rejects.toThrow(/schema mismatch/);
+  });
+});
+
+describe('rotating the host key', () => {
+  it('asks for a new key for the open event and hands back the plaintext', async () => {
+    const c = creatable((op) =>
+      op.kind === 'rpc' && op.table === 'rotate_host_key' ? { data: 'SPP9-4PN8-YSGN', error: null } : undefined,
+    );
+    const repo = build(c);
+    await repo.event.create(NEW_EVENT);
+
+    await expect(repo.event.rotateHostKey()).resolves.toBe('SPP9-4PN8-YSGN');
+    expect(c.find('rpc', 'rotate_host_key')[0]!.payload).toEqual({ p_event: EVENT });
+  });
+
+  it('reads 42501 as "not a host here" rather than letting it surface raw', async () => {
+    const c = creatable((op) =>
+      op.kind === 'rpc' && op.table === 'rotate_host_key' ? pgError('42501', 'not_a_host') : undefined,
+    );
+    const repo = build(c);
+    await repo.event.create(NEW_EVENT);
+    await expect(repo.event.rotateHostKey()).rejects.toThrow(/Only a host of this event/);
+  });
+});

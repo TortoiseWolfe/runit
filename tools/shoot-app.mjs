@@ -231,6 +231,14 @@ for (const scheme of ['dark', 'light']) {
     await shot(name);
   }
 
+  // 00 Create -- the supply side. Reached by the quiet link on the join screen rather
+  // than by URL, so this also proves that link is there and lands somewhere.
+  await page.goto(`${base}/join`, { waitUntil: 'networkidle' });
+  await page.waitForSelector('[data-testid="join-submit"]', { timeout: 30_000 });
+  await page.click('[data-testid="join-create-event"]');
+  await page.waitForSelector('[data-testid="create-event"]', { timeout: 30_000 });
+  await shot('00-create-event');
+
   // 04 Pricing -- REMOVED with the /pricing route itself in v1. The screen listed
   // $19/$79/$599 and contained no Pressable at all, which is a Guideline 3.1.1 and
   // 2.1 problem rather than a design one. Denials now surface as a toast naming the

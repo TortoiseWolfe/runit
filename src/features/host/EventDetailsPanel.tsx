@@ -3,12 +3,8 @@ import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } fr
 
 import { useEvent } from '@/state/hooks';
 import { useHostActions } from '@/state/actions';
-import {
-  formatClock,
-  formatEventDate,
-  instantToWallClock,
-  wallClockToInstant,
-} from '@/lib/format';
+import { formatClock, formatEventDate, instantToWallClock } from '@/lib/format';
+import { instantFrom, zoneChoices, zoneLabel } from '@/lib/eventForm';
 import { alpha, border, eyebrow, radius, useTheme, weight } from '@/theme';
 
 /**
@@ -27,48 +23,10 @@ import { alpha, border, eyebrow, radius, useTheme, weight } from '@/theme';
  * time the chrome changes.
  */
 
-/**
- * Zones a host can pick from, plus wherever this phone thinks it is.
- *
- * NOT `Intl.supportedValuesOf('timeZone')`. It would be the complete answer and its
- * Hermes support is unverified here -- and this repo's own history is that "works on
- * web, wrong on device" is the recurring failure. A short list plus the device's own
- * zone covers the host who is standing at their own venue, which is nearly all of
- * them, and it degrades to a visible list rather than an empty picker.
- *
- * A host whose venue is somewhere else entirely is a real gap, and the honest place to
- * close it is a searchable list, not a longer constant.
- */
-const COMMON_ZONES = [
-  'America/New_York',
-  'America/Chicago',
-  'America/Denver',
-  'America/Los_Angeles',
-  'Europe/London',
-  'Europe/Berlin',
-  'UTC',
-];
-
-function zoneChoices(current: string): string[] {
-  let device = 'UTC';
-  try {
-    device = new Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-  } catch {
-    // A resolvedOptions() that throws is not a reason to render no picker at all.
-  }
-  // `current` first so the event's own zone is always offered, even if it is neither
-  // common nor this phone's -- otherwise editing the venue would silently move the
-  // event to whichever zone happened to be listed first.
-  return [...new Set([current, device, ...COMMON_ZONES])];
-}
-
-/** 'America/New_York' -> 'New York'. The prefix is noise on a button this size. */
-const zoneLabel = (z: string) => z.split('/').pop()?.replace(/_/g, ' ') ?? z;
-
 export function EventDetailsPanel() {
   const { tokens, fade } = useTheme();
   const event = useEvent();
-  const { saveEventDetails } = useHostActions();
+  const { saveEventDetails, rotateHostKey } = useHostActions();
 
   /**
    * Seeded ONCE from the event, then owned by the form.
@@ -85,6 +43,8 @@ export function EventDetailsPanel() {
   const [time, setTime] = useState(clock?.time ?? '');
   const [zone, setZone] = useState(event?.timezone ?? 'UTC');
   const [busy, setBusy] = useState(false);
+  /** A freshly issued recovery key, held only long enough to be written down. */
+  const [issuedKey, setIssuedKey] = useState<string | null>(null);
 
   const venueRef = useRef<TextInput>(null);
   const doorsRef = useRef<TextInput>(null);
@@ -103,14 +63,7 @@ export function EventDetailsPanel() {
    * `null` means the fields do not parse yet, which is the ordinary state of a date
    * halfway through being typed -- not an error worth colouring red.
    */
-  const startsAt = useMemo(() => {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(time)) return null;
-    try {
-      return wallClockToInstant(date, time, zone);
-    } catch {
-      return null;
-    }
-  }, [date, time, zone]);
+  const startsAt = useMemo(() => instantFrom(date, time, zone), [date, time, zone]);
 
   const onSave = async () => {
     if (!startsAt || busy) return;
@@ -267,6 +220,53 @@ export function EventDetailsPanel() {
         The invitation reads name, then date, then this line, then the venue.
       </Text>
 
+      {/* THE RECOVERY KEY, for the note that got lost or was shown to the wrong person.
+          Issue #32.
+
+          She did not need a key to get in -- create_event bound her seat to auth.uid()
+          -- and she does not need one on this phone. It exists because that identity is
+          an anonymous session in a keystore, and an Android reinstall wipes it. Without
+          a key she loses her own event permanently while it carries on without her.
+
+          Rotating RETIRES the old one, which is the half that makes rotation mean
+          anything, and verify-policies.sql asserts exactly that. */}
+      {event ? (
+        <View style={s.keyBlock}>
+          <Text style={[s.sectionTitle, { color: alpha(tokens.baseContent, fade.muted) }]}>
+            Getting back in
+          </Text>
+          {issuedKey ? (
+            <>
+              <Text testID="rotated-key" style={[s.key, { color: tokens.baseContent }]}>
+                {issuedKey}
+              </Text>
+              <Text style={[s.helper, { color: alpha(tokens.baseContent, fade.body) }]}>
+                Write it down now — it is not shown again, and the previous key has
+                stopped working.
+              </Text>
+            </>
+          ) : (
+            <Text style={[s.helper, { color: alpha(tokens.baseContent, fade.muted) }]}>
+              Your key is how you reach this event from another phone. If you have lost
+              it, issue a new one — the old one stops working.
+            </Text>
+          )}
+          <Pressable
+            onPress={async () => {
+              const next = await rotateHostKey();
+              if (next) setIssuedKey(next);
+            }}
+            accessibilityRole="button"
+            testID="rotate-key"
+            style={[s.rotate, { borderColor: tokens.base300 }]}
+          >
+            <Text style={[s.rotateText, { color: tokens.baseContent }]}>
+              {issuedKey ? 'Issue another' : 'Issue a new key'}
+            </Text>
+          </Pressable>
+        </View>
+      ) : null}
+
       {/* Not drawn while there is no event to edit, the same rule as the calendar pill
           and the invite row: a control that cannot act is not drawn. `?empty=1` asserts
           that nothing visible anywhere is aria-disabled. */}
@@ -307,6 +307,14 @@ const s = StyleSheet.create({
   },
   zoneText: { fontSize: 13 },
   helper: { fontSize: 12, lineHeight: 18 },
+  keyBlock: { marginTop: 18, gap: 8 },
+  // Tabular so the three groups line up, and large because it gets copied by hand.
+  key: { fontSize: 22, fontWeight: weight.semibold, letterSpacing: 2, fontVariant: ['tabular-nums'] },
+  rotate: {
+    height: 44, borderRadius: radius.field, borderWidth: border,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  rotateText: { fontSize: 14, fontWeight: weight.medium },
   save: { height: 52, borderRadius: radius.field, alignItems: 'center', justifyContent: 'center', marginTop: 8 },
   saveText: { fontSize: 16, fontWeight: weight.semibold },
 });

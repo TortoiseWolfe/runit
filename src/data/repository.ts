@@ -109,6 +109,31 @@ export type EventPreview = Pick<
   'id' | 'code' | 'name' | 'venue' | 'startsAt' | 'timezone' | 'doorsLabel'
 >;
 
+/** Everything needed to bring an event into existence. */
+export interface NewEvent extends EventDetails {
+  /** How the host appears on their own announcements. Not an account, just a name. */
+  hostName: string;
+}
+
+/**
+ * What `create` hands back, ONCE.
+ *
+ * `hostKey` exists in this object and nowhere else, ever: only its bcrypt hash is
+ * stored, so there is no route -- not a support session, not a service-role dump -- that
+ * recovers it afterwards. Show it to the host and mean it.
+ *
+ * It is not a password and she does not need it to get in: `create_event` binds her seat
+ * to `auth.uid()` in the same transaction. It is a RECOVERY key, and it exists because
+ * that `auth.uid()` is an anonymous session in a keystore on one phone. An Android
+ * reinstall wipes it, and without the key she loses her own event permanently -- while
+ * the party carries on with her guests in it and nobody able to broadcast.
+ */
+export interface CreatedEvent {
+  code: string;
+  /** Grouped for reading off a note -- XV24-HJ78-DBAB. The dashes are presentation. */
+  hostKey: string;
+}
+
 /** The fields a host may edit. Exactly the widened column grant, minus the folder. */
 export interface EventDetails {
   name: string;
@@ -226,6 +251,27 @@ export interface RunitRepository {
     preview: Observable<EventPreview | null>;
     /** Resolve a code into `preview`. A code that names nothing leaves it null. */
     lookUp(code: string): Promise<void>;
+    /**
+     * Bring an event into existence, and become its host in the same breath.
+     *
+     * ONE CALL, because an event is not one row. It is a row, a folder, an
+     * `activeFolderId` pointing at that folder, a host seat bound to a person, and a
+     * credential -- and four of those five are refused to a client on purpose. An event
+     * assembled out of separate writes can fail halfway and leave a party whose camera
+     * silently does nothing.
+     *
+     * Leaves the caller in a host session, so there is nothing to claim afterwards.
+     */
+    create(input: NewEvent): Promise<CreatedEvent>;
+    /**
+     * Issue a new recovery key for THIS host's own seat, retiring the old one.
+     *
+     * For the note that got lost, or shown to the wrong person. Scoped to the caller's
+     * own seat: rotating a co-host's key would be a way to take a seat away from
+     * somebody rather than to recover your own, and those want different words on the
+     * button.
+     */
+    rotateHostKey(): Promise<string>;
     setActiveFolder(id: FolderId): Promise<void>;
     /**
      * The event's description, as a host corrects it.
