@@ -8,6 +8,8 @@
  * Entitlement checks live in the write methods, deliberately. A check that only
  * exists in a button's onPress is bypassed by the second caller.
  */
+import * as Crypto from 'expo-crypto';
+
 import type {
   BlockedGuest, Broadcast, Folder, FolderId, GuestId, Host, HostRole, NowPlaying, Photo, PhotoId,
   Report, ReportId, ReportReason, ReportResolution, ReportSubject,
@@ -87,17 +89,50 @@ class Signal<T> implements Observable<T> {
 }
 
 /**
- * The code and key alphabet, matching `create_event` in the migration.
+ * The code and key alphabet, matching `mint_token` in the migration.
  *
  * No 0/O and no 1/I/L: a guest types the code off a place card in a dim room and a host
  * reads the key off a note. Kept in step with the SQL by hand, which is a small drift
  * risk -- the failure mode is a fixture minting a character production would not, which
- * a shape assertion in the e2e catches.
+ * the shape assertions in tests/e2e/create-event.spec.ts catch.
  */
 const ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+/** The largest multiple of 31 that fits in a byte. See the rejection note below. */
+const BYTE_LIMIT = 256 - (256 % ALPHABET.length);
 
-const mintFromAlphabet = (len: number): string =>
-  Array.from({ length: len }, () => ALPHABET[Math.floor(Math.random() * ALPHABET.length)]!).join('');
+/**
+ * A CSPRNG, not `Math.random()`, and the same rejection sampling as `mint_token`.
+ *
+ * TO BE CLEAR ABOUT WHAT THIS IS: nothing here is a real credential. This adapter holds
+ * its whole world in one process on one device, and the "key" it mints is compared
+ * against its own field -- there is no attacker, no network and no shared state. Using
+ * Math.random() would not have been exploitable.
+ *
+ * It is written this way anyway for two reasons. The parity one: this fixture exists to
+ * behave like the adapter that ships, and a fake with weaker properties than production
+ * is how a harness goes green on a broken app. And the copy-paste one: `Math.random()`
+ * two lines from a value named `key` is a pattern somebody will lift into a place where
+ * it does matter -- which is exactly what happened in the migration, where the same
+ * shape WAS reachable by anyone who could sign in anonymously.
+ *
+ * expo-crypto rather than globalThis.crypto for the reason `SupabaseRepository.upload`
+ * already gives: the container runs Node and the phone runs Hermes, and testing one
+ * while shipping the other is how the timezone fix passed 144 tests and died on device.
+ */
+const mintFromAlphabet = (len: number): string => {
+  let out = '';
+  while (out.length < len) {
+    const bytes = Crypto.getRandomBytes(Math.max(len * 2, 16));
+    for (const b of bytes) {
+      if (out.length >= len) break;
+      // 256 is not a multiple of 31, so a bare modulo would make the first eight
+      // characters ~3% likelier than the rest. Discard the tail instead of folding it.
+      if (b >= BYTE_LIMIT) continue;
+      out += ALPHABET[b % ALPHABET.length];
+    }
+  }
+  return out;
+};
 
 /** XV24HJ78DBAB -> XV24-HJ78-DBAB. Presentation only; claimHost canonicalises it back. */
 const group = (key: string): string => `${key.slice(0, 4)}-${key.slice(4, 8)}-${key.slice(8, 12)}`;

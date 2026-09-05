@@ -483,6 +483,25 @@ begin
                          case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
   end;
 
+  -- CREDENTIALS COME FROM A CSPRNG, and the minting function is not reachable over HTTP.
+  --
+  -- Both halves matter. `random()` minted these until a security review caught it, and
+  -- create_event is callable by anyone who can sign in anonymously -- so an attacker
+  -- could have asked for keys in a loop and read the PRNG's output stream directly,
+  -- which against a pooled connection is somebody else's session state.
+  --
+  -- The revoke is asserted rather than assumed because this file's own GRANTS section
+  -- documents the trap: `revoke ... from anon` alone is a silent no-op, since Supabase
+  -- ships ALTER DEFAULT PRIVILEGES granting EXECUTE to anon and authenticated. A
+  -- mint_token a client can call is an oracle on the generator behind every key here.
+  begin
+    perform public.mint_token(12);
+    out := out || format('FAIL a client can call mint_token -- the key generator is an oracle');
+  exception when others then
+    out := out || format('%s mint_token is not callable by a client (%s)',
+                         case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
   -- A stranger holding neither key can do neither thing.
   execute 'reset role';
   perform set_config('request.jwt.claims', json_build_object('sub',guid,'role','authenticated')::text, true);
