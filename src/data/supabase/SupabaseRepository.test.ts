@@ -35,8 +35,13 @@ function ready(extra: (c: FakeClient) => void = () => {}) {
   return c;
 }
 
+const build = (c: FakeClient) =>
+  // `appState: false` everywhere except the bridge's own tests: the listener is
+  // global, so leaving it on would have each of these tests racing the last one's.
+  SupabaseRepository.create(c as unknown as RunitClient, { now: () => FIXED, appState: false });
+
 const join = async (c: FakeClient) => {
-  const repo = SupabaseRepository.create(c as unknown as RunitClient, { now: () => FIXED });
+  const repo = build(c);
   await repo.session.joinAsGuest({ code: 'test01', nickname: 'Ada' });
   return repo;
 };
@@ -374,5 +379,157 @@ describe('blocking, against a real backend', () => {
     await repo.moderation.block('g9');
     await repo.session.leave();
     expect(repo.moderation.blocked.get()).toEqual([]);
+  });
+});
+
+/* --------------------------------------------- realtime lifecycle: the quota bug */
+
+/**
+ * WHY THESE EXIST. Joining opens eight channels and nothing ever closed them:
+ * `session.leave()` is the only teardown in the codebase and has zero production
+ * call sites, and there was no AppState wiring at all. An installed app that had
+ * joined once kept a socket heartbeating every 25s and a token ticker every 30s for
+ * the life of the install -- roughly 104,000 frames a month per device, from a guest
+ * doing nothing. The cost scaled with INSTALLS, not with use, which is why handing
+ * out beta builds moved the meter.
+ *
+ * The asymmetry that makes it subtle: `removeChannel()` unsubscribes ONE channel and
+ * leaves the socket open. Only `realtime.disconnect()` closes it, so closing all
+ * eight is not the same as stopping.
+ */
+describe('realtime lifecycle', () => {
+  const live = (c: FakeClient) => c.channels.filter((ch) => ch.subscribed && !ch.removed);
+  const stillRegistered = (c: FakeClient) => c.channels.filter((ch) => !ch.removed);
+
+  it('a join opens eight channels and leaves none orphaned', async () => {
+    const c = ready();
+    await join(c);
+    expect(live(c)).toHaveLength(8);
+    expect(stillRegistered(c)).toHaveLength(8);
+  });
+
+  it('removes a channel whose subscribe FAILS, rather than leaving it to rejoin forever', async () => {
+    // supabase-js rejoins a channel that is still registered on its own backoff --
+    // 1s, 2s, 5s, then every 10s for the life of the process. Rejecting without
+    // removing is what turned one failed join into a permanent talker.
+    const c = ready();
+    c.failSubscribeFor.add('runit:photos');
+    const repo = build(c);
+    await expect(repo.session.joinAsGuest({ code: 'test01', nickname: 'Ada' })).rejects.toThrow();
+    // Not just the failed one: the seven that succeeded beside it must go too.
+    expect(stillRegistered(c)).toHaveLength(0);
+  });
+
+  it('a retry after a failed join does not stack another eight', async () => {
+    // The guest sees "Could not join. Try again." and taps it. Before the fix each
+    // tap added eight more forever-rejoining channels.
+    const c = ready();
+    c.failSubscribeFor.add('runit:photos');
+    const repo = build(c);
+    await expect(repo.session.joinAsGuest({ code: 'test01', nickname: 'Ada' })).rejects.toThrow();
+    await repo.session.joinAsGuest({ code: 'test01', nickname: 'Ada' });
+    expect(live(c)).toHaveLength(8);
+  });
+
+  it('suspend closes every channel AND the socket, and stops the token ticker', async () => {
+    const c = ready();
+    const repo = build(c);
+    await repo.session.joinAsGuest({ code: 'test01', nickname: 'Ada' });
+    await repo.suspend();
+
+    expect(live(c)).toHaveLength(0);
+    // The assertion that actually matters. Without it this test passes on an adapter
+    // that closes all eight channels and keeps heartbeating.
+    expect(c.disconnectCalls).toBe(1);
+    expect(c.autoRefreshCalls).toEqual(['stop']);
+  });
+
+  it('suspend KEEPS the rows, so resume does not flash an empty screen', async () => {
+    const c = ready((f) => f.seed('broadcasts', [{
+      id: 'b1', event_id: EVENT, author_host_id: null, author_name: 'DJ',
+      author_role_label: 'Host', kind: 'announcement', body: 'Cake at nine',
+      pinned: false, created_at: FIXED,
+    }]));
+    const repo = build(c);
+    await repo.session.joinAsGuest({ code: 'test01', nickname: 'Ada' });
+    const before = repo.chat.feed.get();
+    expect(before).toHaveLength(1);
+
+    await repo.suspend();
+    // `stop()` clears rows because it ends a session; pausing must not.
+    expect(repo.chat.feed.get()).toEqual(before);
+  });
+
+  it('resume re-subscribes and restarts the ticker', async () => {
+    const c = ready();
+    const repo = build(c);
+    await repo.session.joinAsGuest({ code: 'test01', nickname: 'Ada' });
+    await repo.suspend();
+    await repo.resume();
+
+    expect(live(c)).toHaveLength(8);
+    expect(c.autoRefreshCalls).toEqual(['stop', 'start']);
+  });
+
+  it('resume before any join opens nothing', async () => {
+    // Backgrounding on the join screen must not subscribe to an event that does not
+    // exist yet -- there is no event id to filter on.
+    const c = ready();
+    const repo = build(c);
+    await repo.resume();
+    expect(c.channels).toHaveLength(0);
+    expect(c.autoRefreshCalls).toEqual(['start']);
+  });
+
+  it('leave closes the socket, not merely the channels', async () => {
+    const c = ready();
+    const repo = await join(c);
+    await repo.session.leave();
+    expect(live(c)).toHaveLength(0);
+    expect(c.disconnectCalls).toBe(1);
+  });
+});
+
+describe('entitlements', () => {
+  it('does not re-emit when nothing it derives from changed', async () => {
+    // The one Signal in the adapter with no comparator. computeEntitlements() returns
+    // a fresh literal every call, so the default Object.is never matched and every
+    // realtime message on any of the eight tables re-rendered every consumer.
+    const c = ready();
+    const repo = await join(c);
+    const before = repo.entitlements.get();
+
+    const chat = c.channels.find((ch) => ch.name === 'runit:broadcasts');
+    expect(chat).toBeDefined();
+    chat!.emit({
+      eventType: 'INSERT',
+      new: {
+        id: 'b2', event_id: EVENT, author_host_id: null, author_name: 'DJ',
+        author_role_label: 'Host', kind: 'announcement', body: 'One more song',
+        pinned: false, created_at: FIXED,
+      },
+    });
+
+    // The chat feed moved; entitlements did not, and holds the SAME reference.
+    expect(repo.chat.feed.get()).toHaveLength(1);
+    expect(repo.entitlements.get()).toBe(before);
+  });
+
+  it('does re-emit when usage actually changes — the control', async () => {
+    const c = ready();
+    const repo = await join(c);
+    const before = repo.entitlements.get();
+
+    const photos = c.channels.find((ch) => ch.name === 'runit:photos');
+    photos!.emit({
+      eventType: 'INSERT',
+      new: {
+        id: 'p9', event_id: EVENT, folder_id: FOLDER, guest_id: GUEST,
+        storage_path: 'x.jpg', status: 'pending', created_at: FIXED,
+      },
+    });
+
+    expect(repo.entitlements.get()).not.toBe(before);
+    expect(repo.entitlements.get().usage.photosStored).toBe(before.usage.photosStored + 1);
   });
 });

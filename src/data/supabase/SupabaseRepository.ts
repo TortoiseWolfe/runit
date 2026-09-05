@@ -8,6 +8,7 @@ import {
   toBroadcast, toEvent, toFolder, toHost, toNowPlaying, toPhoto, toReport, toScheduleItem,
   toSongRequest,
 } from './mappers';
+import { attachAppStateBridge } from './appStateBridge';
 import { RealtimeTable } from './RealtimeTable';
 import { Signal, setEqual, shallowArrayEqual } from './signal';
 import { UploadOverlay } from './UploadOverlay';
@@ -137,7 +138,18 @@ export class SupabaseRepository implements RunitRepository {
 
   private constructor(db: RunitClient, private readonly now: () => string) {
     this.db = db;
-    this.sigEntitlements = new Signal<Entitlements>(this.computeEntitlements());
+    // THE ONE SIGNAL IN THIS FILE THAT HAD NO COMPARATOR, and computeEntitlements()
+    // returns a fresh literal on every call -- so the default Object.is never matched
+    // and recompute() re-rendered every useEntitlements() consumer on every realtime
+    // message from any of the eight tables. `tier` is a TIERS constant and compares
+    // by reference; usage is four numbers.
+    this.sigEntitlements = new Signal<Entitlements>(this.computeEntitlements(), (a, b) =>
+      a === b ||
+      (a.tier === b.tier &&
+        a.usage.guests === b.usage.guests &&
+        a.usage.hosts === b.usage.hosts &&
+        a.usage.photosStored === b.usage.photosStored &&
+        a.usage.folders === b.usage.folders));
 
     // The interface exposes Observables; the implementation holds Signals. Wiring
     // them here rather than in the field initialisers keeps each group's shape
@@ -171,12 +183,22 @@ export class SupabaseRepository implements RunitRepository {
    */
   static create(
     db: RunitClient = supabase(),
-    opts: { now?: () => string } = {},
+    /**
+     * `appState: false` is for tests that assert suspend/resume directly -- the
+     * bridge is global, and a test that installs one is asserting on the listener
+     * rather than on the behaviour.
+     */
+    opts: { now?: () => string; appState?: boolean } = {},
   ): SupabaseRepository {
     // Synchronous on purpose: src/app/_layout.tsx builds this inside useMemo, and
     // the real work starts at joinAsGuest, which is the first moment there is an
     // event to subscribe to.
-    return new SupabaseRepository(db, opts.now ?? (() => new Date().toISOString()));
+    const repo = new SupabaseRepository(db, opts.now ?? (() => new Date().toISOString()));
+    // The adapter owns its own lifecycle. Doing this here rather than in
+    // _layout.tsx keeps `react-native` out of the repository interface and leaves
+    // MemoryRepository -- which has no socket and no token to refresh -- untouched.
+    if (opts.appState !== false) attachAppStateBridge(repo);
+    return repo;
   }
 
   /* ------------------------------------------------------------- derivations */
@@ -474,10 +496,73 @@ export class SupabaseRepository implements RunitRepository {
     // NOT published -- see the note on blockRows.
     this.tReports = new RealtimeTable(this.db, 'reports', (r) => r.id, byEvent, on);
 
-    await Promise.all([
+    // ALL-OR-NOTHING, BECAUSE Promise.all IS NOT. It rejects on the first failure
+    // while the other seven channels are already subscribed and stay registered on
+    // the client -- and joinAsGuest turns that rejection into a toast, so the guest
+    // taps Try again and adds another eight. allSettled lets every attempt finish so
+    // the survivors can be removed before the failure is re-thrown.
+    const results = await Promise.allSettled([
       this.tEvents.start(), this.tBroadcasts.start(), this.tSchedule.start(),
       this.tRequests.start(), this.tNowPlaying.start(), this.tFolders.start(),
       this.tPhotos.start(), this.tReports.start(),
+    ]);
+    const failed = results.find((r) => r.status === 'rejected');
+    if (failed) {
+      await this.stopTables();
+      throw (failed as PromiseRejectedResult).reason;
+    }
+  }
+
+  /**
+   * Close all eight channels and forget them. Shared by `leave()` and by the
+   * failure path above, so there is one list of tables rather than two that drift.
+   */
+  private async stopTables(): Promise<void> {
+    await Promise.all([
+      this.tEvents?.stop(), this.tBroadcasts?.stop(), this.tSchedule?.stop(),
+      this.tRequests?.stop(), this.tNowPlaying?.stop(), this.tFolders?.stop(),
+      this.tPhotos?.stop(), this.tReports?.stop(),
+    ]);
+    this.tEvents = null;
+    this.tBroadcasts = null;
+    this.tSchedule = null;
+    this.tRequests = null;
+    this.tNowPlaying = null;
+    this.tFolders = null;
+    this.tPhotos = null;
+    this.tReports = null;
+  }
+
+  /**
+   * Backgrounding: stop paying for a party nobody is looking at.
+   *
+   * Removing the channels is NOT enough on its own. `removeChannel()` unsubscribes
+   * one channel but leaves the socket open, and the socket heartbeats every 25s
+   * forever -- so an installed app that has joined once keeps talking to Supabase
+   * with the phone in a pocket. Only `realtime.disconnect()` closes it. GoTrue's
+   * refresh ticker is a separate 30s interval and needs its own stop.
+   *
+   * Rows are kept, not cleared: `RealtimeTable.start()` replaces them only after its
+   * select returns, so the screen still has content on the first frame after resume.
+   */
+  async suspend(): Promise<void> {
+    await Promise.all([
+      this.tEvents?.pause(), this.tBroadcasts?.pause(), this.tSchedule?.pause(),
+      this.tRequests?.pause(), this.tNowPlaying?.pause(), this.tFolders?.pause(),
+      this.tPhotos?.pause(), this.tReports?.pause(),
+    ]);
+    await this.db.realtime.disconnect();
+    await this.db.auth.stopAutoRefresh();
+  }
+
+  /** Foregrounding. `channel.subscribe()` reopens the socket by itself. */
+  async resume(): Promise<void> {
+    await this.db.auth.startAutoRefresh();
+    if (!this.eventId) return;
+    await Promise.all([
+      this.tEvents?.start(), this.tBroadcasts?.start(), this.tSchedule?.start(),
+      this.tRequests?.start(), this.tNowPlaying?.start(), this.tFolders?.start(),
+      this.tPhotos?.start(), this.tReports?.start(),
     ]);
   }
 
@@ -593,19 +678,10 @@ export class SupabaseRepository implements RunitRepository {
     },
 
     leave: async () => {
-      await Promise.all([
-        this.tEvents?.stop(), this.tBroadcasts?.stop(), this.tSchedule?.stop(),
-        this.tRequests?.stop(), this.tNowPlaying?.stop(), this.tFolders?.stop(),
-        this.tPhotos?.stop(), this.tReports?.stop(),
-      ]);
-      this.tEvents = null;
-      this.tBroadcasts = null;
-      this.tSchedule = null;
-      this.tRequests = null;
-      this.tNowPlaying = null;
-      this.tFolders = null;
-      this.tPhotos = null;
-      this.tReports = null;
+      await this.stopTables();
+      // Closing every channel does NOT close the socket -- removeChannel() only
+      // unsubscribes one. Without this the heartbeat outlives the event.
+      await this.db.realtime.disconnect();
       // Fresh caches too: a stale RowCache would hand back objects belonging to
       // the event that was just left, and shallowArrayEqual would then report the
       // new event's first load as "unchanged".

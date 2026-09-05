@@ -73,30 +73,68 @@ export class RealtimeTable<T extends TableName> {
     if (this.started) return;
     this.started = true;
 
-    // 1. Buffer opens BEFORE the channel, so nothing can arrive unbuffered.
-    this.buffer = [];
+    try {
+      // 1. Buffer opens BEFORE the channel, so nothing can arrive unbuffered.
+      this.buffer = [];
 
-    // 2. Subscribe and wait for the server to confirm. `subscribe()` resolves its
-    //    callback with SUBSCRIBED only once the channel is actually joined --
-    //    selecting before that point reopens the very gap this avoids.
-    await this.subscribed();
+      // 2. Subscribe and wait for the server to confirm. `subscribe()` resolves its
+      //    callback with SUBSCRIBED only once the channel is actually joined --
+      //    selecting before that point reopens the very gap this avoids.
+      await this.subscribed();
 
-    // 3. Now the snapshot. Any change from here on is in the buffer.
-    const query = this.loose.from(this.table).select('*');
-    const { data, error } = await (this.filter
-      ? query.eq(this.filter.column, this.filter.value)
-      : query);
-    if (error) throw error;
+      // 3. Now the snapshot. Any change from here on is in the buffer.
+      const query = this.loose.from(this.table).select('*');
+      const { data, error } = await (this.filter
+        ? query.eq(this.filter.column, this.filter.value)
+        : query);
+      if (error) throw error;
 
-    this.rows = new Map(((data ?? []) as RowOf<T>[]).map((r) => [this.key(r), r]));
+      this.rows = new Map(((data ?? []) as RowOf<T>[]).map((r) => [this.key(r), r]));
 
-    // 4. Replay. An event for a row the select already returned is idempotent:
-    //    both paths write the same map under the same key.
-    const queued = this.buffer;
+      // 4. Replay. An event for a row the select already returned is idempotent:
+      //    both paths write the same map under the same key.
+      const queued = this.buffer;
+      this.buffer = null;
+      for (const p of queued) this.apply(p);
+
+      this.onChange();
+    } catch (e) {
+      // FAILING HALFWAY USED TO LEAK A LIVE CHANNEL. Step 2 can succeed and step 3
+      // still throw, which left a subscribed channel registered on the client with
+      // nothing holding a reference to it -- supabase-js then rejoins it on its own
+      // backoff for the life of the process. `started` is reset too: leaving it true
+      // makes a later start() a silent no-op, so the table would sit permanently
+      // empty while reporting itself alive.
+      this.started = false;
+      this.buffer = null;
+      await this.teardownChannel();
+      throw e;
+    }
+  }
+
+  /**
+   * Close the channel but KEEP the rows, for backgrounding.
+   *
+   * `stop()` clears the rows because it ends a session. Pausing must not: `start()`
+   * only replaces `this.rows` once its select has returned, so keeping them here is
+   * what stops the first frame after a resume flashing empty.
+   */
+  async pause(): Promise<void> {
+    this.started = false;
     this.buffer = null;
-    for (const p of queued) this.apply(p);
+    await this.teardownChannel();
+  }
 
-    this.onChange();
+  /**
+   * Remove the channel from the client, not merely drop the reference.
+   *
+   * `removeChannel()` is the only thing that unsubscribes it. A channel that is
+   * merely dereferenced stays registered and keeps being rejoined.
+   */
+  private async teardownChannel(): Promise<void> {
+    const ch = this.channel;
+    this.channel = null;
+    if (ch) await this.client.removeChannel(ch);
   }
 
   private subscribed(): Promise<void> {
@@ -116,16 +154,26 @@ export class RealtimeTable<T extends TableName> {
           else if (this.apply(p)) this.onChange();
         },
       );
+      // REGISTERED BEFORE subscribe(), not after. The failure branch below has to be
+      // able to remove this channel, and subscribe() may invoke its callback before
+      // the assignment that used to sit at the end of this function ever ran.
+      this.channel = ch;
       ch.subscribe((status, err) => {
-        if (status === 'SUBSCRIBED') resolve();
+        if (status === 'SUBSCRIBED') {
+          resolve();
+          return;
+        }
         // CHANNEL_ERROR and TIMED_OUT are terminal for this attempt. Rejecting
         // rather than hanging matters: a silent never-resolving start() presents
         // as an app stuck on a spinner with no error anywhere.
-        else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          // Rejecting is enough HERE because `start()` removes the channel in its
+          // catch, and that is the only caller. Removing it again on this branch
+          // would be a second mechanism for one job -- one that no test can tell
+          // apart from the first, since either alone satisfies the assertion.
           reject(err ?? new Error(`Realtime channel for ${this.table} failed: ${status}`));
         }
       });
-      this.channel = ch;
     });
   }
 
@@ -160,9 +208,6 @@ export class RealtimeTable<T extends TableName> {
     this.started = false;
     this.buffer = null;
     this.rows.clear();
-    if (this.channel) {
-      await this.client.removeChannel(this.channel);
-      this.channel = null;
-    }
+    await this.teardownChannel();
   }
 }

@@ -145,7 +145,37 @@ export class FakeClient {
       this.session = null;
       return { error: null };
     },
+    // GoTrue's refresh ticker is a 30s interval that runs independently of the
+    // Realtime socket, so backgrounding has to stop it separately.
+    startAutoRefresh: async () => {
+      this.autoRefreshCalls.push('start');
+    },
+    stopAutoRefresh: async () => {
+      this.autoRefreshCalls.push('stop');
+    },
   };
+
+  /** `start`/`stop` in call order, for the AppState assertions. */
+  autoRefreshCalls: ('start' | 'stop')[] = [];
+
+  /**
+   * The socket, which is NOT closed by removeChannel().
+   *
+   * Modelled because that asymmetry is the whole bug: unsubscribing all eight
+   * channels leaves the socket open and heartbeating every 25s forever. Only
+   * `realtime.disconnect()` closes it, so a fixture without this cannot tell a fixed
+   * adapter from a broken one.
+   */
+  realtime = {
+    disconnect: async () => {
+      this.disconnectCalls++;
+    },
+  };
+
+  disconnectCalls = 0;
+
+  /** Channel names (`runit:<table>`) whose next subscribe must fail. */
+  failSubscribeFor = new Set<string>();
 
   storage = {
     from: (bucket: string) => ({
@@ -182,8 +212,17 @@ export class FakeClient {
         return api;
       },
       subscribe: (cb: (status: string, err?: unknown) => void) => {
-        ch.subscribed = true;
         this.order.push(`subscribe:${name}`);
+        if (this.failSubscribeFor.has(name)) {
+          this.failSubscribeFor.delete(name);
+          // The real client leaves the channel REGISTERED on this branch, which is
+          // exactly what makes an unremoved one rejoin forever. The fake therefore
+          // does not mark it subscribed and does not remove it either -- removal has
+          // to come from the adapter, or the test proves nothing.
+          cb('CHANNEL_ERROR', new Error(`channel ${name} failed`));
+          return api;
+        }
+        ch.subscribed = true;
         // Synchronous SUBSCRIBED. The real client is async, but the ORDER is what is
         // under test and a microtask here would only make the assertion flakier.
         cb('SUBSCRIBED');
