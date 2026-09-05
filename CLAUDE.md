@@ -104,6 +104,7 @@ pnpm audit:targets              # Lane A2: touch targets, WCAG 2.2 SC 2.5.8 (AA)
 pnpm audit:keyboard             # Lane A3: keyboard strategy + return-key contract
 pnpm export:web && pnpm shots   # Lane B: screenshots at 402x874 + colour gate
 pnpm test:e2e                   # Lane B: 132 Playwright journeys, dark + light
+pnpm feedback:sync              # TestFlight tester feedback -> GitHub issues
 pnpm render:canvas              # regenerate design/renders/ from the canvas
 ```
 
@@ -303,6 +304,31 @@ be produced on this machine.** Lanes A and B run through react-native-web, not
 native. A green run does **not** mean iOS is fine. Real iOS verification needs
 EAS Build onto a physical device. Do not let anyone read a green check as iOS
 coverage.
+
+## The tester channel
+
+Testers have no terminal. TestFlight already collects their screenshots and crashes;
+what was missing is that **collected feedback never became a tracked issue**.
+`tools/feedback-to-issues.mjs` closes that, and `pnpm feedback:sync` runs it.
+
+**It is NOT a gate and must never enter `run-checks.sh`.** Exiting non-zero because a
+tester found a bug would make a green board a claim about tester silence.
+
+- **Screenshots are committed** to `design/feedback/`, because eas-cli's own type says
+  `TestFlightScreenshot` URLs "expire after a short while". Same side of the
+  `.gitignore` rule as `design/device/`: irreproducible device evidence is committed.
+- **`design/feedback/**` is in `paths-ignore`** in `.github/workflows/checks.yml`.
+  Without it every tester screenshot burns a five-minute Docker run over untouched source.
+- **Dedupe reads the ISSUES LIST, never `search/issues`.** Search is an index and is
+  eventually consistent, so a workflow and a manual run firing on the same item would
+  both decide it was new. The list endpoint reads the database.
+- **`testerEmail` is deliberately dropped.** The name is enough; git history is forever.
+- The EAS workflow trigger is `beta_feedback: { types: [...] }` — a bare list is what the
+  prose docs imply and `eas workflow:validate` rejects it. Validate before believing.
+- `eas testflight:feedback` needs **eas-cli >= 21.3.0**; `eas.json` declares a floor of
+  `>= 16.28.0`, so the script asserts the real one.
+
+See `docs/tester-feedback.md`.
 
 ## Architecture
 

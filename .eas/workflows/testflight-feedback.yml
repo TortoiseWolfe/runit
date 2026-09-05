@@ -1,0 +1,47 @@
+# A tester's screenshot becomes a GitHub issue, without anyone remembering to look.
+#
+# Expo built the trigger for exactly this: App Store Connect tells EAS when a tester
+# submits, and hands the submission's URL straight to the CLI that reads it. See
+# `eas testflight:feedback --help`, whose own example is the run: line below.
+#
+# It calls the same script a human calls with `pnpm feedback:sync`, deliberately. Two
+# entry points into one code path cannot drift; two implementations always do.
+#
+# Two secret-visibility EAS environment variables (`eas env:create`):
+#
+#   RUNIT_GH_TOKEN  a FINE-GRAINED GitHub token scoped to this repo alone, with
+#                   Contents: read+write and Issues: read+write. NOT the broad `repo`
+#                   scope a local `gh` login carries.
+#   EXPO_TOKEN      a robot user's token.
+#
+# EXPO_TOKEN is here because it is the ONE thing about this lane I could not verify:
+# eas-cli's help advertises this exact invocation as workflow usage, but Expo does not
+# document whether `eas` is ambiently authenticated inside a custom job. Passing a robot
+# token removes the question rather than betting on it. If it turns out to be redundant,
+# deleting it is a one-line change; discovering it was needed costs a silent dead lane.
+#
+# Note the exposure honestly: EAS environments are not per-job secret scopes. A secret in
+# `production` reaches anything selecting `production`, including production builds. It is
+# never bundled into the app -- only EXPO_PUBLIC_* are inlined -- but it is present in
+# that VM. The narrow fine-grained scope is the mitigation, not the environment.
+on:
+  app_store_connect:
+    beta_feedback:
+      # `types:`, not a bare list. Expo's prose docs read as though the types sit
+      # directly under beta_feedback; `eas workflow:validate` refuses that and names
+      # the allowed properties (types, if). The validator is the authority.
+      types: [crash, screenshot]
+
+jobs:
+  file_issue:
+    environment: production
+    steps:
+      - uses: eas/checkout
+      # No eas/install_node_modules on purpose: the script has ZERO dependencies --
+      # node:child_process and global fetch. That is a constraint on the script, not an
+      # accident, and it is what keeps this job short.
+      - name: File the submission as a GitHub issue
+        run: node tools/feedback-to-issues.mjs ${{ app_store_connect.beta_feedback.url }}
+        env:
+          RUNIT_GH_TOKEN: ${{ env.RUNIT_GH_TOKEN }}
+          EXPO_TOKEN: ${{ env.EXPO_TOKEN }}

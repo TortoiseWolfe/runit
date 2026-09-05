@@ -8,6 +8,11 @@ name: checks
 on:
   push:
     branches: ["**"]
+    # Tester screenshots are committed here by tools/feedback-to-issues.mjs, one
+    # commit per submission. Without this, every screenshot a tester sends burns a
+    # full Docker run to re-check source it did not touch.
+    paths-ignore:
+      - "design/feedback/**"
   pull_request:
 
 jobs:
