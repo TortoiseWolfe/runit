@@ -23,7 +23,11 @@ class Gate {
   open() { this.release(); }
 }
 
-function makeClient(rows: Record<string, unknown>[], gate?: Gate) {
+function makeClient(
+  rows: Record<string, unknown>[],
+  gate?: Gate,
+  opts: { failSubscribe?: boolean; failSelect?: boolean } = {},
+) {
   let handler: Handler | null = null;
   const state = {
     subscribed: false,
@@ -44,6 +48,9 @@ function makeClient(rows: Record<string, unknown>[], gate?: Gate) {
             state.order.push('select');
             // The gap. A test emits into it, and start() must not lose those.
             if (gate) await gate.opened;
+            // A select that fails AFTER a successful subscribe is its own leak path:
+            // the channel is live and start() throws past it.
+            if (opts.failSelect) return ok({ data: null, error: { message: 'select refused' } });
             return ok({ data: rows, error: null });
           },
         };
@@ -56,9 +63,15 @@ function makeClient(rows: Record<string, unknown>[], gate?: Gate) {
           handler = cb;
           return api;
         },
-        subscribe: (cb: (s: string) => void) => {
-          state.subscribed = true;
+        subscribe: (cb: (s: string, e?: unknown) => void) => {
           state.order.push('subscribe');
+          if (opts.failSubscribe) {
+            // The real client leaves the channel REGISTERED on this branch. The fake
+            // must not remove it for the adapter, or the assertion proves nothing.
+            cb('CHANNEL_ERROR', new Error('boom'));
+            return api;
+          }
+          state.subscribed = true;
           cb('SUBSCRIBED');
           return api;
         },
@@ -218,5 +231,91 @@ describe('lifecycle', () => {
     await t.stop();
     expect(state.removed).toBe(1);
     expect(t.all()).toEqual([]);
+  });
+});
+
+/* ------------------------------------------------------------------ leak paths */
+
+/**
+ * A channel that is registered on the client but not referenced by anything is not
+ * inert: supabase-js rejoins it on its own backoff -- 1s, 2s, 5s, then every 10s for
+ * the life of the process. Eight of those per failed join, and eight more per retry
+ * tap. These are the tests the repository-level ones could NOT prove, because
+ * `startTables` tears every table down on failure and masks the difference.
+ */
+describe('a start that fails must not leave a channel behind', () => {
+  it('removes the channel when subscribe reports CHANNEL_ERROR', async () => {
+    const { client, state } = makeClient([row('a')], undefined, { failSubscribe: true });
+    const t = new RealtimeTable(client, 'photos', (r) => r.id, null, () => {});
+
+    await expect(t.start()).rejects.toThrow();
+    expect(state.removed).toBe(1);
+  });
+
+  it('removes the channel when the SELECT fails after a good subscribe', async () => {
+    // The subtler half: step 2 succeeded, so the channel is live, and step 3 throws
+    // straight past it.
+    const { client, state } = makeClient([row('a')], undefined, { failSelect: true });
+    const t = new RealtimeTable(client, 'photos', (r) => r.id, null, () => {});
+
+    // NOT `.toThrow()`: a PostgREST failure is a plain `{ message, code }`, not an
+    // Error, and `start()` rethrows it as-is. Asserting toThrow() here passes only
+    // when the value happens to be an Error, which this one never is.
+    await expect(t.start()).rejects.toMatchObject({ message: 'select refused' });
+    expect(state.subscribed).toBe(true);
+    expect(state.removed).toBe(1);
+  });
+
+  it('a failed start can be retried, rather than silently no-opping forever', async () => {
+    // `started` was set before the work and never reset, so a second start() returned
+    // immediately and the table sat permanently empty while reporting itself alive.
+    const { client, state } = makeClient([row('a')], undefined, { failSelect: true });
+    const t = new RealtimeTable(client, 'photos', (r) => r.id, null, () => {});
+    await expect(t.start()).rejects.toMatchObject({ message: 'select refused' });
+
+    const good = makeClient([row('a')]);
+    const t2 = new RealtimeTable(good.client, 'photos', (r) => r.id, null, () => {});
+    await expect(t2.start()).resolves.toBeUndefined();
+
+    // And the failed one really did try again rather than short-circuit.
+    await expect(t.start()).rejects.toMatchObject({ message: 'select refused' });
+    expect(state.selects).toBe(2);
+  });
+});
+
+describe('pause vs stop', () => {
+  it('pause closes the channel but KEEPS the rows', async () => {
+    // Backgrounding. `start()` replaces rows only once its select returns, so keeping
+    // them is what stops the first frame after a resume rendering empty.
+    const { client, state } = makeClient([row('a'), row('b')]);
+    const t = new RealtimeTable(client, 'photos', (r) => r.id, null, () => {});
+    await t.start();
+
+    await t.pause();
+    expect(state.removed).toBe(1);
+    expect(t.all().map((r) => r.id).sort()).toEqual(['a', 'b']);
+  });
+
+  it('stop closes the channel AND clears them — the control', async () => {
+    // Without this pair, a `pause` that merely aliased `stop` would pass the test
+    // above by never being called at all.
+    const { client, state } = makeClient([row('a'), row('b')]);
+    const t = new RealtimeTable(client, 'photos', (r) => r.id, null, () => {});
+    await t.start();
+
+    await t.stop();
+    expect(state.removed).toBe(1);
+    expect(t.all()).toEqual([]);
+  });
+
+  it('a paused table can be started again', async () => {
+    const { client, state } = makeClient([row('a')]);
+    const t = new RealtimeTable(client, 'photos', (r) => r.id, null, () => {});
+    await t.start();
+    await t.pause();
+    await t.start();
+
+    expect(state.selects).toBe(2);
+    expect(t.all().map((r) => r.id)).toEqual(['a']);
   });
 });

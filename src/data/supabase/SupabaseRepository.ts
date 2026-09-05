@@ -8,12 +8,13 @@ import {
   toBroadcast, toEvent, toFolder, toHost, toNowPlaying, toPhoto, toReport, toScheduleItem,
   toSongRequest,
 } from './mappers';
+import { attachAppStateBridge } from './appStateBridge';
 import { RealtimeTable } from './RealtimeTable';
 import { Signal, setEqual, shallowArrayEqual } from './signal';
 import { UploadOverlay } from './UploadOverlay';
 import {
   EntitlementError, JoinError, ScheduleError,
-  type Observable, type RunitRepository, type UploadOutcome,
+  type JoinReason, type Observable, type RunitRepository, type UploadOutcome,
 } from '../repository';
 import type {
   BlockedGuest, Broadcast, Folder, FolderId, GuestId, Host, HostRole, NowPlaying, Photo,
@@ -54,9 +55,62 @@ import { TIERS } from '@/domain/tiers';
  *    silent failure this adapter is trying not to have.
  */
 
-/** PostgREST surfaces the SQLSTATE in `code`. Discriminate on it, never on the message. */
+/**
+ * A supabase-js AUTH error, told apart from a PostgREST one.
+ *
+ * The brand is checked here rather than imported, and the reason is a packaging
+ * split worth knowing about before someone "fixes" this:
+ *
+ *   - At RUNTIME the vendor predicates are all present. `dist/index.cjs` -- which
+ *     is what the `react-native` export condition resolves to, so it is what ships
+ *     on device -- exports isAuthError, AuthApiError, AuthRetryableFetchError.
+ *   - In the TYPES they are absent. `dist/index.d.cts` declares only the
+ *     Postgrest/Storage/Functions names plus the AuthSession/AuthUser types.
+ *
+ * So `import { isAuthError } from '@supabase/supabase-js'` FAILS `tsc --noEmit`
+ * while working perfectly at runtime. Do not add a `@ts-expect-error` to it: that
+ * ships a silent dependency on an undeclared export. `__isAuthError` is an own
+ * property set by the AuthError constructor and is exactly what auth-js's own
+ * isAuthError tests, so testing it here is the same check without the import.
+ *
+ * fixtures/fakeClient.ts builds REAL AuthApiError instances, so if that brand ever
+ * moves, the suite goes red rather than the device going quiet.
+ */
+const isAuthFailure = (e: unknown): e is { name: string; code?: string; status?: number } =>
+  typeof e === 'object' && e !== null && '__isAuthError' in e;
+
+/**
+ * PostgREST surfaces the SQLSTATE in `code`. Discriminate on it, never on the message.
+ *
+ * The `!isAuthFailure` clause is not belt-and-braces. AuthError's constructor
+ * assigns `this.code` UNCONDITIONALLY, so `'code' in e` is true even for an
+ * AuthRetryableFetchError whose code is `undefined` -- every auth error already
+ * satisfied the old predicate. Excluding the other family is also why this is not
+ * `instanceof PostgrestError`: the test fixture returns plain object literals, and
+ * PostgrestError carries no brand of its own.
+ */
 const isPgError = (e: unknown): e is PostgrestError =>
-  typeof e === 'object' && e !== null && 'code' in e;
+  typeof e === 'object' && e !== null && 'code' in e && !isAuthFailure(e);
+
+/**
+ * Which JoinError an auth failure deserves.
+ *
+ * Branches on the NAME for the offline case, not on `code`: a dead socket carries
+ * no code at all -- AuthRetryableFetchError is constructed with `undefined` -- so
+ * a code-based test would silently never match.
+ *
+ * `code` is checked before `status` because only the code strings ship inside the
+ * installed package (auth-js/src/lib/error-codes.ts); the HTTP statuses are server
+ * behaviour this repo cannot verify locally. `session_unavailable` is the
+ * catch-all rather than an allowlist, so anonymous_provider_disabled,
+ * provider_disabled, signup_disabled, captcha_failed, user_banned -- and whatever
+ * the server adds next -- all land somewhere honest. None of them is the guest's
+ * code, which is the whole point.
+ */
+const authJoinReason = (e: unknown): JoinReason =>
+  isAuthFailure(e) && e.name === 'AuthRetryableFetchError' ? 'offline'
+  : isAuthFailure(e) && (e.code === 'over_request_rate_limit' || e.status === 429) ? 'rate_limited'
+  : 'session_unavailable';
 
 const byVotesDesc = (a: SongRequest, b: SongRequest) =>
   b.voteCount - a.voteCount || a.createdAt.localeCompare(b.createdAt);
@@ -137,7 +191,18 @@ export class SupabaseRepository implements RunitRepository {
 
   private constructor(db: RunitClient, private readonly now: () => string) {
     this.db = db;
-    this.sigEntitlements = new Signal<Entitlements>(this.computeEntitlements());
+    // THE ONE SIGNAL IN THIS FILE THAT HAD NO COMPARATOR, and computeEntitlements()
+    // returns a fresh literal on every call -- so the default Object.is never matched
+    // and recompute() re-rendered every useEntitlements() consumer on every realtime
+    // message from any of the eight tables. `tier` is a TIERS constant and compares
+    // by reference; usage is four numbers.
+    this.sigEntitlements = new Signal<Entitlements>(this.computeEntitlements(), (a, b) =>
+      a === b ||
+      (a.tier === b.tier &&
+        a.usage.guests === b.usage.guests &&
+        a.usage.hosts === b.usage.hosts &&
+        a.usage.photosStored === b.usage.photosStored &&
+        a.usage.folders === b.usage.folders));
 
     // The interface exposes Observables; the implementation holds Signals. Wiring
     // them here rather than in the field initialisers keeps each group's shape
@@ -171,12 +236,22 @@ export class SupabaseRepository implements RunitRepository {
    */
   static create(
     db: RunitClient = supabase(),
-    opts: { now?: () => string } = {},
+    /**
+     * `appState: false` is for tests that assert suspend/resume directly -- the
+     * bridge is global, and a test that installs one is asserting on the listener
+     * rather than on the behaviour.
+     */
+    opts: { now?: () => string; appState?: boolean } = {},
   ): SupabaseRepository {
     // Synchronous on purpose: src/app/_layout.tsx builds this inside useMemo, and
     // the real work starts at joinAsGuest, which is the first moment there is an
     // event to subscribe to.
-    return new SupabaseRepository(db, opts.now ?? (() => new Date().toISOString()));
+    const repo = new SupabaseRepository(db, opts.now ?? (() => new Date().toISOString()));
+    // The adapter owns its own lifecycle. Doing this here rather than in
+    // _layout.tsx keeps `react-native` out of the repository interface and leaves
+    // MemoryRepository -- which has no socket and no token to refresh -- untouched.
+    if (opts.appState !== false) attachAppStateBridge(repo);
+    return repo;
   }
 
   /* ------------------------------------------------------------- derivations */
@@ -474,11 +549,128 @@ export class SupabaseRepository implements RunitRepository {
     // NOT published -- see the note on blockRows.
     this.tReports = new RealtimeTable(this.db, 'reports', (r) => r.id, byEvent, on);
 
-    await Promise.all([
+    // ALL-OR-NOTHING, BECAUSE Promise.all IS NOT. It rejects on the first failure
+    // while the other seven channels are already subscribed and stay registered on
+    // the client -- and joinAsGuest turns that rejection into a toast, so the guest
+    // taps Try again and adds another eight. allSettled lets every attempt finish so
+    // the survivors can be removed before the failure is re-thrown.
+    const results = await Promise.allSettled([
       this.tEvents.start(), this.tBroadcasts.start(), this.tSchedule.start(),
       this.tRequests.start(), this.tNowPlaying.start(), this.tFolders.start(),
       this.tPhotos.start(), this.tReports.start(),
     ]);
+    const failed = results.find((r) => r.status === 'rejected');
+    if (failed) {
+      await this.stopTables();
+      throw (failed as PromiseRejectedResult).reason;
+    }
+  }
+
+  /**
+   * Close all eight channels and forget them. Shared by `leave()` and by the
+   * failure path above, so there is one list of tables rather than two that drift.
+   */
+  private async stopTables(): Promise<void> {
+    await Promise.all([
+      this.tEvents?.stop(), this.tBroadcasts?.stop(), this.tSchedule?.stop(),
+      this.tRequests?.stop(), this.tNowPlaying?.stop(), this.tFolders?.stop(),
+      this.tPhotos?.stop(), this.tReports?.stop(),
+    ]);
+    this.tEvents = null;
+    this.tBroadcasts = null;
+    this.tSchedule = null;
+    this.tRequests = null;
+    this.tNowPlaying = null;
+    this.tFolders = null;
+    this.tPhotos = null;
+    this.tReports = null;
+  }
+
+  /**
+   * Backgrounding: stop paying for a party nobody is looking at.
+   *
+   * Removing the channels is NOT enough on its own. `removeChannel()` unsubscribes
+   * one channel but leaves the socket open, and the socket heartbeats every 25s
+   * forever -- so an installed app that has joined once keeps talking to Supabase
+   * with the phone in a pocket. Only `realtime.disconnect()` closes it. GoTrue's
+   * refresh ticker is a separate 30s interval and needs its own stop.
+   *
+   * Rows are kept, not cleared: `RealtimeTable.start()` replaces them only after its
+   * select returns, so the screen still has content on the first frame after resume.
+   */
+  async suspend(): Promise<void> {
+    await Promise.all([
+      this.tEvents?.pause(), this.tBroadcasts?.pause(), this.tSchedule?.pause(),
+      this.tRequests?.pause(), this.tNowPlaying?.pause(), this.tFolders?.pause(),
+      this.tPhotos?.pause(), this.tReports?.pause(),
+    ]);
+    await this.db.realtime.disconnect();
+    await this.db.auth.stopAutoRefresh();
+  }
+
+  /** Foregrounding. `channel.subscribe()` reopens the socket by itself. */
+  async resume(): Promise<void> {
+    await this.db.auth.startAutoRefresh();
+    if (!this.eventId) return;
+    await Promise.all([
+      this.tEvents?.start(), this.tBroadcasts?.start(), this.tSchedule?.start(),
+      this.tRequests?.start(), this.tNowPlaying?.start(), this.tFolders?.start(),
+      this.tPhotos?.start(), this.tReports?.start(),
+    ]);
+  }
+
+  /**
+   * Get a session, or make one. Every failure in here becomes a JoinError.
+   *
+   * The alternative is what shipped: ONE `unknown_code` for every possible auth
+   * failure, telling a guest standing in a room that their code was wrong while
+   * the real cause was anonymous sign-in being switched off in our dashboard.
+   * None of that is theirs to fix, and it is what sent someone re-printing QR
+   * posters.
+   *
+   * Anonymous auth gives every guest a real auth.users row and a JWT, so every
+   * policy stays in the ordinary auth.uid() idiom. A Supabase anonymous session
+   * carries the `authenticated` role, which is what the function grants admit.
+   */
+  private async ensureSession(): Promise<void> {
+    let priorErr: unknown = null;
+    try {
+      // The error is READ, not dropped. It is non-null in essentially one shape --
+      // a stored session whose access token expired and whose refresh then failed
+      // -- and that shape has a silent, expensive consequence: we fall through,
+      // signInAnonymously() SUCCEEDS, and mints a NEW auth.users row. join_event is
+      // idempotent on (event_id, auth_user_id), so a returning guest takes a SECOND
+      // seat under a fresh guests row and loses their votes, blocks, reports and
+      // own-photo view. client.ts says persistence exists to prevent exactly that.
+      //
+      // It is not thrown on by itself, though: signInAnonymously() IS the recovery,
+      // and throwing here would turn a routine token expiry into a hard join failure
+      // for every returning guest. It is carried as a `cause` instead, so a device
+      // log shows dead-session -> failed-recovery in order.
+      const { data, error } = await this.db.auth.getSession();
+      if (data.session) return;
+      priorErr = error;
+    } catch (e) {
+      priorErr = e;
+    }
+
+    let signInErr: unknown = null;
+    try {
+      // signInAnonymously RETURNS auth errors but RE-THROWS anything else -- a
+      // failing SecureStore write, say. `if (error)` alone does not cover that, and
+      // the uncaught half escapes as a raw rejection that the screen renders as the
+      // generic 'Could not join. Try again.'
+      signInErr = (await this.db.auth.signInAnonymously()).error;
+    } catch (e) {
+      signInErr = e;
+    }
+
+    if (signInErr) {
+      if (priorErr && signInErr instanceof Error && signInErr.cause === undefined) {
+        signInErr.cause = priorErr;
+      }
+      throw new JoinError(authJoinReason(signInErr), { cause: signInErr });
+    }
   }
 
   /* ----------------------------------------------------------------- session */
@@ -487,14 +679,7 @@ export class SupabaseRepository implements RunitRepository {
     current: undefined as unknown as Observable<Session>,
 
     joinAsGuest: async ({ code, nickname }: { code: string; nickname: string }) => {
-      // Anonymous auth gives every guest a real auth.users row and a JWT, so every
-      // policy stays in the ordinary auth.uid() idiom. A Supabase anonymous session
-      // carries the `authenticated` role, which is what the function grants admit.
-      const { data: session } = await this.db.auth.getSession();
-      if (!session.session) {
-        const { error } = await this.db.auth.signInAnonymously();
-        if (error) throw new JoinError('unknown_code', 'Could not start a session. Try again.');
-      }
+      await this.ensureSession();
 
       const { data: guestId, error } = await this.db.rpc('join_event', {
         p_code: code,
@@ -505,7 +690,15 @@ export class SupabaseRepository implements RunitRepository {
         // the SQLSTATE rather than the message is what keeps this working if the
         // wording ever changes.
         if (isPgError(error) && error.code === 'P0002') {
-          throw new JoinError('unknown_code', "That code doesn't match an event.");
+          throw new JoinError('unknown_code');
+        }
+        // 28000 is the function's own `not authenticated`, raised when auth.uid()
+        // is null. We established a session moments ago, so reaching this means
+        // PostgREST saw a JWT with no `sub` -- the session died mid-call, or the
+        // request went out under the anon key. Untreated it fell through to the
+        // generic 'Could not join. Try again.', which names nothing.
+        if (isPgError(error) && error.code === '28000') {
+          throw new JoinError('session_unavailable', { cause: error });
         }
         throw error;
       }
@@ -517,7 +710,20 @@ export class SupabaseRepository implements RunitRepository {
       const { data: ev, error: evErr } = await this.db
         .from('events').select('*').eq('code', code.trim().toUpperCase()).maybeSingle();
       if (evErr) throw evErr;
-      if (!ev) throw new JoinError('unknown_code', "That code doesn't match an event.");
+      // NOT `unknown_code`: join_event already returned a guest id, so the code DID
+      // match. Reaching here means events_read refused a row to someone who is
+      // definitionally a member -- a policy regression, or a select that went out
+      // under a different auth.uid() than the join did. Both are ours, and `reason`
+      // exists so a caller can branch; nobody can branch on "this is a bug". Same
+      // idiom as assertWrote below. The guest sees the generic copy, which at least
+      // does not blame their code.
+      if (!ev) {
+        throw new Error(
+          `Joined the event but could not read it back. join_event returned a guest id, so the ` +
+            `code is valid -- this is events_read refusing the follow-up select, which usually ` +
+            `means the policy changed or this request went out under a different auth.uid().`,
+        );
+      }
 
       this.eventId = (ev as Row<'events'>).id;
       await this.startTables(this.eventId);
@@ -557,12 +763,21 @@ export class SupabaseRepository implements RunitRepository {
       });
       if (error) {
         if (isPgError(error) && error.code === 'P0002') {
-          throw new JoinError('unknown_code', "That code doesn't match an event.");
+          throw new JoinError('unknown_code');
         }
         // 42501 here is the function's own `bad_host_key`, not a policy denial -- the
         // function is SECURITY DEFINER, so RLS never refuses this call.
+        //
+        // 42501 is OVERLOADED across this schema -- start_schedule_item and play_next
+        // both raise it as `not_a_host`. Reading it as a bad key is only sound because
+        // this branch is scoped to the claim_host call. Keep it that way.
         if (isPgError(error) && error.code === '42501') {
-          throw new JoinError('bad_host_key', "That host key isn't right for this event.");
+          throw new JoinError('bad_host_key');
+        }
+        // As in joinAsGuest: the function's own `not authenticated`. claimHost is
+        // callable on its own, not only after a join, so it needs its own branch.
+        if (isPgError(error) && error.code === '28000') {
+          throw new JoinError('session_unavailable', { cause: error });
         }
         throw error;
       }
@@ -593,19 +808,10 @@ export class SupabaseRepository implements RunitRepository {
     },
 
     leave: async () => {
-      await Promise.all([
-        this.tEvents?.stop(), this.tBroadcasts?.stop(), this.tSchedule?.stop(),
-        this.tRequests?.stop(), this.tNowPlaying?.stop(), this.tFolders?.stop(),
-        this.tPhotos?.stop(), this.tReports?.stop(),
-      ]);
-      this.tEvents = null;
-      this.tBroadcasts = null;
-      this.tSchedule = null;
-      this.tRequests = null;
-      this.tNowPlaying = null;
-      this.tFolders = null;
-      this.tPhotos = null;
-      this.tReports = null;
+      await this.stopTables();
+      // Closing every channel does NOT close the socket -- removeChannel() only
+      // unsubscribes one. Without this the heartbeat outlives the event.
+      await this.db.realtime.disconnect();
       // Fresh caches too: a stale RowCache would hand back objects belonging to
       // the event that was just left, and shallowArrayEqual would then report the
       // new event's first load as "unchanged".

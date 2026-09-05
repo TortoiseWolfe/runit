@@ -36,12 +36,68 @@ export class EntitlementError extends Error {
   }
 }
 
+/**
+ * Why a join was refused.
+ *
+ * The test for adding an arm is: does it change what the person standing in the
+ * room does next? Three answers exist beyond the original three, and
+ * `rate_limited` is separate from `session_unavailable` because the retry advice
+ * differs IN TRUTH VALUE -- waiting fixes a 429 and never fixes a disabled
+ * provider. There is deliberately no `session_expired`: its remedy is identical
+ * to `session_unavailable`, and an arm nobody branches on is decoration.
+ *
+ * `nickname_taken` was removed rather than left unused. `guests` is unique on
+ * (event_id, auth_user_id) and NOTHING else, and join_event does
+ * `on conflict (event_id, auth_user_id) do update set nickname` -- nicknames are
+ * deliberately non-unique. The arm asserted a constraint the schema does not have.
+ *
+ * `event_full` is produced by MemoryRepository only, because join_event enforces
+ * no tier cap. Keeping it is what makes that debt visible in the type rather than
+ * only in a SQL comment (supabase/migrations/00000000000000_init.sql).
+ */
+export type JoinReason =
+  | 'unknown_code'
+  | 'event_full'
+  | 'bad_host_key'
+  | 'session_unavailable'
+  | 'offline'
+  | 'rate_limited';
+
+/**
+ * The one place a join failure's wording lives.
+ *
+ * A TABLE rather than a message at each throw site, for a reason specific to the
+ * bug that prompted it: SupabaseRepository mapped EVERY signInAnonymously()
+ * failure to `unknown_code` with the message 'Could not start a session', so the
+ * reason and the message contradicted each other on one line -- and nobody
+ * noticed, because `reason` is read nowhere in the app. Resolving copy from the
+ * reason makes the reason load-bearing: it becomes the only input that selects
+ * the sentence, so the two can no longer disagree. It also makes the two adapters
+ * structurally incapable of drifting on wording, since no call site can override.
+ *
+ * The property every sentence holds: NEVER blame the guest's code for our
+ * outage. They are standing in a room holding a phone; "that code doesn't match
+ * an event" sends them off to find the host. That is exactly what happened when
+ * anonymous sign-in was switched off and build #3 could not admit a soul.
+ */
+const JOIN_COPY: Record<JoinReason, string> = {
+  // Pinned VERBATIM by tests/e2e/join.spec.ts. Not paraphrasable.
+  unknown_code: "That code doesn't match an event.",
+  bad_host_key: "That host key isn't right for this event.",
+  // Pinned by MemoryRepository.test.ts (/full/).
+  event_full: 'This event is full.',
+  // Promises no retry: for a disabled provider a retry never works.
+  session_unavailable: 'Sign-in is unavailable right now. Your code is fine — this is on us.',
+  offline: "Can't reach the network. Check your connection and try again.",
+  rate_limited: 'Too many people joining at once. Wait a moment and try again.',
+};
+
 export class JoinError extends Error {
   constructor(
-    readonly reason: 'unknown_code' | 'event_full' | 'nickname_taken' | 'bad_host_key',
-    message: string,
+    readonly reason: JoinReason,
+    options?: { cause?: unknown },
   ) {
-    super(message);
+    super(JOIN_COPY[reason], options);
     this.name = 'JoinError';
   }
 }

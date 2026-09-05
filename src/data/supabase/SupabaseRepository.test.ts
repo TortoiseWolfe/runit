@@ -1,4 +1,6 @@
-import { FakeClient, pgError, refusedLoudly, refusedSilently } from './fixtures/fakeClient';
+import {
+  FakeClient, authApiError, authOffline, pgError, refusedLoudly, refusedSilently,
+} from './fixtures/fakeClient';
 import { SupabaseRepository } from './SupabaseRepository';
 import type { RunitClient } from './client';
 import { JoinError, ScheduleError } from '../repository';
@@ -35,8 +37,13 @@ function ready(extra: (c: FakeClient) => void = () => {}) {
   return c;
 }
 
+const build = (c: FakeClient) =>
+  // `appState: false` everywhere except the bridge's own tests: the listener is
+  // global, so leaving it on would have each of these tests racing the last one's.
+  SupabaseRepository.create(c as unknown as RunitClient, { now: () => FIXED, appState: false });
+
 const join = async (c: FakeClient) => {
-  const repo = SupabaseRepository.create(c as unknown as RunitClient, { now: () => FIXED });
+  const repo = build(c);
   await repo.session.joinAsGuest({ code: 'test01', nickname: 'Ada' });
   return repo;
 };
@@ -72,8 +79,126 @@ describe('joining', () => {
   it('turns P0002 into a JoinError a screen can render', async () => {
     const c = new FakeClient();
     c.on((op) => (op.kind === 'rpc' && op.table === 'join_event' ? pgError('P0002', 'unknown_code') : undefined));
-    const repo = SupabaseRepository.create(c as unknown as RunitClient, { now: () => FIXED });
-    await expect(repo.session.joinAsGuest({ code: 'NOPE', nickname: 'Ada' })).rejects.toBeInstanceOf(JoinError);
+    const repo = build(c);
+    const rejects = expect(repo.session.joinAsGuest({ code: 'NOPE', nickname: 'Ada' })).rejects;
+    await rejects.toBeInstanceOf(JoinError);
+    // The REASON, not merely the class -- and the exact sentence tests/e2e/join.spec.ts
+    // pins with toHaveText, which this adapter did not pin anywhere until now.
+    await expect(
+      repo.session.joinAsGuest({ code: 'NOPE', nickname: 'Ada' }),
+    ).rejects.toMatchObject({ reason: 'unknown_code', message: "That code doesn't match an event." });
+  });
+
+  /**
+   * THE REGRESSION THESE EXIST FOR.
+   *
+   * Anonymous sign-in was disabled on the live project and build #3 could not admit a
+   * single guest -- and every one of those failures rendered as "That code doesn't
+   * match an event.", because line 496 mapped ANY auth error to `unknown_code`. The
+   * reason and the message on that one line disagreed with each other.
+   *
+   * Every assertion here pins the REASON, because the reason is the thing that was
+   * wrong. The branch could not be reached at all before: the fake's
+   * signInAnonymously always succeeded.
+   */
+  it('reports a disabled provider as ours, and explicitly NOT as a bad code', async () => {
+    const c = ready();
+    c.failNextSignIn = authApiError('anonymous_provider_disabled', 422);
+    const repo = build(c);
+
+    await expect(
+      repo.session.joinAsGuest({ code: 'test01', nickname: 'Ada' }),
+    ).rejects.toMatchObject({ reason: 'session_unavailable' });
+
+    // The negative is the actual regression test. A guest holding a correct code must
+    // never be told to go and check it because our provider is switched off.
+    c.failNextSignIn = authApiError('anonymous_provider_disabled', 422);
+    await expect(
+      repo.session.joinAsGuest({ code: 'test01', nickname: 'Ada' }),
+    ).rejects.not.toThrow(/doesn't match an event/);
+  });
+
+  it('tells a rate-limited guest to wait rather than to retype', async () => {
+    const c = ready();
+    c.failNextSignIn = authApiError('over_request_rate_limit', 429);
+    const repo = build(c);
+    await expect(
+      repo.session.joinAsGuest({ code: 'test01', nickname: 'Ada' }),
+    ).rejects.toMatchObject({ reason: 'rate_limited' });
+  });
+
+  it('reads a dead socket off the NAME, because it carries no code at all', async () => {
+    const c = ready();
+    c.failNextSignIn = authOffline();
+    const repo = build(c);
+    // AuthRetryableFetchError is constructed with `undefined` for its code, so a
+    // code-based branch would silently never match and this would read as
+    // session_unavailable. This test is what holds the predicate to `name`.
+    await expect(
+      repo.session.joinAsGuest({ code: 'test01', nickname: 'Ada' }),
+    ).rejects.toMatchObject({ reason: 'offline' });
+  });
+
+  it('reports 28000 from join_event as a lost session, not a bad code', async () => {
+    // Built by hand rather than from ready(): the FIRST matching responder wins, and
+    // ready() already answers join_event with a guest id.
+    const c = new FakeClient();
+    c.on((op) =>
+      op.kind === 'rpc' && op.table === 'join_event' ? pgError('28000', 'not authenticated') : undefined,
+    );
+    const repo = build(c);
+    await expect(
+      repo.session.joinAsGuest({ code: 'test01', nickname: 'Ada' }),
+    ).rejects.toMatchObject({ reason: 'session_unavailable' });
+  });
+
+  it('says why there was no session to reuse when the recovery also fails', async () => {
+    const c = ready();
+    const dead = { message: 'refresh_token_already_used' };
+    c.sessionError = dead;
+    c.failNextSignIn = authOffline();
+    const repo = build(c);
+
+    // dead session -> failed recovery, in that order, so a device log reads as the
+    // sequence it actually was rather than as one unexplained failure.
+    await expect(
+      repo.session.joinAsGuest({ code: 'test01', nickname: 'Ada' }),
+    ).rejects.toMatchObject({ reason: 'offline', cause: { cause: dead } });
+  });
+
+  it('is a bug, not a bad code, when the event cannot be read back after joining', async () => {
+    // join_event returns a guest id -- so the code DID match -- and then events_read
+    // returns nothing. That is a policy regression on our side, and it must not be
+    // dressed up as a JoinError, because no caller can branch on "this is a bug".
+    const c = ready();
+    c.seed('events', []);
+    const repo = build(c);
+    const attempt = repo.session.joinAsGuest({ code: 'test01', nickname: 'Ada' });
+    await expect(attempt).rejects.not.toBeInstanceOf(JoinError);
+  });
+});
+
+describe('claiming a host seat', () => {
+  const claim = (c: FakeClient, key = 'KEY') => {
+    const repo = build(c);
+    return repo.session.claimHost({ code: 'test01', key });
+  };
+
+  // 42501 is OVERLOADED in this schema -- start_schedule_item and play_next raise it
+  // as `not_a_host`. Reading it as a bad key is sound only because this branch is
+  // scoped to the claim_host call, and nothing asserted that until now.
+  it('reads 42501 from claim_host as a wrong key', async () => {
+    const c = ready();
+    c.on((op) => (op.kind === 'rpc' && op.table === 'claim_host' ? refusedLoudly() : undefined));
+    await expect(claim(c)).rejects.toMatchObject({ reason: 'bad_host_key' });
+  });
+
+  it('reports 28000 from claim_host as a lost session', async () => {
+    const c = ready();
+    c.on((op) =>
+      op.kind === 'rpc' && op.table === 'claim_host' ? pgError('28000', 'not authenticated') : undefined,
+    );
+    await expect(claim(c)).rejects.toMatchObject({ reason: 'session_unavailable' });
   });
 });
 
@@ -374,5 +499,158 @@ describe('blocking, against a real backend', () => {
     await repo.moderation.block('g9');
     await repo.session.leave();
     expect(repo.moderation.blocked.get()).toEqual([]);
+  });
+});
+
+
+/* --------------------------------------------- realtime lifecycle: the quota bug */
+
+/**
+ * WHY THESE EXIST. Joining opens eight channels and nothing ever closed them:
+ * `session.leave()` is the only teardown in the codebase and has zero production
+ * call sites, and there was no AppState wiring at all. An installed app that had
+ * joined once kept a socket heartbeating every 25s and a token ticker every 30s for
+ * the life of the install -- roughly 104,000 frames a month per device, from a guest
+ * doing nothing. The cost scaled with INSTALLS, not with use, which is why handing
+ * out beta builds moved the meter.
+ *
+ * The asymmetry that makes it subtle: `removeChannel()` unsubscribes ONE channel and
+ * leaves the socket open. Only `realtime.disconnect()` closes it, so closing all
+ * eight is not the same as stopping.
+ */
+describe('realtime lifecycle', () => {
+  const live = (c: FakeClient) => c.channels.filter((ch) => ch.subscribed && !ch.removed);
+  const stillRegistered = (c: FakeClient) => c.channels.filter((ch) => !ch.removed);
+
+  it('a join opens eight channels and leaves none orphaned', async () => {
+    const c = ready();
+    await join(c);
+    expect(live(c)).toHaveLength(8);
+    expect(stillRegistered(c)).toHaveLength(8);
+  });
+
+  it('removes a channel whose subscribe FAILS, rather than leaving it to rejoin forever', async () => {
+    // supabase-js rejoins a channel that is still registered on its own backoff --
+    // 1s, 2s, 5s, then every 10s for the life of the process. Rejecting without
+    // removing is what turned one failed join into a permanent talker.
+    const c = ready();
+    c.failSubscribeFor.add('runit:photos');
+    const repo = build(c);
+    await expect(repo.session.joinAsGuest({ code: 'test01', nickname: 'Ada' })).rejects.toThrow();
+    // Not just the failed one: the seven that succeeded beside it must go too.
+    expect(stillRegistered(c)).toHaveLength(0);
+  });
+
+  it('a retry after a failed join does not stack another eight', async () => {
+    // The guest sees "Could not join. Try again." and taps it. Before the fix each
+    // tap added eight more forever-rejoining channels.
+    const c = ready();
+    c.failSubscribeFor.add('runit:photos');
+    const repo = build(c);
+    await expect(repo.session.joinAsGuest({ code: 'test01', nickname: 'Ada' })).rejects.toThrow();
+    await repo.session.joinAsGuest({ code: 'test01', nickname: 'Ada' });
+    expect(live(c)).toHaveLength(8);
+  });
+
+  it('suspend closes every channel AND the socket, and stops the token ticker', async () => {
+    const c = ready();
+    const repo = build(c);
+    await repo.session.joinAsGuest({ code: 'test01', nickname: 'Ada' });
+    await repo.suspend();
+
+    expect(live(c)).toHaveLength(0);
+    // The assertion that actually matters. Without it this test passes on an adapter
+    // that closes all eight channels and keeps heartbeating.
+    expect(c.disconnectCalls).toBe(1);
+    expect(c.autoRefreshCalls).toEqual(['stop']);
+  });
+
+  it('suspend KEEPS the rows, so resume does not flash an empty screen', async () => {
+    const c = ready((f) => f.seed('broadcasts', [{
+      id: 'b1', event_id: EVENT, author_host_id: null, author_name: 'DJ',
+      author_role_label: 'Host', kind: 'announcement', body: 'Cake at nine',
+      pinned: false, created_at: FIXED,
+    }]));
+    const repo = build(c);
+    await repo.session.joinAsGuest({ code: 'test01', nickname: 'Ada' });
+    const before = repo.chat.feed.get();
+    expect(before).toHaveLength(1);
+
+    await repo.suspend();
+    // `stop()` clears rows because it ends a session; pausing must not.
+    expect(repo.chat.feed.get()).toEqual(before);
+  });
+
+  it('resume re-subscribes and restarts the ticker', async () => {
+    const c = ready();
+    const repo = build(c);
+    await repo.session.joinAsGuest({ code: 'test01', nickname: 'Ada' });
+    await repo.suspend();
+    await repo.resume();
+
+    expect(live(c)).toHaveLength(8);
+    expect(c.autoRefreshCalls).toEqual(['stop', 'start']);
+  });
+
+  it('resume before any join opens nothing', async () => {
+    // Backgrounding on the join screen must not subscribe to an event that does not
+    // exist yet -- there is no event id to filter on.
+    const c = ready();
+    const repo = build(c);
+    await repo.resume();
+    expect(c.channels).toHaveLength(0);
+    expect(c.autoRefreshCalls).toEqual(['start']);
+  });
+
+  it('leave closes the socket, not merely the channels', async () => {
+    const c = ready();
+    const repo = await join(c);
+    await repo.session.leave();
+    expect(live(c)).toHaveLength(0);
+    expect(c.disconnectCalls).toBe(1);
+  });
+});
+
+describe('entitlements', () => {
+  it('does not re-emit when nothing it derives from changed', async () => {
+    // The one Signal in the adapter with no comparator. computeEntitlements() returns
+    // a fresh literal every call, so the default Object.is never matched and every
+    // realtime message on any of the eight tables re-rendered every consumer.
+    const c = ready();
+    const repo = await join(c);
+    const before = repo.entitlements.get();
+
+    const chat = c.channels.find((ch) => ch.name === 'runit:broadcasts');
+    expect(chat).toBeDefined();
+    chat!.emit({
+      eventType: 'INSERT',
+      new: {
+        id: 'b2', event_id: EVENT, author_host_id: null, author_name: 'DJ',
+        author_role_label: 'Host', kind: 'announcement', body: 'One more song',
+        pinned: false, created_at: FIXED,
+      },
+    });
+
+    // The chat feed moved; entitlements did not, and holds the SAME reference.
+    expect(repo.chat.feed.get()).toHaveLength(1);
+    expect(repo.entitlements.get()).toBe(before);
+  });
+
+  it('does re-emit when usage actually changes — the control', async () => {
+    const c = ready();
+    const repo = await join(c);
+    const before = repo.entitlements.get();
+
+    const photos = c.channels.find((ch) => ch.name === 'runit:photos');
+    photos!.emit({
+      eventType: 'INSERT',
+      new: {
+        id: 'p9', event_id: EVENT, folder_id: FOLDER, guest_id: GUEST,
+        storage_path: 'x.jpg', status: 'pending', created_at: FIXED,
+      },
+    });
+
+    expect(repo.entitlements.get()).not.toBe(before);
+    expect(repo.entitlements.get().usage.photosStored).toBe(before.usage.photosStored + 1);
   });
 });
