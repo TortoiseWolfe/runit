@@ -12,6 +12,7 @@ import { Stack } from 'expo-router';
 import { MemoryRepository } from '@/data/memory/MemoryRepository';
 import { weddingSeed } from '@/data/memory/fixtures/wedding';
 import { emptySeed } from '@/data/memory/fixtures/empty';
+import { invitedSeed } from '@/data/memory/fixtures/invited';
 import { flakyTransfer } from '@/data/memory/fixtures/flakyTransfer';
 import { SupabaseRepository } from '@/data/supabase/SupabaseRepository';
 /* eslint-enable no-restricted-imports */
@@ -128,6 +129,20 @@ export default function RootLayout() {
     new URLSearchParams(window.location.search).get('empty') === '1';
 
   /**
+   * Boot with no event but a resolvable INVITATION -- the state a link or a QR puts a
+   * guest in, and the only one of the three in which `event.lookUp` does any work.
+   *
+   * `?empty=1` is the cold open; this is the one step after it. Both had to exist as
+   * separate worlds because they differ in exactly the thing under test: with no
+   * preview the join screen must fall back to "An event", and with one it must not.
+   */
+  const invitedWorld =
+    fidelity &&
+    typeof window !== 'undefined' &&
+    typeof window.location?.search === 'string' &&
+    new URLSearchParams(window.location.search).get('invited') === '1';
+
+  /**
    * The one place an implementation is named.
    *
    * NOT a straight swap, and the reason is worth stating: all 142 e2e runs boot
@@ -148,10 +163,12 @@ export default function RootLayout() {
       process.env.EXPO_PUBLIC_BACKEND === 'supabase'
         ? SupabaseRepository.create()
         : MemoryRepository.create(
-            emptyWorld ? emptySeed : weddingSeed,
+            // Order matters: `?invited=1` is a strictly more furnished empty world, so
+            // it has to be read before the plainer flag can claim the same request.
+            invitedWorld ? invitedSeed : emptyWorld ? emptySeed : weddingSeed,
             flaky ? { transfer: flakyTransfer({ steps: [0.4], failAttempts: [1] }) } : {},
           ),
-    [flaky, emptyWorld],
+    [flaky, emptyWorld, invitedWorld],
   );
 
   return (

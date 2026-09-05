@@ -8,7 +8,10 @@ import { useCallback, useMemo } from 'react';
 import { useRouter } from 'expo-router';
 
 import { denialMessage } from '@/domain/denials';
-import { EntitlementError, JoinError, ScheduleError, type UploadOutcome } from '@/data/repository';
+import {
+  EntitlementError, JoinError, ScheduleError,
+  type EventDetails, type UploadOutcome,
+} from '@/data/repository';
 import { capturePhoto } from '@/lib/capture';
 import { checkLimit } from '@/domain/entitlements';
 import { useEntitlements } from './hooks';
@@ -253,6 +256,26 @@ export function useHostActions() {
         repo.schedule.add({ title: 'New item', timeLabel: null, place: '' }),
       invite: (displayName: string, role: HostRole) =>
         guarded(() => repo.hosts.invite({ displayName, role })),
+      /**
+       * Correct the event's name, date, venue or doors line.
+       *
+       * Caught and toasted here rather than left to `guarded`, which re-throws
+       * anything that is not an EntitlementError. The failure that matters is a
+       * non-host reaching this: against Supabase that update matches the policy on
+       * nothing, affects zero rows and raises nothing at all, so `assertWrote` in the
+       * adapter is what turns it into an error -- and an uncaught one would surface as
+       * an unhandled rejection with the host still looking at a form they think saved.
+       */
+      saveEventDetails: async (input: EventDetails) => {
+        try {
+          await repo.event.updateDetails(input);
+          show('Saved. Every guest sees it now.');
+          return true;
+        } catch {
+          show('Could not save those details. Only a host of this event can.');
+          return false;
+        }
+      },
     }),
     [repo, guarded, show],
   );

@@ -16,7 +16,7 @@ import type {
 import { subjectKey } from '../types';
 import {
   EntitlementError, JoinError, ScheduleError, type UploadOutcome,
-  type Observable, type RunitRepository, type Unsubscribe,
+  type EventDetails, type EventPreview, type Observable, type RunitRepository, type Unsubscribe,
 } from '../repository';
 import { checkFeature, checkLimit, type Entitlements } from '@/domain/entitlements';
 import { TIERS } from '@/domain/tiers';
@@ -39,6 +39,20 @@ export interface Seed {
    * have.
    */
   event: RunitEvent | null;
+  /**
+   * What `event.lookUp(code)` can find WITHOUT a join.
+   *
+   * A third world, and the suite could not previously reach it. Against Supabase
+   * there are three states, not two: no event and no code (`emptySeed`); no event
+   * but a code from a link, which resolves to an invitation (this); and joined
+   * (`weddingSeed`). Leaving this out is what kept the whole preview path dead in
+   * every test -- the same shape as the bug that shipped three inert controls off
+   * one `disabled={!event}`.
+   *
+   * The seeded fixtures derive it from their own event, so a preview and a join can
+   * never disagree about the same code.
+   */
+  preview: EventPreview | null;
   hosts: Host[];
   broadcasts: Broadcast[];
   schedule: ScheduleItem[];
@@ -117,6 +131,7 @@ const byVotesDesc = (a: SongRequest, b: SongRequest) =>
 
 export class MemoryRepository implements RunitRepository {
   private ev: RunitEvent | null;
+  private previewable: EventPreview | null;
 
   /**
    * The event, or the same refusal the Supabase adapter gives.
@@ -163,6 +178,7 @@ export class MemoryRepository implements RunitRepository {
 
   private sigSession: Signal<Session>;
   private sigEvent: Signal<RunitEvent | null>;
+  private sigPreview: Signal<EventPreview | null>;
   private sigFeed: Signal<Broadcast[]>;
   private sigSchedule: Signal<ScheduleItem[]>;
   private sigQueue: Signal<SongRequest[]>;
@@ -198,6 +214,7 @@ export class MemoryRepository implements RunitRepository {
     this.hostKey = opts.hostKey ?? DEMO_HOST_KEY;
     this.transfer = opts.transfer ?? (async () => {});
     this.ev = seed.event ? { ...seed.event } : null;
+    this.previewable = seed.preview ? { ...seed.preview } : null;
     this.hostList = [...seed.hosts];
     this.broadcastList = [...seed.broadcasts];
     this.scheduleList = [...seed.schedule];
@@ -213,6 +230,9 @@ export class MemoryRepository implements RunitRepository {
 
     this.sigSession = new Signal<Session>({ kind: 'anonymous' });
     this.sigEvent = new Signal<RunitEvent | null>(this.ev);
+    // Starts null, like the adapter it stands in for. A preview is something a code
+    // produced, never something the world arrived holding.
+    this.sigPreview = new Signal<EventPreview | null>(null);
     this.sigFeed = new Signal<Broadcast[]>([]);
     this.sigSchedule = new Signal<ScheduleItem[]>([]);
     this.sigQueue = new Signal<SongRequest[]>([]);
@@ -472,8 +492,26 @@ export class MemoryRepository implements RunitRepository {
 
   event = {
     current: undefined as unknown as Observable<RunitEvent | null>,
+    preview: undefined as unknown as Observable<EventPreview | null>,
+
+    lookUp: async (code: string) => {
+      // Same normalisation as joinAsGuest and as event_preview's
+      // `upper(code) = upper(btrim(p_code))`. A code read off a place card in a dim
+      // room arrives with a stray space and the wrong case about as often as not.
+      const wanted = code.trim().toUpperCase();
+      const from = (e: EventPreview | null) => (e && e.code.toUpperCase() === wanted ? e : null);
+      // The joined event first, so a fixture that seeds both cannot answer one code
+      // two ways -- which is the only way a preview and a join could disagree.
+      this.sigPreview.set(from(this.ev) ?? from(this.previewable));
+    },
+
     setActiveFolder: async (id: FolderId) => {
       this.ev = { ...this.requireEvent(), activeFolderId: id };
+      this.recompute();
+    },
+
+    updateDetails: async (input: EventDetails) => {
+      this.ev = { ...this.requireEvent(), ...input };
       this.recompute();
     },
     setTier: async (tier: TierId) => {
@@ -906,6 +944,7 @@ export class MemoryRepository implements RunitRepository {
   private wire(): void {
     this.session.current = this.sigSession;
     this.event.current = this.sigEvent;
+    this.event.preview = this.sigPreview;
     this.chat.feed = this.sigFeed;
     this.schedule.items = this.sigSchedule;
     this.music.queue = this.sigQueue;

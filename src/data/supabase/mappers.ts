@@ -1,10 +1,11 @@
-import type { Row } from './database.types';
+import type { PreviewRow, Row } from './database.types';
 import { RowCache } from './signal';
 import type {
   Broadcast, BroadcastKind, Folder, Host, HostRole, NowPlaying, Photo, PhotoStatus,
   Report, ReportReason, ReportResolution, ReportSubject,
   RunitEvent, ScheduleItem, SongRequest, SongRequestStatus, TierId,
 } from '../types';
+import type { EventPreview } from '../repository';
 
 /**
  * Postgres rows to domain objects.
@@ -73,6 +74,30 @@ export function toEvent(r: Row<'events'>): RunitEvent {
     nowScheduleItemId: r.now_schedule_item_id,
     guestCount: r.guest_count,
     invitedCount: r.invited_count,
+  };
+}
+
+/**
+ * The `event_preview` RPC's row -> the invitation.
+ *
+ * NOT toEvent with fields dropped, and the difference matters. `toEvent` takes a
+ * whole `events` row; this takes what a SECURITY DEFINER function chose to return,
+ * which is a deliberately narrower set -- no tier, no counts, no folder. Mapping the
+ * two through one function would mean the projection had to be re-decided here every
+ * time someone touched it, and the safe direction for that mistake is the wrong one.
+ *
+ * There is no `narrow()` call and no fallback: every column here is `not null` in the
+ * schema, and unlike `tier` there is no closed set to fall back to.
+ */
+export function toPreview(r: PreviewRow): EventPreview {
+  return {
+    id: r.id,
+    code: r.code,
+    name: r.name,
+    venue: r.venue,
+    startsAt: r.starts_at,
+    timezone: r.timezone,
+    doorsLabel: r.doors_label,
   };
 }
 

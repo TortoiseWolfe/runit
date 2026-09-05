@@ -103,7 +103,7 @@ pnpm audit:styles               # Lane A: the RN colour-parser gate
 pnpm audit:targets              # Lane A2: touch targets, WCAG 2.2 SC 2.5.8 (AA)
 pnpm audit:keyboard             # Lane A3: keyboard strategy + return-key contract
 pnpm export:web && pnpm shots   # Lane B: screenshots at 402x874 + colour gate
-pnpm test:e2e                   # Lane B: 142 Playwright journeys, dark + light
+pnpm test:e2e                   # Lane B: 170 Playwright journeys, dark + light
 pnpm feedback:sync              # TestFlight tester feedback -> GitHub issues
 pnpm render:canvas              # regenerate design/renders/ from the canvas
 ```
@@ -182,7 +182,7 @@ gate** that composites every rendered text colour over its painted backdrop and
 fails below WCAG AA. Contrast, unlike `hitSlop`, is honestly measurable in this
 lane: `alpha()` emits a real `rgba()` over real DOM backgrounds.
 
-`pnpm test:e2e` runs 142 journey tests (`tests/e2e/`) across both colour
+`pnpm test:e2e` runs 170 journey tests (`tests/e2e/`) across both colour
 schemes: join and its rejection path, the three guest tabs, the host console,
 the pricing ladder and every denial it can render, and the painted theme
 tokens. Each spec was written against the canvas and then attacked by a critic
@@ -259,8 +259,16 @@ would hit.
 see row-level security behave. It runs `supabase/verify-policies.sql`, which seeds an
 event, a guest and a host inside a `DO` block, switches
 role with `set local role authenticated` and a forged `request.jwt.claims`, asserts
-sixteen behaviours, and RAISES at the end so nothing commits -- the "error" it
+**forty-five** behaviours, and RAISES at the end so nothing commits -- the "error" it
 prints IS the report.
+
+**It did not run at all until 2026-09-05, and nothing said so.** A setup line inserted
+a photo as the host with no `uploaded_by_guest_id`; `photos_insert` refused it with
+42501 outside any exception handler, which aborted the whole `DO` block -- so every
+moderation and invitee assertion below it had never executed, and one held a stale
+expected value that proved it. `verify-policies.mjs` still cannot tell "the SQL
+aborted" from "the SQL ran and reported failures". Issue #31. Anything added here must
+be RUN, not merely written.
 
 **It skips LOUDLY without `SUPABASE_DB_URL`**, and that is deliberate. Running it
 needs a database password, and CI here is one public-repo job with no secret store; a
@@ -384,6 +392,16 @@ that lives in a button handler is bypassed by the second caller.
   schemes need different numbers because `#1F2937` on `#F5F0EB` has less headroom
   than `#E2E8F0` on `#1A1A2E`. Never multiply two levels together; a product cannot
   be fixed by raising the ramp. FIDELITY note H.
+- **`wallClockToInstant` makes TWO passes and both are load-bearing.** The naive guess
+  reads the zone offset several hours from the true instant, so a DST transition inside
+  that window gives the wrong one: asking for 3:00 AM on a spring-forward morning, one
+  pass returns an instant that reads back as 4:00. `format.test.ts` fails if the second
+  pass is removed. And never `new Date(d.toLocaleString(...))` -- FIDELITY note M.
+- **`doorsLabel` is the doors line ONLY.** It used to be the canvas's whole subtitle,
+  date and venue included, because nothing could derive a day. `JoinScreen` composes
+  `formatEventDate · doorsLabel · venue` now. A date stored as prose cannot disagree
+  with `starts_at` out loud -- it disagrees silently, which is how HOUSE7 came to hold
+  an 11:13 AM start under a "Doors 7:00 PM" label.
 - `schedule.start()` refuses to move the run-of-show cursor **backwards** unless
   passed `{ rewind: true }`. `nowScheduleItemId` drives every guest's Now/Next card,
   so a mis-tap on a past row rewound the evening for the whole room. FIDELITY note I.
@@ -432,12 +450,14 @@ capabilities came to hide inside one line. `gh issue list --repo TortoiseWolfe/r
 is the scope; issue #1 is the ordering.
 
 **Nothing brings an event into existence.** Every path that creates an event, a host,
-a host credential, a folder or a tier runs through `supabase/seed-events.sql` and a
-database password. #13 (`create_event`) · #14 (name/date/venue: `authenticated` holds
-`UPDATE` on `active_folder_id` and nothing else) · #15 (`event_preview`, which is why an
-invitation carries no name until you have already accepted it) · #16 (`invite_host`) ·
-#17 (multi-event) · #18 (host sign-in + custom SMTP) · #19 (account deletion, mandatory
-the day #18 ships).
+a host credential or a tier still runs through `supabase/seed-events.sql` and a database
+password. #13 (`create_event`) · #16 (`invite_host`) · #17 (multi-event) · #18 (host
+sign-in + custom SMTP) · #19 (account deletion, mandatory the day #18 ships).
+
+**Closed:** #15 (`event_preview` -- an invitation now carries a name, a date and a venue
+before it is accepted) and #14 (a host edits name/date/venue/timezone/doors at
+`/host/event`; the column grant reaches five columns and still refuses `tier` and
+`code`). FIDELITY note S.
 
 **Advertised and unenforced.** #21 (three of four granted features are enforced only in
 `MemoryRepository`, so a free-tier host can pin against Supabase) · #22 (`maxGuests` in
@@ -491,6 +511,13 @@ the state where three buttons are dead", and only a journey-level look sees that
   (`SupabaseRepository.ts:39-43`). Before it existed, `Seed.event` was non-nullable while
   every sibling was nullable, so no test could reach the state, and `disabled={!event}`
   shipped three dead controls off one boolean.
+- **`?invited=1` boots `invitedSeed`** -- no event, but a code from a link that
+  resolves to one. It is the middle of three worlds (`?empty=1` is the cold open,
+  `weddingSeed` is joined), and it exists because `weddingSeed` already has
+  `event.current`, so the whole `event.preview` path could be deleted with every other
+  journey still green. It proves the invitation SCREEN only: an `EventPreview` carries
+  seven of `RunitEvent`'s twelve fields, so Memory cannot honestly model the join that
+  follows, and `tests/e2e/invitation.spec.ts` says so rather than faking it.
 - **`aria-disabled` is the gate.** react-native-web renders a disabled `Pressable` that
   way, so `expect(page.locator('[aria-disabled="true"]')).toHaveCount(0)` is a DOM fact
   about a whole screen rather than an assertion per control

@@ -5,8 +5,8 @@ import { supabase, type RunitClient } from './client';
 import type { Row } from './database.types';
 import {
   broadcastCache, folderCache, hostCache, photoCache, requestCache, scheduleCache,
-  toBroadcast, toEvent, toFolder, toHost, toNowPlaying, toPhoto, toReport, toScheduleItem,
-  toSongRequest,
+  toBroadcast, toEvent, toFolder, toHost, toNowPlaying, toPhoto, toPreview, toReport,
+  toScheduleItem, toSongRequest,
 } from './mappers';
 import { attachAppStateBridge } from './appStateBridge';
 import { RealtimeTable } from './RealtimeTable';
@@ -14,7 +14,8 @@ import { Signal, setEqual, shallowArrayEqual } from './signal';
 import { UploadOverlay } from './UploadOverlay';
 import {
   EntitlementError, JoinError, ScheduleError,
-  type JoinReason, type Observable, type RunitRepository, type UploadOutcome,
+  type EventDetails, type EventPreview, type JoinReason, type Observable,
+  type RunitRepository, type UploadOutcome,
 } from '../repository';
 import type {
   BlockedGuest, Broadcast, Folder, FolderId, GuestId, Host, HostRole, NowPlaying, Photo,
@@ -165,6 +166,16 @@ export class SupabaseRepository implements RunitRepository {
       a.nowScheduleItemId === b.nowScheduleItemId && a.guestCount === b.guestCount &&
       a.invitedCount === b.invitedCount),
   );
+  // A preview has no realtime channel behind it -- RLS would never deliver a change
+  // on a row the caller is not a member of -- so this only ever moves when lookUp
+  // runs. The comparator still earns its keep: looking the same code up twice must
+  // not re-render the join screen underneath someone typing.
+  private readonly sigPreview = new Signal<EventPreview | null>(null, (a, b) =>
+    a === b ||
+    (a !== null && b !== null &&
+      a.id === b.id && a.code === b.code && a.name === b.name && a.venue === b.venue &&
+      a.startsAt === b.startsAt && a.timezone === b.timezone && a.doorsLabel === b.doorsLabel),
+  );
   private readonly sigFeed = new Signal<Broadcast[]>([], shallowArrayEqual);
   private readonly sigSchedule = new Signal<ScheduleItem[]>([], shallowArrayEqual);
   private readonly sigQueue = new Signal<SongRequest[]>([], shallowArrayEqual);
@@ -209,6 +220,7 @@ export class SupabaseRepository implements RunitRepository {
     // readable above, and matches how MemoryRepository does it.
     this.session.current = this.sigSession;
     this.event.current = this.sigEvent;
+    this.event.preview = this.sigPreview;
     this.chat.feed = this.sigFeed;
     this.schedule.items = this.sigSchedule;
     this.music.queue = this.sigQueue;
@@ -915,6 +927,30 @@ export class SupabaseRepository implements RunitRepository {
 
   event = {
     current: undefined as unknown as Observable<RunitEvent | null>,
+    preview: undefined as unknown as Observable<EventPreview | null>,
+
+    lookUp: async (code: string) => {
+      // A session first, because event_preview is granted to `authenticated` and to
+      // nobody else. That is the point: `authenticated` is the role an ANONYMOUS
+      // Supabase session carries, so every call sits behind the anonymous sign-in
+      // rate limit -- which is the only thing bounding how fast codes can be guessed.
+      // Granting this to `anon` would remove that bound entirely.
+      //
+      // The honest cost: opening an invitation link mints an auth.users row before
+      // the person has joined anything. Bounded by firing on a link only, and
+      // join_event is idempotent on (event_id, auth_user_id), so this session becomes
+      // their seat rather than stranding one.
+      await this.ensureSession();
+
+      const { data, error } = await this.db.rpc('event_preview', { p_code: code });
+      if (error) throw error;
+
+      // Zero rows is the answer to a code that names nothing, not a failure -- so
+      // NO assertWrote here. That helper exists because a denied WRITE is silent;
+      // an empty read is just an empty read.
+      const row = data?.[0];
+      this.sigPreview.set(row ? toPreview(row) : null);
+    },
 
     setActiveFolder: async (id: FolderId) => {
       const eventId = this.requireEvent();
@@ -925,6 +961,30 @@ export class SupabaseRepository implements RunitRepository {
         .from('events').update({ active_folder_id: id }).eq('id', eventId).select('id');
       if (error) throw error;
       SupabaseRepository.assertWrote(data, 'setActiveFolder');
+    },
+
+    updateDetails: async (input: EventDetails) => {
+      const eventId = this.requireEvent();
+      // Every key here is in the column grant and no key outside it may appear:
+      // `revoke update on events` plus a named grant means one stray column -- even
+      // one whose value is unchanged -- fails the whole statement with 42501. That is
+      // why `tier` gets its own refusal below instead of being folded in here.
+      const { data, error } = await this.db
+        .from('events')
+        .update({
+          name: input.name,
+          venue: input.venue,
+          starts_at: input.startsAt,
+          timezone: input.timezone,
+          doors_label: input.doorsLabel,
+        })
+        .eq('id', eventId)
+        .select('id');
+      if (error) throw error;
+      // A non-host's update matches the policy on nothing, affects zero rows and
+      // raises nothing at all. This is the only thing standing between that and a
+      // toast saying the change was saved.
+      SupabaseRepository.assertWrote(data, 'updateDetails');
     },
 
     // The parameter is declared even though it is ignored. A zero-arg version still

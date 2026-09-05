@@ -13,10 +13,11 @@ import { useLocalSearchParams } from "expo-router";
 
 import { Screen } from "@/components/ui/Screen";
 import { Toast } from "@/components/ui/Toast";
-import { useEvent } from "@/state/hooks";
+import { useEvent, useLookUpInvite, usePreview } from "@/state/hooks";
 import { useJoinActions } from "@/state/actions";
 import { useToast } from "@/state/ToastProvider";
 import { icsFilename, icsFor } from "@/lib/invite";
+import { formatEventDate } from "@/lib/format";
 import { shareIcs } from "@/lib/share";
 import {
   alpha,
@@ -38,6 +39,7 @@ import {
 export function JoinScreen() {
   const { tokens, fade } = useTheme();
   const event = useEvent();
+  const preview = usePreview();
   const { join } = useJoinActions();
   const { show } = useToast();
 
@@ -61,6 +63,40 @@ export function JoinScreen() {
       event?.code ??
       "",
   );
+  // One lookup, on arrival, for the code the link carried. `params.code` is stable
+  // for the life of this screen, so this fires once. Typing into the field below does
+  // NOT re-run it -- see useLookUpInvite.
+  useLookUpInvite(typeof params.code === "string" ? params.code : undefined);
+
+  /**
+   * The invitation, from whichever source can supply one.
+   *
+   * `current` first: once you are in, it is the same event plus everything a member is
+   * allowed to see, and it stays live. `preview` is the half a non-member can have.
+   * Before this existed there was only `current`, so an invitation showed nothing at
+   * all until it had already been accepted.
+   */
+  const invite = event ?? preview;
+
+  /**
+   * "Fri, Sep 11 · Doors 7:00 PM · The living room", assembled here rather than stored.
+   *
+   * The canvas drew this as one string and the fixtures copied it whole --
+   * `doorsLabel` used to read "Sat, Oct 17 · Doors 4:00 PM · Willow Barn". It carried
+   * the date and the venue because nothing could derive either, which also meant the
+   * date could not be wrong: it was never computed from `startsAt`, so it never
+   * disagreed with it out loud. It disagreed silently instead. HOUSE7 on the live
+   * project holds a start time of 11:13 AM under a label reading "Doors 7:00 PM".
+   *
+   * Composed from the parts, an event that has not had its time set now says so.
+   */
+  const subtitle = invite
+    ? [formatEventDate(invite.startsAt, invite.timezone), invite.doorsLabel, invite.venue]
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .join(" · ")
+    : "";
+
   const [nickname, setNickname] = useState("");
   const [hostKey, setHostKey] = useState("");
   const [joined, setJoined] = useState(false);
@@ -68,8 +104,12 @@ export function JoinScreen() {
   const hostKeyRef = useRef<TextInput>(null);
 
   const onAddToCalendar = async () => {
-    if (!event) return;
-    const shared = await shareIcs(icsFilename(event), icsFor(event));
+    // `invite`, not `event`: the whole point of the preview is that this works from a
+    // link, before joining. `icsFor` takes a Pick<RunitEvent, ...> that an
+    // EventPreview satisfies exactly -- including `id`, which is the calendar UID, so
+    // adding the invitation and then joining does not produce two entries.
+    if (!invite) return;
+    const shared = await shareIcs(icsFilename(invite), icsFor(invite));
     // Reporting the outcome rather than assuming it. On a desktop browser there is no
     // share sheet at all, and a button that silently does nothing is the failure this
     // pill spent months demoted to a View to avoid.
@@ -153,7 +193,7 @@ export function JoinScreen() {
               You&apos;re invited to
             </Text>
             <Text style={[s.title, { color: tokens.baseContent }]}>
-              {event?.name ?? "An event"}
+              {invite?.name ?? "An event"}
             </Text>
             <Text
               style={[
@@ -161,7 +201,7 @@ export function JoinScreen() {
                 { color: alpha(tokens.baseContent, fade.body) },
               ]}
             >
-              {event?.doorsLabel ?? ""}
+              {subtitle}
             </Text>
             {/* An aggregate count, and deliberately nothing more -- no names, no
                 avatars. It reads as social proof before you commit, and it is what
@@ -169,7 +209,14 @@ export function JoinScreen() {
                 rather than merely that the room reads 173 afterwards. Before this
                 existed there was no screen showing the count pre-join, so a seed of
                 173 that never incremented was indistinguishable from a seed of 172
-                that did. See tests/e2e/join.spec.ts and FIDELITY note J. */}
+                that did. See tests/e2e/join.spec.ts and FIDELITY note J.
+
+                `event`, NOT `invite`, and that is the one place the two must differ on
+                this screen. `event_preview` withholds guest_count deliberately -- a
+                headcount for a room you have not entered is the first crack in "guests
+                can't see each other", three lines further down this same screen. So an
+                invitation from a link shows the name, the date and the venue, and does
+                not tell you how many people are already there. */}
             {event ? (
               <Text
                 testID="join-guest-count"
@@ -199,7 +246,7 @@ export function JoinScreen() {
                 holds the general form of this -- nothing visible may be aria-disabled --
                 because the same boolean also made Show QR and Share invite inert, and
                 each was found separately, on a phone. */}
-            {event ? (
+            {invite ? (
             <Pressable
               onPress={onAddToCalendar}
               accessibilityRole="button"

@@ -16,7 +16,7 @@
  * web client cannot route around them.
  */
 import type {
-  BlockedGuest, Broadcast, Folder, FolderId, GuestId, HostRole, NowPlaying, Photo, PhotoId,
+  BlockedGuest, Broadcast, Folder, FolderId, GuestId, HostRole, Instant, NowPlaying, Photo, PhotoId,
   Report, ReportId, ReportReason, ReportResolution, ReportSubject,
   RunitEvent, ScheduleItem, ScheduleItemId, Session, SongRequest, SongRequestId,
 } from './types';
@@ -91,6 +91,34 @@ const JOIN_COPY: Record<JoinReason, string> = {
   offline: "Can't reach the network. Check your connection and try again.",
   rate_limited: 'Too many people joining at once. Wait a moment and try again.',
 };
+
+/**
+ * The public face of an event: what an invitation may carry before it is accepted.
+ *
+ * A `Pick` rather than its own interface, deliberately -- it cannot drift from
+ * `RunitEvent`, and `icsFor`/`shareMessage` already take `Pick<RunitEvent, ...>`, so
+ * they accept a preview with no change at all.
+ *
+ * What is ABSENT is the design: no tier, no guest count, no invited count, no folder.
+ * The join screen promises "guests can't see each other", and a headcount for an event
+ * you have not joined is the first crack in that. `event_preview` withholds the same
+ * columns in SQL; this type is the client-side statement of the same decision.
+ */
+export type EventPreview = Pick<
+  RunitEvent,
+  'id' | 'code' | 'name' | 'venue' | 'startsAt' | 'timezone' | 'doorsLabel'
+>;
+
+/** The fields a host may edit. Exactly the widened column grant, minus the folder. */
+export interface EventDetails {
+  name: string;
+  venue: string;
+  /** An instant. Build it with `wallClockToInstant(date, time, timezone)`. */
+  startsAt: Instant;
+  /** IANA zone of the VENUE. Moves with `startsAt` or the time means nothing. */
+  timezone: string;
+  doorsLabel: string;
+}
 
 export class JoinError extends Error {
   constructor(
@@ -181,7 +209,36 @@ export interface RunitRepository {
 
   event: {
     current: Observable<RunitEvent | null>;
+    /**
+     * What a code resolves to BEFORE you join -- the invitation, not the event.
+     *
+     * Null until `lookUp` has found something, and null again for a code that names
+     * nothing. Those two are not distinguished, and do not need to be: neither draws
+     * anything, and the screen falls back to the same copy for both.
+     *
+     * WHY AN OBSERVABLE FOR SOMETHING THAT IS NOT REALTIME. Every other read here is
+     * one because the backend is realtime; this one cannot be, since RLS would never
+     * deliver a change on a row the caller is not a member of. It is an observable
+     * anyway so that the screen reads it exactly like every other read, and so the
+     * effect that fires the lookup sets no state of its own -- the React Compiler
+     * rules reject `setState` inside an effect, and they were right to.
+     */
+    preview: Observable<EventPreview | null>;
+    /** Resolve a code into `preview`. A code that names nothing leaves it null. */
+    lookUp(code: string): Promise<void>;
     setActiveFolder(id: FolderId): Promise<void>;
+    /**
+     * The event's description, as a host corrects it.
+     *
+     * `starts_at` and `timezone` travel together because a time without its zone is
+     * not a time -- FIDELITY note M. Pass venue wall-clock through
+     * `wallClockToInstant` rather than the phone's idea of the hour.
+     *
+     * NOT tier and NOT code: both sit outside the column grant, which is what makes
+     * `setTier` throw rather than silently succeed. Widening this to reach them would
+     * reopen billing bypass and code hijacking in one edit.
+     */
+    updateDetails(input: EventDetails): Promise<void>;
     /** Dev-only, so the paywall is reachable while the demo sits on Event. */
     setTier(tier: RunitEvent['tier']): Promise<void>;
   };

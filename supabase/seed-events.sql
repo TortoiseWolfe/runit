@@ -22,11 +22,26 @@
 -- screens. A beta that cannot exercise photo approvals or the DJ queue is not testing
 -- the app. Tier is a plain column and there is no billing, so this costs nothing.
 --
--- Name, venue and starts_at are placeholders. Changing them is one statement:
---   update public.events set name='...', venue='...', starts_at='...' where code='HOUSE7';
+-- Name, venue, date and doors are now EDITABLE IN THE APP -- /host/event, issue #14.
+-- The column grant reaches name, venue, starts_at, timezone and doors_label, so a host
+-- corrects their own event rather than asking whoever has the database password.
+--
+-- STARTS_AT IS A REAL EVENING, not `now() + interval`. It used to be `now() + 7 days`,
+-- which put HOUSE7's start at whatever second this file happened to run -- 11:13 AM on
+-- the live project -- underneath a doors_label reading "Doors 7:00 PM". The two had
+-- always disagreed and nothing rendered starts_at, so nothing showed it. The invitation
+-- now derives its date from starts_at and `+ Add to calendar` exports it, so a made-up
+-- time becomes a wrong calendar entry on a guest's phone.
+--
+-- Anchored to the NEXT Friday at 19:00 New York time, so re-running this never seeds an
+-- event in the past. `date_trunc` + the day arithmetic keeps it a real wall-clock 7pm
+-- across DST rather than a fixed UTC offset that drifts by an hour twice a year.
 
 insert into public.events (code, name, venue, starts_at, timezone, doors_label, tier, invited_count)
-values ('HOUSE7', 'House Party', 'The living room', now() + interval '7 days',
+values ('HOUSE7', 'House Party', 'The living room',
+        ((date_trunc('day', (now() at time zone 'America/New_York'))
+          + ((((5 - extract(isodow from (now() at time zone 'America/New_York'))::int + 6) % 7) + 1) * interval '1 day')
+          + interval '19 hours') at time zone 'America/New_York'),
         'America/New_York', 'Doors 7:00 PM', 'event', 10)
 on conflict (code) do nothing;
 
@@ -40,7 +55,12 @@ on conflict (code) do nothing;
 -- a broken app looks like.
 
 insert into public.events (code, name, venue, starts_at, timezone, doors_label, tier, invited_count)
-values ('DEMO42', 'Demo Event', 'Riverside Hall', now() - interval '2 hours',
+-- The demo stays in the PAST -- a reviewer should land mid-event, with a run of show
+-- already under way -- but at a believable 6:30 PM rather than two hours ago whenever
+-- the file ran. Yesterday evening, in the venue's zone.
+values ('DEMO42', 'Demo Event', 'Riverside Hall',
+        ((date_trunc('day', (now() at time zone 'America/New_York'))
+          - interval '1 day' + interval '18 hours 30 minutes') at time zone 'America/New_York'),
         'America/New_York', 'Doors 6:30 PM', 'event', 40)
 on conflict (code) do nothing;
 

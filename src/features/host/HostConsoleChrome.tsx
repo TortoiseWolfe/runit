@@ -7,7 +7,7 @@ import { useIncoming, usePendingPhotos, useReports, useSession } from '@/state/h
 import { border, insetDelta, radius, useTheme, weight } from '@/theme';
 
 type Segment = {
-  href: '/host/broadcast' | '/host/dj' | '/host/photos' | '/host/reports';
+  href: '/host/broadcast' | '/host/dj' | '/host/photos' | '/host/reports' | '/host/event';
   label: string;
   badge?: number;
 };
@@ -38,6 +38,15 @@ export function HostConsoleChrome() {
     // Fourth segment, and it earns the space: Guideline 1.2 asks for TIMELY responses
     // to reports, and a queue a host has to go looking for is not one they will answer.
     { href: '/host/reports', label: 'Reports', badge: reports.length },
+    // Fifth. The canvas drew THREE (Broadcast, DJ queue, Photos) and did not model the
+    // event's own details as editable at all -- they are hardcoded strings in its
+    // `state` block. Reports was the first divergence, this is the second, and it is
+    // where event-level settings will keep accumulating: tier, invitees, co-hosts.
+    //
+    // 'Event' rather than 'Details' because the track is a five-up grid at 402pt and
+    // segmentText is numberOfLines-free but the buttons are not: the shortest true
+    // label is the one that survives.
+    { href: '/host/event', label: 'Event' },
   ];
 
   return (

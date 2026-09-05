@@ -239,6 +239,25 @@ export type Database = {
         // NOTHING returns no row. That is a success, not a failure.
         Returns: string | null;
       };
+      /**
+       * The FIRST RPC here that returns rows rather than a scalar.
+       *
+       * `returns table (...)` reaches PostgREST as an ARRAY -- zero elements for a
+       * code that names no event, one for a hit. Typing it as a bare object would
+       * compile and then read `undefined` off an array at runtime.
+       */
+      event_preview: {
+        Args: { p_code: string };
+        Returns: {
+          id: string;
+          code: string;
+          name: string;
+          venue: string;
+          starts_at: string;
+          timezone: string;
+          doors_label: string;
+        }[];
+      };
       is_host: { Args: { p_event: string }; Returns: boolean };
       join_event: { Args: { p_code: string; p_nickname: string }; Returns: string };
       my_guest_id: { Args: { p_event: string }; Returns: string };
@@ -253,3 +272,6 @@ export type Database = {
 /** `Row<'photos'>` — the one accessor the adapter needs beyond the client generic. */
 export type Row<T extends keyof Database['public']['Tables']> =
   Database['public']['Tables'][T]['Row'];
+
+/** One row of `event_preview`. The RPC's own projection, narrower than `Row<'events'>`. */
+export type PreviewRow = Database['public']['Functions']['event_preview']['Returns'][number];

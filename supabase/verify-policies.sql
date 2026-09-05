@@ -11,6 +11,14 @@
 -- It runs entirely inside a DO block and ends by RAISING, so nothing is committed
 -- even on success -- the "error" it prints IS the report.
 --
+-- A THIRD TRAP, and the worst kind: for some time this file DID NOT RUN AT ALL past
+-- its folders section. A setup line inserted a photo as the host with no
+-- uploaded_by_guest_id, `photos_insert` refused it with 42501 outside any exception
+-- handler, and the whole DO block aborted -- so every moderation and invitee assertion
+-- below it had never once executed, and one of them held a stale expected value that
+-- proved it. Lane E skips without SUPABASE_DB_URL, so a green board said nothing.
+-- Anything added here must be RUN, not merely written.
+--
 -- TWO TRAPS THIS FILE ALREADY FELL INTO, kept as comments so nobody repeats them:
 --
 --   1. `text[] || 'a literal'` makes Postgres parse the literal as an ARRAY
@@ -92,6 +100,54 @@ begin
   get diagnostics n = row_count;
   out := out || format('%s guest UPDATE on events affects %s rows and raises nothing (the silent shape)', case when n = 0 then 'PASS' else 'FAIL' end, n);
 
+  -- The SAME silent shape on a column the grant now reaches. Worth its own line
+  -- because the two fail differently: `name` is granted, so the POLICY refuses it and
+  -- the result is zero rows; `tier` is not granted, so the GRANT refuses it and the
+  -- result is 42501. One table, two refusals, and only one of them is loud.
+  update public.events set name = 'Hijacked' where id = eid;
+  get diagnostics n = row_count;
+  out := out || format('%s guest UPDATE of events.name affects %s rows and raises nothing (want 0)', case when n = 0 then 'PASS' else 'FAIL' end, n);
+
+  ------------------------------------------------------- THE INVITATION (#15)
+  -- event_preview is the only read into `events` that does not require membership, so
+  -- these run BEFORE the second event is joined and while this guest is a member of
+  -- TEST01 only. A preview of TEST02 is the load-bearing case: a non-member gets the
+  -- name, which is the entire point, and events_read would have given nothing.
+  select count(*) into n from public.event_preview('TEST02');
+  out := out || format('%s event_preview returns a NON-MEMBER their invitation (got %s, want 1)', case when n = 1 then 'PASS' else 'FAIL' end, n);
+
+  select name into lbl from public.event_preview('  test02 ');
+  out := out || format('%s event_preview upcases and trims its code (got %L)', case when lbl = 'Other' then 'PASS' else 'FAIL' end, lbl);
+
+  -- A miss is zero rows, NOT the P0002 join_event raises. A code that names no event is
+  -- an ordinary answer here, and the client renders its fallback rather than a toast.
+  begin
+    select count(*) into n from public.event_preview('NOPE99');
+    out := out || format('%s event_preview misses with %s rows and no exception', case when n = 0 then 'PASS' else 'FAIL' end, n);
+  exception when others then
+    out := out || format('FAIL event_preview raised on a miss: %s %s', sqlstate, sqlerrm);
+  end;
+
+  -- THE PROJECTION IS THE ENFORCEMENT. SECURITY DEFINER bypasses every policy, so the
+  -- only thing keeping a headcount out of an invitation is the column list. If someone
+  -- widens it to `select e.*`, this is what stops it reaching a phone.
+  --
+  -- READ FROM pg_proc, NOT information_schema.columns. The obvious version of this
+  -- check queried information_schema for a table named 'event_preview' and got zero
+  -- rows -- because a function is not a table, so it found nothing, subtracted nothing
+  -- and reported PASS. An assertion that passes having measured nothing is worse than
+  -- no assertion, so this counts the OUT parameters, which is where a `returns table`
+  -- signature actually lives.
+  select count(*) into n from pg_proc pr
+   where pr.pronamespace = 'public'::regnamespace and pr.proname = 'event_preview';
+  out := out || format('%s event_preview exists to be inspected at all (got %s, want 1)', case when n = 1 then 'PASS' else 'FAIL' end, n);
+
+  select count(*) into n
+    from pg_proc pr, unnest(pr.proargnames) as arg
+   where pr.pronamespace = 'public'::regnamespace and pr.proname = 'event_preview'
+     and arg in ('tier','guest_count','invited_count','active_folder_id','now_schedule_item_id');
+  out := out || format('%s event_preview withholds tier and every count (leaked %s, want 0)', case when n = 0 then 'PASS' else 'FAIL' end, n);
+
   begin
     insert into public.photos (id,event_id,folder_id,uploaded_by_guest_id,uploaded_by_name,status,hue,storage_path)
     values (gen_random_uuid(), eid, fid, public.my_guest_id(eid), 'Ada', 'pending', 120, eid||'/own.jpg');
@@ -126,19 +182,61 @@ begin
     out := out || format('%s host cannot change tier, column grant holds (%s)', case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
   end;
 
+  ------------------------------------------------- THE EVENT'S OWN DETAILS (#14)
+  -- The five columns beyond active_folder_id. Until this grant existed an event was
+  -- immutable from the moment the seed ran -- reported from a phone as "who set the
+  -- date and where". All five in ONE statement, because that is how the adapter sends
+  -- them and because a named-column grant fails the WHOLE statement on one stray key.
+  update public.events
+     set name = 'Verify, renamed', venue = 'The other barn',
+         starts_at = now() + interval '1 day', timezone = 'Europe/London',
+         doors_label = 'Doors 8:00 PM'
+   where id = eid;
+  get diagnostics n = row_count;
+  out := out || format('%s host UPDATE of name/venue/starts_at/timezone/doors_label affects %s rows (want 1)', case when n = 1 then 'PASS' else 'FAIL' end, n);
+
+  -- NEW, and it should have existed all along: init.sql names code-hijacking as half
+  -- the reason the column grant exists, and nothing asserted it. `code` is the join
+  -- credential -- a host who could rewrite it could point their own event's code at
+  -- somebody else's guests.
+  begin
+    update public.events set code = 'STOLEN' where id = eid;
+    out := out || format('FAIL host rewrote the join code -- the column grant is not holding');
+  exception when others then
+    out := out || format('%s host cannot change code, column grant holds (%s)', case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  -- The cursor stays out too. It is written only inside start_schedule_item(), which
+  -- carries the would_rewind guard; a grant here would be a second route around it.
+  begin
+    update public.events set now_schedule_item_id = null where id = eid;
+    out := out || format('FAIL host wrote the run-of-show cursor directly, bypassing the rewind guard');
+  exception when others then
+    out := out || format('%s host cannot write now_schedule_item_id directly (%s)', case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
   ------------------------------------------------------- FOLDERS CANNOT BE DELETED
   -- Regression guard for a bug that shipped: folders_write was `for all`, which includes
   -- DELETE, and photos.folder_id cascades from folders. One SDK call destroyed every
   -- photo row under a folder and stranded every byte in the bucket, unreachable forever
   -- because storage_path was the only thing that could name it.
-  insert into public.photos (event_id, folder_id, uploaded_by_name, status, hue, storage_path)
-  values (eid, fid, 'Ada', 'approved', 42, eid || '/orphan-guard.jpg');
-
+  --
+  -- THIS FILE DID NOT RUN, AND THAT IS THE FINDING. A setup line stood here inserting a
+  -- photo as the HOST with no uploaded_by_guest_id. `photos_insert` checks
+  -- `uploaded_by_guest_id = my_guest_id(event_id)`, and a host who never joined has no
+  -- guests row -- so it raised 42501, outside any exception handler, and aborted the
+  -- whole DO block. Every assertion below it had never executed once. Lane E skips
+  -- without SUPABASE_DB_URL, so nothing said so.
+  --
+  -- It was also redundant: the guest inserted a photo under this same folder further up,
+  -- which is the row the count below actually finds. Had the insert ever worked, the
+  -- count would have been 2 and this assertion would have FAILED. Removing it is the fix.
   delete from public.folders where id = fid;
   get diagnostics n = row_count;
   out := out || format('%s host DELETE on folders affects %s rows (want 0)',
                        case when n = 0 then 'PASS' else 'FAIL' end, n);
 
+  -- The guest's own.jpg, inserted before the role switch. One row, still nameable.
   select count(*) into n from public.photos where folder_id = fid;
   out := out || format('%s the photo row survives, so its bytes stay nameable (%s)',
                        case when n = 1 then 'PASS' else 'FAIL' end, n);
@@ -207,8 +305,14 @@ begin
                        case when rep2 is null then 'PASS' else 'FAIL' end, coalesce(rep2::text,'null'));
 
   select reporter_name, subject_label into rname, lbl from public.reports where id = rep1;
-  out := out || format('%s reporter_name is derived server-side (got %s, want Ada)',
-                       case when rname = 'Ada' then 'PASS' else 'FAIL' end, coalesce(rname,'null'));
+  -- 'Renamed', not 'Ada', and the difference is the assertion. This guest joined twice
+  -- --  once as Ada, once as Renamed -- to prove join_event is idempotent, and the second
+  -- join updated the nickname on the same row. So the CURRENT nickname is Renamed, and
+  -- file_report reading it off the guests row is exactly the server-side derivation this
+  -- line is testing. It expected 'Ada' until this file first ran to completion, because
+  -- an abort further up meant it had never executed.
+  out := out || format('%s reporter_name is derived server-side, from the guest row as it stands now (got %s, want Renamed)',
+                       case when rname = 'Renamed' then 'PASS' else 'FAIL' end, coalesce(rname,'null'));
   out := out || format('%s subject_label is derived server-side (got %s)',
                        case when lbl = 'Photo from Bo' then 'PASS' else 'FAIL' end, coalesce(lbl,'null'));
 
