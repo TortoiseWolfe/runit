@@ -816,9 +816,30 @@ ScrollView had no `keyboardShouldPersistTaps`, so with the keyboard still up the
 on *"I have written it down"* would be swallowed. A host who reads that as broken and
 navigates away has lost the only copy of her key.
 
+**`random()` was minting the keys, and an automated security review caught it.** Postgres's
+`random()` is a fast per-session PRNG, not a CSPRNG — fine for shuffling rows, wrong for
+both values here, because both gate access: the key rebinds a host seat through
+`claim_host`, and the code is what `join_event` admits a guest on. The specific danger was
+worse than the general one: `create_event` is callable by anyone who can sign in
+anonymously, which is a single HTTP call, so an attacker could ask for keys in a loop and
+read the generator's output stream directly — and against a pooled connection that is
+somebody else's session state. I had built the oracle myself.
+
+Both now come from `mint_token`, which draws `gen_random_bytes` and uses **rejection
+sampling** rather than a bare modulo: 256 is not a multiple of 31, so `byte % 31` would
+make the first eight characters about 3% likelier than the rest. It is revoked from every
+client role, and Lane E asserts that revoke — because this schema's own GRANTS section
+documents the trap that `revoke ... from anon` alone is a silent no-op.
+
+`MemoryRepository` moved to `expo-crypto` too. Nothing there is a real credential — one
+process, one device, no attacker — but a fake with weaker properties than production is how
+a harness goes green on a broken app, and `Math.random()` two lines from a value named
+`key` is a pattern somebody lifts into a place where it does matter. Which is precisely
+what had happened in the migration.
+
 **What proved it.** Lane B runs `MemoryRepository`, so its 186 journeys prove the screens
 and nothing about the grant. **Lane E proves the rest, and it is the only lane that can**:
-58 assertions, 0 failures, run live — a founder is host immediately with no key changing
+59 assertions, 0 failures, run live — a founder is host immediately with no key changing
 hands; the event arrives with an active folder; only the hash is stored; **a different
 identity presenting the key gets back in**, which is what "new phone" means; and rotation
 issues a new key while the old one stops working, which is the half that makes rotation

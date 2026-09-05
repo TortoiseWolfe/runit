@@ -819,6 +819,59 @@ end $$;
 revoke execute on function public.claim_host(text, text) from public, anon;
 grant  execute on function public.claim_host(text, text) to authenticated;
 
+-- MINTING A CREDENTIAL, and `random()` is not allowed to do it.
+--
+-- Postgres's random() is a fast PRNG (xoshiro256** since 15), seeded per session and
+-- explicitly not cryptographic. That is fine for shuffling rows and wrong for both
+-- values below, because BOTH gate access: the host key rebinds a host seat through
+-- claim_host(), and the event code is what join_event() admits a guest on.
+--
+-- The specific danger here is that create_event is callable by anyone who can sign in
+-- anonymously, which is one HTTP call -- so an attacker can ask this function for keys
+-- as fast as the rate limit allows and read the PRNG's output stream directly. Against
+-- a pooled connection that is somebody else's session state. Handing an attacker an
+-- oracle on the generator that mints your credentials is the whole attack.
+--
+-- REJECTION SAMPLING, not a bare modulo. 256 is not a multiple of 31, so `byte % 31`
+-- would make the first eight characters of the alphabet about 3% likelier than the rest
+-- -- a small bias, but a free one to remove, and bias in a credential is exactly the
+-- thing that turns a 59-bit search into a smaller one.
+--
+-- NOT CALLABLE OVER HTTP. Revoked from every client role like the trigger functions;
+-- the SECURITY DEFINER callers below run as the owner, which keeps its own EXECUTE.
+create or replace function public.mint_token(p_len int)
+returns text
+language plpgsql volatile set search_path = public, extensions as $$
+declare
+  k_alphabet constant text := 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  k_size  constant int := length(k_alphabet);        -- 31
+  -- The largest multiple of 31 that fits in a byte. Anything at or above it is thrown
+  -- away rather than folded, which is what keeps every character equally likely.
+  k_limit constant int := 256 - (256 % length('ABCDEFGHJKMNPQRSTUVWXYZ23456789'));  -- 248
+  v_out   text := '';
+  v_bytes bytea;
+  v_b     int;
+  i       int;
+begin
+  if p_len is null or p_len < 1 then
+    raise exception 'mint_token needs a positive length' using errcode = '22023';
+  end if;
+  while length(v_out) < p_len loop
+    -- A generous batch, so the rejection loop almost never needs a second round:
+    -- roughly 3% of bytes are discarded.
+    v_bytes := extensions.gen_random_bytes(greatest(p_len * 2, 16));
+    for i in 0 .. octet_length(v_bytes) - 1 loop
+      exit when length(v_out) >= p_len;
+      v_b := get_byte(v_bytes, i);
+      continue when v_b >= k_limit;
+      v_out := v_out || substr(k_alphabet, 1 + (v_b % k_size), 1);
+    end loop;
+  end loop;
+  return v_out;
+end $$;
+
+revoke execute on function public.mint_token(int) from public, anon, authenticated;
+
 -- ========================================================================
 -- CREATING AN EVENT -- the supply side, which did not exist
 -- ========================================================================
@@ -859,10 +912,9 @@ create or replace function public.create_event(
 returns table (event_id uuid, code text, host_id uuid, host_key text)
 language plpgsql security definer set search_path = public, extensions as $$
 declare
-  -- No 0/O and no 1/I/L. A guest types this off a place card in a dim room, and a host
-  -- reads the key off a note. Same alphabet for both, for the same reason.
-  k_alphabet constant text := 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-  k_len      constant int  := length(k_alphabet);
+  -- Codes and keys both come from mint_token above: no 0/O and no 1/I/L, because a
+  -- guest types the code off a place card in a dim room and a host reads the key off a
+  -- note -- and, more importantly, from a CSPRNG rather than random().
   v_event  uuid;
   v_folder uuid;
   v_host   uuid;
@@ -896,8 +948,7 @@ begin
   -- Mint a code, retrying on collision rather than trusting 31^6. `code` is UNIQUE, so
   -- the database is the arbiter and the loop is just how we ask again.
   for i in 1..10 loop
-    v_code := (select string_agg(substr(k_alphabet, 1 + floor(random() * k_len)::int, 1), '' order by g)
-                 from generate_series(1, 6) g);
+    v_code := public.mint_token(6);
     begin
       insert into public.events (code, name, venue, starts_at, timezone, doors_label)
       values (v_code, btrim(p_name), coalesce(btrim(p_venue), ''), p_starts_at,
@@ -928,8 +979,7 @@ begin
   values (v_event, auth.uid(), coalesce(nullif(btrim(p_host_name), ''), 'Host'), 'host', 'Host')
   returning id into v_host;
 
-  v_key := (select string_agg(substr(k_alphabet, 1 + floor(random() * k_len)::int, 1), '' order by g)
-              from generate_series(1, 12) g);
+  v_key := public.mint_token(12);
 
   -- The hash is over the UNGROUPED upper-case form, which is what claim_host()
   -- canonicalises its input to. The dashes below are presentation only.
@@ -955,8 +1005,6 @@ create or replace function public.rotate_host_key(p_event uuid)
 returns text
 language plpgsql security definer set search_path = public, extensions as $$
 declare
-  k_alphabet constant text := 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-  k_len      constant int  := length(k_alphabet);
   v_host uuid;
   v_key  text;
 begin
@@ -971,8 +1019,7 @@ begin
     raise exception 'not_a_host' using errcode = '42501';
   end if;
 
-  v_key := (select string_agg(substr(k_alphabet, 1 + floor(random() * k_len)::int, 1), '' order by g)
-              from generate_series(1, 12) g);
+  v_key := public.mint_token(12);
 
   insert into public.host_claims (host_id, secret_hash)
   values (v_host, extensions.crypt(v_key, extensions.gen_salt('bf')))

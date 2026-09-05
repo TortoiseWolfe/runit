@@ -259,7 +259,7 @@ would hit.
 see row-level security behave. It runs `supabase/verify-policies.sql`, which seeds an
 event, a guest and a host inside a `DO` block, switches
 role with `set local role authenticated` and a forged `request.jwt.claims`, asserts
-**fifty-eight** behaviours, and RAISES at the end so nothing commits -- the "error" it
+**fifty-nine** behaviours, and RAISES at the end so nothing commits -- the "error" it
 prints IS the report.
 
 **It did not run at all until 2026-09-05, and nothing said so.** A setup line inserted
@@ -403,6 +403,14 @@ that lives in a button handler is bypassed by the second caller.
   will throw: `loadFetchOnce` did, and only creating an event exposed it. `loadBlocks` is
   the pattern to copy -- a null guest id is a real state with an empty answer, not a
   fallback.
+- **Credentials are minted by `mint_token`, never by `random()`.** Postgres's `random()`
+  is a per-session PRNG and explicitly not cryptographic, and `create_event` is callable
+  by anyone who can sign in anonymously -- so minting keys with it hands an attacker an
+  oracle on the generator behind every host key in the project. `mint_token` draws from
+  `gen_random_bytes` with rejection sampling (256 is not a multiple of 31) and is revoked
+  from every client role; Lane E asserts that revoke, because `revoke ... from anon` alone
+  is a silent no-op. `MemoryRepository` uses `expo-crypto` for the same reason of parity,
+  even though its fixture key gates nothing.
 - **The recovery key exists exactly once, in `create_event`'s return value.** Only the
   bcrypt hash is stored. A screen that drops that string has destroyed it, and no support
   route, backup or service-role dump gets it back. `rotate_host_key` is the only way to
