@@ -103,7 +103,7 @@ pnpm audit:styles               # Lane A: the RN colour-parser gate
 pnpm audit:targets              # Lane A2: touch targets, WCAG 2.2 SC 2.5.8 (AA)
 pnpm audit:keyboard             # Lane A3: keyboard strategy + return-key contract
 pnpm export:web && pnpm shots   # Lane B: screenshots at 402x874 + colour gate
-pnpm test:e2e                   # Lane B: 132 Playwright journeys, dark + light
+pnpm test:e2e                   # Lane B: 142 Playwright journeys, dark + light
 pnpm feedback:sync              # TestFlight tester feedback -> GitHub issues
 pnpm render:canvas              # regenerate design/renders/ from the canvas
 ```
@@ -182,7 +182,7 @@ gate** that composites every rendered text colour over its painted backdrop and
 fails below WCAG AA. Contrast, unlike `hitSlop`, is honestly measurable in this
 lane: `alpha()` emits a real `rgba()` over real DOM backgrounds.
 
-`pnpm test:e2e` runs 110 journey tests (`tests/e2e/`) across both colour
+`pnpm test:e2e` runs 142 journey tests (`tests/e2e/`) across both colour
 schemes: join and its rejection path, the three guest tabs, the host console,
 the pricing ladder and every denial it can render, and the painted theme
 tokens. Each spec was written against the canvas and then attacked by a critic
@@ -426,18 +426,83 @@ that lives in a button handler is bypassed by the second caller.
 
 ## Not built yet
 
-- **A real backend to upload to.** Capture, progress, retry and the `failed`
-  state all work (FIDELITY notes K and L), but the in-memory adapter's transfer
-  completes instantly because nothing is being sent anywhere. The states exist
-  for the Supabase adapter to drive; until it lands they are reachable only via
-  the injectable transfer (`fixtures/flakyTransfer.ts`, or `?flaky=1` in the
-  harness).
-- Supabase adapter (`src/data/supabase/README.md` holds the contract).
-- Push notifications, host invites, calendar export.
-- **QR scanning** — intended (the README says so, and the canvas's "Scanned the QR?"
-  copy sits over a pre-filled field standing in for it). Not built. Tracked as a
-  named item on issue #1 rather than buried here, because it is a product promise,
-  not a nice-to-have. `expo-camera` is bundled in Expo Go 57.0.9 (verified by dex
-  grep) and `CameraView` has `barcodeScannerSettings`, so it needs no extra library
-  — but a scanner is only useful once a code identifies a real event, so it belongs
-  after the backend.
+**This section is now a pointer, not a list.** Every gap below is a filed issue with
+file:line evidence in it, because a roadmap living in prose is how six missing
+capabilities came to hide inside one line. `gh issue list --repo TortoiseWolfe/runit`
+is the scope; issue #1 is the ordering.
+
+**Nothing brings an event into existence.** Every path that creates an event, a host,
+a host credential, a folder or a tier runs through `supabase/seed-events.sql` and a
+database password. #13 (`create_event`) · #14 (name/date/venue: `authenticated` holds
+`UPDATE` on `active_folder_id` and nothing else) · #15 (`event_preview`, which is why an
+invitation carries no name until you have already accepted it) · #16 (`invite_host`) ·
+#17 (multi-event) · #18 (host sign-in + custom SMTP) · #19 (account deletion, mandatory
+the day #18 ships).
+
+**Advertised and unenforced.** #21 (three of four granted features are enforced only in
+`MemoryRepository`, so a free-tier host can pin against Supabase) · #22 (`maxGuests` in
+no shipping adapter and no policy) · #23 (`eventTtlHours`, `albumRetentionDays`: zero
+readers) · #30 (every paid tier is unreachable — the pricing screen is cut and no
+purchase path exists).
+
+**Dead ends a host reaches by using the app as designed.** #24 (`seen by 0` forever) ·
+#25 (`invitees` is unreachable from the app, and "Send to N guests" names a number
+nothing can set) · #26 (nothing can un-pin a broadcast) · #29 (`RoleSwitch` is shown to
+every guest and, against Supabase, only ever refuses).
+
+**Promised and not built.** #27 (push: `expo-notifications` is not a dependency and
+`push: true` is hardcoded into a path that discards it) · #28 (QR *scanning* — generation
+shipped, the scan never did).
+
+**The reason the rest kept arriving by phone.** #20 — all 142 journeys boot
+`MemoryRepository`.
+
+Still true and not an issue: the in-memory transfer completes instantly because nothing
+is being sent anywhere, so `uploading` and `failed` are reachable only through the
+injectable transfer (`fixtures/flakyTransfer.ts`, `EXPO_PUBLIC_FLAKY=1`, or `?flaky=1`
+in the web harness).
+
+## How to work here
+
+Three rules, and they exist because of what one day cost. Eighteen commits, three
+merges and **four TestFlight builds** produced a keyboard that trapped every guest, a
+guest with no way out of an event, three inert controls and a blank host console —
+every one of them found by holding a phone, one device session at a time, and not one
+of them written down anywhere a fresh session could read.
+
+**1. A gap found is an issue filed, in the same turn.** Not a paragraph in a commit
+message. The commit messages in this repo are good writing and bad tracking: nobody can
+read a roadmap out of `git log`, and the next session starts cold.
+
+**2. Code before builds.** Four builds in a day is the symptom. The cause is shipping to
+a device to find out what a test could have said. Land a batch, prove it in the lanes
+that exist, then build once. A build is not progress; it is a measurement, and an
+expensive one.
+
+**3. Scope forward, not backward.** Before starting an arc, write down the journey it
+completes and mark every step exists / partial / missing. `?empty=1` is the worked
+example: the failure was never "one button is dead", it was "the harness cannot render
+the state where three buttons are dead", and only a journey-level look sees that.
+
+### Operational facts that cost a session each
+
+- **`?empty=1` boots `emptySeed`** — a world where `event.current` is null, which is what
+  a real guest sees before joining and what the Supabase adapter returns
+  (`SupabaseRepository.ts:39-43`). Before it existed, `Seed.event` was non-nullable while
+  every sibling was nullable, so no test could reach the state, and `disabled={!event}`
+  shipped three dead controls off one boolean.
+- **`aria-disabled` is the gate.** react-native-web renders a disabled `Pressable` that
+  way, so `expect(page.locator('[aria-disabled="true"]')).toHaveCount(0)` is a DOM fact
+  about a whole screen rather than an assertion per control
+  (`tests/e2e/empty-world.spec.ts`). It is the one check that scales with the class of
+  bug instead of with the instances of it.
+- **`closeEvent()` is not `leave()`.** `closeEvent` tears down the event context and
+  keeps the identity; `leave()` does that *and* signs out. A host switching events must
+  never take the second one. FIDELITY note R.
+- **The emulator's input pipeline can wedge mid-session** — the app keeps rendering,
+  keystrokes stop arriving, and nothing in the log says so. Re-check `hw.keyboard` and
+  `adb shell dumpsys input | grep -i keyboard` before believing a field is broken; that
+  is separate from the AVD shipping `hw.keyboard = no` in the first place.
+- **Gboard's floating mode gives a false measurement.** Reset it with
+  `adb shell pm clear com.google.android.inputmethod.latin` before measuring anything
+  keyboard-shaped, or the number you write down describes the IME, not the app.
