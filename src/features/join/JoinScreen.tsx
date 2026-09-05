@@ -300,7 +300,7 @@ export function JoinScreen() {
           <Text
             style={[s.footer, { color: alpha(tokens.baseContent, fade.faint) }]}
           >
-            Runit · Event plan
+            RunIt · Event plan
           </Text>
 
           {/* join() reports both outcomes through the toast -- the welcome on the

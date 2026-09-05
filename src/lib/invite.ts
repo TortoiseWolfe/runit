@@ -29,7 +29,7 @@ export function shareMessage(event: Pick<RunitEvent, 'name' | 'code' | 'venue' |
   const lines = [
     `You're invited to ${event.name}.`,
     '',
-    `Join in Runit with code ${event.code.toUpperCase()}`,
+    `Join in RunIt with code ${event.code.toUpperCase()}`,
   ];
   // Only include what the event actually has. An empty "at ." reads as a bug.
   if (event.venue.trim()) lines.push(`${event.venue}${event.doorsLabel.trim() ? ` · ${event.doorsLabel}` : ''}`);
@@ -108,7 +108,7 @@ export function icsFor(
   now: () => string = () => new Date().toISOString(),
 ): string {
   const description = [
-    `Join in Runit with code ${event.code.toUpperCase()}`,
+    `Join in RunIt with code ${event.code.toUpperCase()}`,
     event.doorsLabel.trim(),
     joinLink(event.code),
   ]
