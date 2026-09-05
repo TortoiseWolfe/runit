@@ -244,12 +244,27 @@ describe('lifecycle', () => {
  * `startTables` tears every table down on failure and masks the difference.
  */
 describe('a start that fails must not leave a channel behind', () => {
-  it('removes the channel when subscribe reports CHANNEL_ERROR', async () => {
+  it('a failed subscribe costs live updates, NOT the data', async () => {
+    // THE CONTRACT CHANGED HERE, deliberately, after a device report. start() used to
+    // throw on a failed subscribe, which meant the select below it never ran -- so a
+    // channel that could not join produced a table with NO ROWS. On a phone that was:
+    // zero guests, a broadcast the host had just sent and could not see, and Show QR
+    // and Share invite inert because both are `disabled={!event}`.
+    //
+    // Live updates are an enhancement over a snapshot, not a precondition for one.
     const { client, state } = makeClient([row('a')], undefined, { failSubscribe: true });
     const t = new RealtimeTable(client, 'photos', (r) => r.id, null, () => {});
 
-    await expect(t.start()).rejects.toThrow();
+    await t.start();
+
+    // The rows are here. That is the whole point.
+    expect(t.all()).toHaveLength(1);
+    // The dead channel is still removed -- supabase-js would otherwise rejoin it on its
+    // own backoff for the life of the process.
     expect(state.removed).toBe(1);
+    // And the failure is recorded rather than swallowed, so a frozen table is
+    // distinguishable from a healthy one.
+    expect(t.liveError).toBeInstanceOf(Error);
   });
 
   it('removes the channel when the SELECT fails after a good subscribe', async () => {

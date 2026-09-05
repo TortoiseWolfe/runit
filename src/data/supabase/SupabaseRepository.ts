@@ -534,6 +534,17 @@ export class SupabaseRepository implements RunitRepository {
   }
 
   private async startTables(eventId: string): Promise<void> {
+    // IDEMPOTENT, because the assignments below REPLACE the eight fields and a replaced
+    // RealtimeTable takes its channel with it -- still registered on the client, still
+    // rejoining on supabase-js's own backoff, with nothing holding a reference. A second
+    // call therefore used to leak eight channels.
+    //
+    // It was masked: the only way to reach a second call was a FAILED join, and the
+    // failure path tore everything down before re-throwing. Once a partly-failed join
+    // was allowed to succeed, two joins left fifteen live channels. Guarding here rather
+    // than at the call sites, so the property holds for any future caller.
+    await this.stopTables();
+
     const byEvent = { column: 'event_id', value: eventId };
     const on = this.recompute;
     this.tEvents = new RealtimeTable(this.db, 'events', (r) => r.id, { column: 'id', value: eventId }, on);
@@ -841,19 +852,26 @@ export class SupabaseRepository implements RunitRepository {
       // explicit call makes it immediate rather than deferred, which is worth having
       // across a room of backgrounded phones.
       //
-      // A RACE IS POSSIBLE HERE AND IS NOT YET DISPROVED. RealtimeClient.connect()
-      // early-returns while isDisconnecting() (RealtimeClient.js:197) and disconnect() is
-      // async, so a re-join landing in that window would subscribe against a socket that
-      // never opens: no error, nothing arrives, the screen just stays empty. Leaving and
-      // immediately re-entering with a host key is exactly that flow.
+      // NO EXPLICIT disconnect() HERE, DELIBERATELY -- it was removed after a device
+      // report, and removing it is the fix rather than a workaround.
       //
-      // I TRIED TO REPRODUCE IT AND FAILED, and the failure does not clear it. A Node
-      // probe against the live project subscribed immediately after disconnect() and got
-      // SUBSCRIBED -- but instrumenting the client showed `disconnecting=false` and
-      // `connected=true` at that moment, so the probe never entered the window and proves
-      // nothing. The device run that would settle it is blocked on the emulator's input
-      // pipeline. Treat this as UNVERIFIED, not as safe. FIDELITY note R.
-      await this.db.realtime.disconnect();
+      // RealtimeClient.connect() early-returns while isDisconnecting()
+      // (RealtimeClient.js:197) and disconnect() is async, so a re-join landing in that
+      // window subscribes against a socket that never opens. Leaving and immediately
+      // re-entering with a host key is exactly that flow, and on a real phone it
+      // produced: zero guests, a broadcast the host had just sent and could not see,
+      // and Show QR / Share invite inert because both are `disabled={!event}`.
+      //
+      // The socket still closes. RealtimeClient schedules a deferred disconnect once
+      // channels reach zero, and `disconnectOnEmptyChannelsAfterMs` defaults to
+      // 2 * HEARTBEAT_INTERVAL; client.ts passes only `eventsPerSecond`, so we inherit
+      // it. stopTables() above takes the count to zero, which arms it. So this trades
+      // an immediate disconnect for one ~50s later -- and buys back a re-join that
+      // cannot race, because the socket it reuses is still open.
+      //
+      // The blast radius was fixed separately and matters more: RealtimeTable no longer
+      // gates its snapshot on SUBSCRIBED, so a channel that fails now costs live updates
+      // rather than all data. Both halves ship together. FIDELITY note R.
       // Fresh caches too: a stale RowCache would hand back objects belonging to
       // the event that was just left, and shallowArrayEqual would then report the
       // new event's first load as "unchanged".
@@ -885,6 +903,10 @@ export class SupabaseRepository implements RunitRepository {
      */
     leave: async () => {
       await this.session.closeEvent();
+      // The socket goes NOW, unlike in closeEvent. Nobody re-joins after a sign-out, so
+      // there is no re-subscribe to race -- and waiting ~50s for the deferred disconnect
+      // would leave a heartbeat running for a session that has ended.
+      await this.db.realtime.disconnect();
       await this.db.auth.signOut();
     },
   };

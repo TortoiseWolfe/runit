@@ -391,13 +391,19 @@ describe('realtime lifecycle', () => {
     expect(data.session).not.toBeNull();
   });
 
-  it('closeEvent tears the transport down exactly as leave does', async () => {
+  it('closeEvent removes every channel but does NOT disconnect the socket', async () => {
+    // The asymmetry is the fix for a device report. connect() early-returns while
+    // isDisconnecting(), so an immediate re-join -- leave, then re-enter with a host
+    // key -- would subscribe against a socket that never opens. Leaving the socket up
+    // means the re-join reuses it and cannot race. RealtimeClient still closes it on
+    // its own once channels reach zero (disconnectOnEmptyChannelsAfterMs, which
+    // client.ts inherits at 2 * HEARTBEAT_INTERVAL).
     const c = ready();
     const repo = await join(c);
     expect(c.channels.length).toBe(8);
     await repo.session.closeEvent();
     expect(c.channels.every((ch) => ch.removed)).toBe(true);
-    expect(c.disconnectCalls).toBe(1);
+    expect(c.disconnectCalls).toBe(0);
   });
 });
 
@@ -575,27 +581,40 @@ describe('realtime lifecycle', () => {
     expect(stillRegistered(c)).toHaveLength(8);
   });
 
-  it('removes a channel whose subscribe FAILS, rather than leaving it to rejoin forever', async () => {
+  it('one dead channel does not sink the join, and is still removed', async () => {
     // supabase-js rejoins a channel that is still registered on its own backoff --
-    // 1s, 2s, 5s, then every 10s for the life of the process. Rejecting without
-    // removing is what turned one failed join into a permanent talker.
+    // 1s, 2s, 5s, then every 10s for the life of the process -- so the dead one must
+    // still go. What CHANGED is that the other seven stay, and the join succeeds:
+    // failing the whole join over one table left a host staring at zero guests with
+    // Show QR and Share invite inert, because both are `disabled={!event}`.
     const c = ready();
     c.failSubscribeFor.add('runit:photos');
     const repo = build(c);
-    await expect(repo.session.joinAsGuest({ code: 'test01', nickname: 'Ada' })).rejects.toThrow();
-    // Not just the failed one: the seven that succeeded beside it must go too.
-    expect(stillRegistered(c)).toHaveLength(0);
+
+    await repo.session.joinAsGuest({ code: 'test01', nickname: 'Ada' });
+
+    // The event loaded despite the failure. This is the assertion the device report bought.
+    expect(repo.event.current.get()).not.toBeNull();
+    // Seven live, and the eighth torn down rather than left rejoining forever.
+    expect(live(c)).toHaveLength(7);
+    expect(stillRegistered(c)).toHaveLength(7);
   });
 
-  it('a retry after a failed join does not stack another eight', async () => {
-    // The guest sees "Could not join. Try again." and taps it. Before the fix each
-    // tap added eight more forever-rejoining channels.
+  it('a second join does not stack another eight channels', async () => {
+    // Each attempt used to add eight more forever-rejoining channels. The guard now
+    // lives in startTables(), which stops before it starts -- because the assignments
+    // there REPLACE the eight fields, and a replaced RealtimeTable takes its still
+    // registered channel with it.
+    //
+    // The fake fails only the NEXT subscribe, so photos joins on the retry and eight is
+    // the right answer. Sixteen would be the bug.
     const c = ready();
     c.failSubscribeFor.add('runit:photos');
     const repo = build(c);
-    await expect(repo.session.joinAsGuest({ code: 'test01', nickname: 'Ada' })).rejects.toThrow();
+    await repo.session.joinAsGuest({ code: 'test01', nickname: 'Ada' });
     await repo.session.joinAsGuest({ code: 'test01', nickname: 'Ada' });
     expect(live(c)).toHaveLength(8);
+    expect(stillRegistered(c)).toHaveLength(8);
   });
 
   it('suspend closes every channel AND the socket, and stops the token ticker', async () => {

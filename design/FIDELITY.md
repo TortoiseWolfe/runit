@@ -632,7 +632,37 @@ sign-ins: *join → closeEvent → join returns the same guestId*, plus an expli
 that a session still exists afterwards. Both fail if `signOut()` is ever reintroduced —
 verified by reintroducing it.
 
-### An unverified race, recorded as unverified
+### The race stopped being theoretical, and the blast radius was the real bug
+
+A host on build 6 left, re-entered with the key, and reported: zero guests, a broadcast
+they had just sent and could not see, and **Show QR and Share invite doing nothing**.
+The database said otherwise — the broadcast was written, the seat was claimed by the
+right auth user, `guest_count` was 2, and replaying the policies as that user returned
+`events readable: 1, broadcasts readable: 1`. Every write worked. Every read was
+permitted. The device showed nothing.
+
+One cause, four symptoms. `RealtimeTable.start()` awaited SUBSCRIBED **before** its
+select, so a channel that could not join produced a table with **no rows** rather than
+rows that merely stopped updating — and `event` comes from such a table, so
+`disabled={!event}` made both invite affordances inert. They were not broken handlers.
+They were disabled buttons.
+
+**Live updates are an enhancement over a snapshot, not a precondition for one.** The
+select now runs either way; a failed channel is torn down and recorded in `liveError`,
+and `started` stays false so a later start retries. The subscribe-then-select ordering
+is kept for the happy path, because the gap it closes is real.
+
+The trigger is the race below, and removing `disconnect()` from `closeEvent()` removes
+it by construction. But the trigger is arguable and the blast radius was not: a
+transport failure should never cost the data.
+
+Fixing it exposed a second, older bug. `startTables()` replaces its eight fields without
+stopping what was there, and a replaced `RealtimeTable` takes its still-registered
+channel with it. That leaked eight channels per call, masked because the only route to a
+second call was a failed join whose teardown ran first. Two joins now left fifteen live
+channels. `startTables()` stops before it starts.
+
+### The race that caused it
 
 `RealtimeClient.connect()` early-returns while `isDisconnecting()`
 (`RealtimeClient.js:197`), and `disconnect()` is async. A re-join landing in that window

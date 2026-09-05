@@ -69,6 +69,16 @@ export class RealtimeTable<T extends TableName> {
     return this.rows.get(id);
   }
 
+  /**
+   * Why the last subscribe failed, when it did. Null while live.
+   *
+   * Kept rather than swallowed: a table serving a frozen snapshot looks identical to a
+   * healthy one, and the difference matters to anyone debugging "why is nothing
+   * updating". Nothing renders it yet -- surfacing it is a UI decision, not this
+   * class's -- but it is here to be surfaced rather than re-derived.
+   */
+  liveError: Error | null = null;
+
   async start(): Promise<void> {
     if (this.started) return;
     this.started = true;
@@ -80,7 +90,29 @@ export class RealtimeTable<T extends TableName> {
       // 2. Subscribe and wait for the server to confirm. `subscribe()` resolves its
       //    callback with SUBSCRIBED only once the channel is actually joined --
       //    selecting before that point reopens the very gap this avoids.
-      await this.subscribed();
+      //
+      //    BUT A FAILURE HERE MUST NOT COST THE SNAPSHOT, and it used to. This
+      //    `await` threw, `start()` unwound, and the select below never ran -- so a
+      //    channel that could not subscribe produced a table with NO ROWS rather than
+      //    rows that merely stopped updating. On a real phone that presented as: zero
+      //    guests, a broadcast the host had just sent and could not see, and `Show QR`
+      //    and `Share invite` doing nothing at all -- because both are
+      //    `disabled={!event}`, and `event` comes from a table that never loaded.
+      //    Every one of those symptoms, from one channel that did not join.
+      //
+      //    Live updates are an ENHANCEMENT over a snapshot. They are not a precondition
+      //    for having one, and treating them as one turns a degraded connection into a
+      //    blank app. So a failed subscribe is recorded and the select proceeds.
+      let live = true;
+      try {
+        await this.subscribed();
+      } catch (e) {
+        live = false;
+        this.liveError = e instanceof Error ? e : new Error(String(e));
+        // The channel is already unusable; drop it rather than leave supabase-js
+        // rejoining it on its own backoff for the life of the process.
+        await this.teardownChannel();
+      }
 
       // 3. Now the snapshot. Any change from here on is in the buffer.
       const query = this.loose.from(this.table).select('*');
@@ -92,10 +124,16 @@ export class RealtimeTable<T extends TableName> {
       this.rows = new Map(((data ?? []) as RowOf<T>[]).map((r) => [this.key(r), r]));
 
       // 4. Replay. An event for a row the select already returned is idempotent:
-      //    both paths write the same map under the same key.
+      //    both paths write the same map under the same key. When the channel never
+      //    joined the buffer is empty, so this is a no-op rather than a special case.
       const queued = this.buffer;
       this.buffer = null;
       for (const p of queued) this.apply(p);
+
+      // `started` stays FALSE when there is no channel, so a later start() -- an app
+      // returning to the foreground, say -- retries the subscription instead of being
+      // a silent no-op on a table that is showing a frozen snapshot.
+      this.started = live;
 
       this.onChange();
     } catch (e) {
