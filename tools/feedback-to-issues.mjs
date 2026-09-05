@@ -292,18 +292,33 @@ const table = (rows) => ['| | |', '|---|---|', ...rows.map(([k, v]) => `| ${k} |
 
 function feedbackIssue(f, links) {
   const said = f.comment?.trim();
+  // TWO CAUSES, NOT ONE. `links` is empty when the tester attached no image at all, and
+  // ALSO when they attached one we could not commit -- an expired URL, or bytes that
+  // were not an image. Saying "the URL expired" for both asserts a cause that was never
+  // established, which is the failure this repo writes gates against, in prose where no
+  // gate can see it.
+  const offered = (f.screenshots ?? []).length;
   const title = said
     ? `Tester on ${f.deviceModel}, iOS ${f.osVersion}: "${said.split('\n')[0].slice(0, 90)}"`
-    : `Tester on ${f.deviceModel}, iOS ${f.osVersion} sent a screenshot with no comment`;
+    : offered
+      ? `Tester on ${f.deviceModel}, iOS ${f.osVersion} sent a screenshot with no comment`
+      : `Tester on ${f.deviceModel}, iOS ${f.osVersion} submitted feedback with no comment and no screenshot`;
   const body = [
-    said ? `> ${said.split('\n').join('\n> ')}` : '_No comment — the screenshot is the whole report._',
+    said
+      ? `> ${said.split('\n').join('\n> ')}`
+      : offered
+        ? '_No comment — the screenshot is the whole report._'
+        : '_No comment and no screenshot. There is nothing here but the device facts below._',
     '',
     table(facts(f)),
     '',
     links.length
       ? `Screenshot${links.length > 1 ? 's' : ''}, committed because Apple's URLs expire:\n` +
         links.map((l) => `- ${l}`).join('\n')
-      : "_Apple's screenshot URL had already expired when this was filed._",
+      : offered === 0
+        ? '_No screenshot was attached to this submission._'
+        : `_${offered} screenshot${offered > 1 ? 's were' : ' was'} attached but could not be ` +
+          'retrieved -- Apple\u2019s URL had expired, or the bytes were not an image._',
     '',
     'There are no reproduction steps here. A screenshot proves a screen looked this way',
     'on one device at one moment; it does not say what the tester did to reach it. Ask',
