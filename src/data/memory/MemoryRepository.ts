@@ -370,10 +370,10 @@ export class MemoryRepository implements RunitRepository {
       // The canvas sets joined:true unconditionally -- it never validates the
       // code and never checks capacity. Both are real failure modes.
       if (code.trim().toUpperCase() !== this.ev.code) {
-        throw new JoinError('unknown_code', "That code doesn't match an event.");
+        throw new JoinError('unknown_code');
       }
       const seat = checkLimit(this.computeEntitlements(), 'guests');
-      if (!seat.allowed) throw new JoinError('event_full', 'This event is full.');
+      if (!seat.allowed) throw new JoinError('event_full');
 
       this.ev = { ...this.ev, guestCount: this.ev.guestCount + 1 };
       this.sigSession.set({
@@ -401,11 +401,11 @@ export class MemoryRepository implements RunitRepository {
      */
     claimHost: async ({ code, key }: { code: string; key: string }) => {
       if (code.trim().toUpperCase() !== this.ev.code) {
-        throw new JoinError('unknown_code', "That code doesn't match an event.");
+        throw new JoinError('unknown_code');
       }
       const canonical = (v: string) => v.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
       if (canonical(key) !== canonical(this.hostKey)) {
-        throw new JoinError('bad_host_key', "That host key isn't right for this event.");
+        throw new JoinError('bad_host_key');
       }
       const h = this.hostList[0];
       if (!h) throw new Error('This event has no host seat to claim.');

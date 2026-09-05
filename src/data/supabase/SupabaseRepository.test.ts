@@ -1,4 +1,6 @@
-import { FakeClient, pgError, refusedLoudly, refusedSilently } from './fixtures/fakeClient';
+import {
+  FakeClient, authApiError, authOffline, pgError, refusedLoudly, refusedSilently,
+} from './fixtures/fakeClient';
 import { SupabaseRepository } from './SupabaseRepository';
 import type { RunitClient } from './client';
 import { JoinError, ScheduleError } from '../repository';
@@ -77,8 +79,126 @@ describe('joining', () => {
   it('turns P0002 into a JoinError a screen can render', async () => {
     const c = new FakeClient();
     c.on((op) => (op.kind === 'rpc' && op.table === 'join_event' ? pgError('P0002', 'unknown_code') : undefined));
-    const repo = SupabaseRepository.create(c as unknown as RunitClient, { now: () => FIXED });
-    await expect(repo.session.joinAsGuest({ code: 'NOPE', nickname: 'Ada' })).rejects.toBeInstanceOf(JoinError);
+    const repo = build(c);
+    const rejects = expect(repo.session.joinAsGuest({ code: 'NOPE', nickname: 'Ada' })).rejects;
+    await rejects.toBeInstanceOf(JoinError);
+    // The REASON, not merely the class -- and the exact sentence tests/e2e/join.spec.ts
+    // pins with toHaveText, which this adapter did not pin anywhere until now.
+    await expect(
+      repo.session.joinAsGuest({ code: 'NOPE', nickname: 'Ada' }),
+    ).rejects.toMatchObject({ reason: 'unknown_code', message: "That code doesn't match an event." });
+  });
+
+  /**
+   * THE REGRESSION THESE EXIST FOR.
+   *
+   * Anonymous sign-in was disabled on the live project and build #3 could not admit a
+   * single guest -- and every one of those failures rendered as "That code doesn't
+   * match an event.", because line 496 mapped ANY auth error to `unknown_code`. The
+   * reason and the message on that one line disagreed with each other.
+   *
+   * Every assertion here pins the REASON, because the reason is the thing that was
+   * wrong. The branch could not be reached at all before: the fake's
+   * signInAnonymously always succeeded.
+   */
+  it('reports a disabled provider as ours, and explicitly NOT as a bad code', async () => {
+    const c = ready();
+    c.failNextSignIn = authApiError('anonymous_provider_disabled', 422);
+    const repo = build(c);
+
+    await expect(
+      repo.session.joinAsGuest({ code: 'test01', nickname: 'Ada' }),
+    ).rejects.toMatchObject({ reason: 'session_unavailable' });
+
+    // The negative is the actual regression test. A guest holding a correct code must
+    // never be told to go and check it because our provider is switched off.
+    c.failNextSignIn = authApiError('anonymous_provider_disabled', 422);
+    await expect(
+      repo.session.joinAsGuest({ code: 'test01', nickname: 'Ada' }),
+    ).rejects.not.toThrow(/doesn't match an event/);
+  });
+
+  it('tells a rate-limited guest to wait rather than to retype', async () => {
+    const c = ready();
+    c.failNextSignIn = authApiError('over_request_rate_limit', 429);
+    const repo = build(c);
+    await expect(
+      repo.session.joinAsGuest({ code: 'test01', nickname: 'Ada' }),
+    ).rejects.toMatchObject({ reason: 'rate_limited' });
+  });
+
+  it('reads a dead socket off the NAME, because it carries no code at all', async () => {
+    const c = ready();
+    c.failNextSignIn = authOffline();
+    const repo = build(c);
+    // AuthRetryableFetchError is constructed with `undefined` for its code, so a
+    // code-based branch would silently never match and this would read as
+    // session_unavailable. This test is what holds the predicate to `name`.
+    await expect(
+      repo.session.joinAsGuest({ code: 'test01', nickname: 'Ada' }),
+    ).rejects.toMatchObject({ reason: 'offline' });
+  });
+
+  it('reports 28000 from join_event as a lost session, not a bad code', async () => {
+    // Built by hand rather than from ready(): the FIRST matching responder wins, and
+    // ready() already answers join_event with a guest id.
+    const c = new FakeClient();
+    c.on((op) =>
+      op.kind === 'rpc' && op.table === 'join_event' ? pgError('28000', 'not authenticated') : undefined,
+    );
+    const repo = build(c);
+    await expect(
+      repo.session.joinAsGuest({ code: 'test01', nickname: 'Ada' }),
+    ).rejects.toMatchObject({ reason: 'session_unavailable' });
+  });
+
+  it('says why there was no session to reuse when the recovery also fails', async () => {
+    const c = ready();
+    const dead = { message: 'refresh_token_already_used' };
+    c.sessionError = dead;
+    c.failNextSignIn = authOffline();
+    const repo = build(c);
+
+    // dead session -> failed recovery, in that order, so a device log reads as the
+    // sequence it actually was rather than as one unexplained failure.
+    await expect(
+      repo.session.joinAsGuest({ code: 'test01', nickname: 'Ada' }),
+    ).rejects.toMatchObject({ reason: 'offline', cause: { cause: dead } });
+  });
+
+  it('is a bug, not a bad code, when the event cannot be read back after joining', async () => {
+    // join_event returns a guest id -- so the code DID match -- and then events_read
+    // returns nothing. That is a policy regression on our side, and it must not be
+    // dressed up as a JoinError, because no caller can branch on "this is a bug".
+    const c = ready();
+    c.seed('events', []);
+    const repo = build(c);
+    const attempt = repo.session.joinAsGuest({ code: 'test01', nickname: 'Ada' });
+    await expect(attempt).rejects.not.toBeInstanceOf(JoinError);
+  });
+});
+
+describe('claiming a host seat', () => {
+  const claim = (c: FakeClient, key = 'KEY') => {
+    const repo = build(c);
+    return repo.session.claimHost({ code: 'test01', key });
+  };
+
+  // 42501 is OVERLOADED in this schema -- start_schedule_item and play_next raise it
+  // as `not_a_host`. Reading it as a bad key is sound only because this branch is
+  // scoped to the claim_host call, and nothing asserted that until now.
+  it('reads 42501 from claim_host as a wrong key', async () => {
+    const c = ready();
+    c.on((op) => (op.kind === 'rpc' && op.table === 'claim_host' ? refusedLoudly() : undefined));
+    await expect(claim(c)).rejects.toMatchObject({ reason: 'bad_host_key' });
+  });
+
+  it('reports 28000 from claim_host as a lost session', async () => {
+    const c = ready();
+    c.on((op) =>
+      op.kind === 'rpc' && op.table === 'claim_host' ? pgError('28000', 'not authenticated') : undefined,
+    );
+    await expect(claim(c)).rejects.toMatchObject({ reason: 'session_unavailable' });
   });
 });
 
@@ -381,6 +501,7 @@ describe('blocking, against a real backend', () => {
     expect(repo.moderation.blocked.get()).toEqual([]);
   });
 });
+
 
 /* --------------------------------------------- realtime lifecycle: the quota bug */
 

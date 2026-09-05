@@ -26,6 +26,8 @@
  * two-devices gate.
  */
 
+import { AuthApiError, AuthRetryableFetchError } from '@supabase/auth-js';
+
 type Result = { data: unknown; error: unknown };
 
 /** One recorded operation, so a test can assert on WHAT was sent, not only the reply. */
@@ -85,6 +87,10 @@ export class FakeClient {
   signOutCalls = 0;
   /** Fails the NEXT storage upload, so a failed transfer can be driven. */
   failNextUpload: string | null = null;
+  /** Fails the NEXT anonymous sign-in, so a provider outage can be driven. */
+  failNextSignIn: unknown = null;
+  /** What getSession() reports beside a null session -- a refresh that died. */
+  sessionError: unknown = null;
 
   private responders: Responder[] = [];
   private rows = new Map<string, Record<string, unknown>[]>();
@@ -134,11 +140,19 @@ export class FakeClient {
   }
 
   auth = {
-    getSession: async () => ({ data: { session: this.session }, error: null }),
+    getSession: async () => ({ data: { session: this.session }, error: this.sessionError }),
     signInAnonymously: async () => {
       this.signInCalls++;
+      if (this.failNextSignIn) {
+        const error = this.failNextSignIn;
+        this.failNextSignIn = null;
+        // The real client's failure shape. The success shape below also gains the
+        // `user` it always omitted -- this fixture is calibrated from proven
+        // behaviour, so both are corrected together.
+        return { data: { user: null, session: null }, error };
+      }
       this.session = { user: { id: 'auth-user' } };
-      return { data: { session: this.session }, error: null };
+      return { data: { user: { id: 'auth-user' }, session: this.session }, error: null };
     },
     signOut: async () => {
       this.signOutCalls++;
@@ -256,3 +270,27 @@ export const pgError = (code: string, message = code): Result => ({
   data: null,
   error: { code, message },
 });
+
+/* ------------------------------------------------------------- auth failure shapes */
+
+/**
+ * REAL auth errors, from the vendor's own classes -- NOT object literals.
+ *
+ * This is the load-bearing detail of the whole auth-error change. The adapter
+ * discriminates on the `__isAuthError` brand, which only the real constructors set.
+ * A literal `{ code: 'anonymous_provider_disabled', status: 422 }` would fail that
+ * predicate, so a test built on one would go GREEN while the device still fell
+ * through to "Could not join. Try again." That is precisely the
+ * green-suite-broken-app failure this fixture's docblock is written against.
+ *
+ * Imported from `@supabase/auth-js` rather than `@supabase/supabase-js`, because the
+ * latter re-exports these at runtime but NOT in its type declarations. Test-only, and
+ * safe to reach for undeclared: supabase-js pins auth-js EXACTLY ("2.115.0", no
+ * caret), so it cannot drift underneath us. Deliberately NOT added to package.json --
+ * node-linker=hoisted would make an explicit declaration win the hoist and freeze the
+ * copy while supabase-js moved on, which is the same quiet-wrong-answer trade
+ * CLAUDE.md rejects for the React Native colour parser.
+ */
+export const authApiError = (code: string, status = 400) => new AuthApiError(code, status, code);
+/** A dead socket. Carries NO `code` at all -- which is why the adapter reads `name`. */
+export const authOffline = () => new AuthRetryableFetchError('Network request failed', 0);
