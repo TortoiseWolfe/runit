@@ -114,12 +114,31 @@ if (olderThanMin) {
 /* -------------------------------------------------------------------- plumbing */
 
 function easJson(args) {
-  const out = execFileSync('eas', [...args, '--json', '--non-interactive'], {
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'ignore'], // the "Using App Store Connect API Key" line is stderr
-    maxBuffer: 32 * 1024 * 1024,
-  });
-  return JSON.parse(out);
+  let out;
+  try {
+    out = execFileSync('eas', [...args, '--json', '--non-interactive'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'], // the "Using App Store Connect API Key" line is stderr
+      maxBuffer: 32 * 1024 * 1024,
+    });
+  } catch (e) {
+    // A workflow can hand us an id App Store Connect no longer serves, and a stack trace
+    // is not a report. Say which call failed and what eas said.
+    console.error(`${RED}FAIL${OFF}: eas ${args.join(' ')}`);
+    const said = (e.stderr ?? '').toString().trim() || (e.stdout ?? '').toString().trim();
+    for (const line of said.split('\n').slice(0, 6)) console.error(`  ${line}`);
+    process.exit(1);
+  }
+  try {
+    return JSON.parse(out);
+  } catch {
+    // The shape changed under us -- a newer eas-cli, most likely. The version floor above
+    // cannot catch that; only this can.
+    console.error(`${RED}FAIL${OFF}: eas ${args.join(' ')} did not return JSON.`);
+    console.error(`  eas-cli ${have.join('.')} may have changed its output. First 200 chars:`);
+    console.error(`  ${out.slice(0, 200)}`);
+    process.exit(1);
+  }
 }
 
 async function gh(path, init = {}) {
@@ -199,6 +218,22 @@ async function ensureLabels() {
  * A 422 means the path already exists, which is a DATABASE-backed "already handled"
  * and a second line of defence behind the marker scan above.
  */
+/**
+ * A submission id is remote data, and it becomes a PATH.
+ *
+ * App Store Connect issues UUIDs, but "it has always been a UUID" is not a permission
+ * check. A `..` or a `/` in an id would walk the PUT out of design/feedback/ and write
+ * anywhere in the repo the token can reach -- and this token can reach all of it.
+ */
+const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+function safeId(id, kind) {
+  if (typeof id === 'string' && SAFE_ID.test(id) && !id.includes('..')) return id;
+  console.error(`${RED}FAIL${OFF}: App Store Connect returned a ${kind} id that cannot be a path`);
+  console.error(`  component: ${JSON.stringify(id).slice(0, 120)}`);
+  console.error('  Refusing to write it. This is either a change at Apple or something worse.');
+  process.exit(1);
+}
+
 async function commitScreenshot(url, path) {
   const res = await fetch(url);
   if (!res.ok) {
@@ -300,7 +335,24 @@ function crashIssue(c, logText) {
 
 /* ----------------------------------------------------------------------- main */
 
-const only = process.argv[2]; // an id or an App Store Connect URL, from the workflow
+/**
+ * The one argument, and it is NOT trusted.
+ *
+ * It arrives from an EAS workflow trigger, i.e. from App Store Connect, and is handed
+ * straight to an `eas` argv slot. execFileSync takes an array so no shell sees it -- but
+ * a value beginning with `-` is read by eas as a FLAG, not an id, which is argument
+ * injection even without a shell. Accept only the two shapes that are real: an ASC
+ * submission id, or an api.appstoreconnect.apple.com URL.
+ */
+const ASC_ID = /^[0-9a-fA-F-]{8,64}$/;
+const ASC_URL = /^https:\/\/api\.appstoreconnect\.apple\.com\/[A-Za-z0-9/_.-]+$/;
+const only = process.argv[2];
+if (only !== undefined && !ASC_ID.test(only) && !ASC_URL.test(only)) {
+  console.error(`${RED}FAIL${OFF}: refusing an argument that is neither an App Store Connect`);
+  console.error('  submission id nor an api.appstoreconnect.apple.com URL:');
+  console.error(`    ${JSON.stringify(only).slice(0, 120)}`);
+  process.exit(1);
+}
 const filed = await alreadyFiled();
 
 const feedback = only
@@ -314,10 +366,11 @@ let created = 0;
 if (feedback.length || crashes.length) await ensureLabels();
 
 for (const f of feedback) {
+  safeId(f.id, 'feedback');
   if (filed.has(`screenshot:${f.id}`)) continue;
   const links = [];
   for (const [i, shot] of (f.screenshots ?? []).entries()) {
-    const link = await commitScreenshot(shot.url, `design/feedback/${f.id}-${i + 1}.png`);
+    const link = await commitScreenshot(shot.url, `design/feedback/${safeId(f.id, 'feedback')}-${i + 1}.png`);
     if (link) links.push(link);
   }
   const issue = await gh(`/repos/${OWNER}/${REPO}/issues`, {
@@ -329,6 +382,7 @@ for (const f of feedback) {
 }
 
 for (const c of crashes) {
+  safeId(c.id, 'crash');
   if (filed.has(`crash:${c.id}`)) continue;
   let logText = null;
   try {

@@ -35,13 +35,20 @@ on:
 jobs:
   file_issue:
     environment: production
+    # The trigger value goes into the ENVIRONMENT, not into the command line. Interpolating
+    # ${{ ... }} directly into `run:` splices remote text into a shell before the shell parses
+    # it -- the classic CI script-injection shape, and App Store Connect is upstream of us
+    # here. Through env it is data the shell never re-parses, and the script validates it
+    # again on the other side.
+    env:
+      RUNIT_FEEDBACK_URL: ${{ app_store_connect.beta_feedback.url }}
     steps:
       - uses: eas/checkout
       # No eas/install_node_modules on purpose: the script has ZERO dependencies --
       # node:child_process and global fetch. That is a constraint on the script, not an
       # accident, and it is what keeps this job short.
       - name: File the submission as a GitHub issue
-        run: node tools/feedback-to-issues.mjs ${{ app_store_connect.beta_feedback.url }}
+        run: node tools/feedback-to-issues.mjs "$RUNIT_FEEDBACK_URL"
         env:
           RUNIT_GH_TOKEN: ${{ env.RUNIT_GH_TOKEN }}
           EXPO_TOKEN: ${{ env.EXPO_TOKEN }}
