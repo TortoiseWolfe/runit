@@ -129,7 +129,6 @@ const files = walk(SRC);
 for (const file of files) {
   const rel = relative(ROOT, file);
   const raw = readFileSync(file, 'utf8');
-  const lines = raw.split('\n');
   const codeLines = stripComments(raw).split('\n');
   const code = codeLines.join('\n');
 
