@@ -314,6 +314,48 @@ begin
   return v_guest;
 end $$;
 
+-- THE INVITATION, which is the half of joining that came before joining.
+--
+-- events_read admits members only, so until this existed a guest arriving from a
+-- link or a QR saw the literal fallback 'An event', no date and no venue -- an
+-- invitation that could not show the invitation. Reported from a phone as "who set
+-- the date and where".
+--
+-- WHAT IT DOES TO THE ORACLE. The comment on events_read already concedes that
+-- join_event is an oracle on a code: a uuid on a hit, unknown_code on a miss. This
+-- does not create that exposure, it widens what a hit RETURNS -- from a bare uuid
+-- to a name, a venue and a time. It is bounded by the same thing: `authenticated`
+-- only, so every call sits behind a session and therefore behind the anonymous
+-- sign-in rate limit. Never grant this to `anon`.
+--
+-- WHAT IT DELIBERATELY WITHHOLDS: tier, guest_count, invited_count,
+-- active_folder_id, now_schedule_item_id. The join screen promises "guests can't
+-- see each other", and a headcount for an event you have not joined is the first
+-- crack in that. The projection is the enforcement -- there is no policy here to
+-- lean on, because SECURITY DEFINER bypasses them all.
+--
+-- A MISS RETURNS ZERO ROWS AND RAISES NOTHING, unlike join_event's P0002. There a
+-- wrong code is a failed action a person must be told about; here it is a code that
+-- names no event, which is an ordinary answer to an ordinary question.
+create or replace function public.event_preview(p_code text)
+returns table (
+  id          uuid,
+  code        text,
+  name        text,
+  venue       text,
+  starts_at   timestamptz,
+  timezone    text,
+  doors_label text
+)
+language sql stable security definer set search_path = public as $$
+  select e.id, e.code, e.name, e.venue, e.starts_at, e.timezone, e.doors_label
+    from public.events e
+   where upper(e.code) = upper(btrim(p_code))
+$$;
+
+revoke execute on function public.event_preview(text) from public, anon;
+grant  execute on function public.event_preview(text) to authenticated;
+
 -- ========================================================================
 -- HOST ACTIONS -- the guards live here, not in a button handler
 -- ========================================================================
@@ -604,10 +646,28 @@ grant execute on function public.start_schedule_item(uuid, boolean) to authentic
 -- also let any host rewrite `tier` (bypassing billing the day billing exists) and `code`
 -- (hijacking another event's join code). Column grants are the other half of the tool.
 revoke update on public.events from authenticated, anon;
-grant  update (active_folder_id) on public.events to authenticated;
+grant  update (active_folder_id, name, venue, starts_at, timezone, doors_label)
+  on public.events to authenticated;
 
 create policy events_host_update on public.events for update
   using (public.is_host(id)) with check (public.is_host(id));
+
+-- The five columns beyond active_folder_id are the event's DESCRIPTION, and a host
+-- has to be able to correct them: the first draft granted none of them, so an event
+-- was immutable from the moment the seed SQL ran. Reported from a phone as "who set
+-- the date and where" -- the answer being "whoever ran the SQL, once".
+--
+-- `tier` and `code` are still not here, for the reasons above, and
+-- verify-policies.sql asserts a host gets 42501 on each. Those two assertions are
+-- what makes this grant a decision rather than a drift.
+--
+-- starts_at and timezone move together or not at all. A time without its zone is
+-- not a time -- see FIDELITY note M, and src/lib/format.ts, which converts venue
+-- wall-clock to an instant rather than trusting the phone.
+--
+-- `events` is in the realtime publication and events_read admits every joined
+-- guest, so an edit here repaints the venue on every phone in the room within a
+-- second. That is the intended behaviour and worth knowing before typing.
 
 -- `now_schedule_item_id` is deliberately NOT granted. It is written only inside
 -- start_schedule_item(), which carries the would_rewind guard. Granting it here would

@@ -8,7 +8,33 @@ export const WEDDING = {
   present: 172,
   /** People invited. The host broadcasts to this number, not the one above. */
   invited: 180,
+  venue: 'Willow Barn',
+  /**
+   * Just the doors line now.
+   *
+   * It used to be the canvas's whole subtitle -- 'Sat, Oct 17 · Doors 4:00 PM · Willow
+   * Barn' -- because nothing could derive a date and the venue had nowhere else to go.
+   * JoinScreen composes those three parts itself now, so this field is what its name
+   * says. See INVITATION_LINE below for the assembled form.
+   */
+  doors: 'Doors 4:00 PM',
 } as const;
+
+/**
+ * The invitation subtitle, as a shape rather than a literal.
+ *
+ * The date cannot be pinned: the wedding fixture anchors itself to YESTERDAY on every
+ * run, deliberately, because a hardcoded future date self-heals on the day it arrives
+ * (FIDELITY note M). So the date is matched for its FORM -- 'Sat, Oct 17' -- and the
+ * two parts that are constant are matched exactly.
+ *
+ * This is deliberately not `formatEventDate(...)` recomputed in the test. Calling the
+ * function under test to produce the expected value would pass on any implementation,
+ * including one that returns the empty string on both sides.
+ */
+export const INVITATION_LINE = new RegExp(
+  `^\\w{3}, \\w{3} \\d{1,2} · ${WEDDING.doors} · ${WEDDING.venue}$`,
+);
 
 /**
  * Wait for the app to resolve the colour scheme before asserting anything.

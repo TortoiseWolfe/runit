@@ -1,11 +1,15 @@
 /**
  * Read hooks. A screen imports these and never touches the repository shape.
  */
+import { useEffect } from 'react';
+
 import { useRepository } from './RepositoryProvider';
 import { useObservable } from './useObservable';
 
 export const useSession = () => useObservable(useRepository().session.current);
 export const useEvent = () => useObservable(useRepository().event.current);
+/** What a code resolved to before joining. Null until `useLookUpInvite` has run. */
+export const usePreview = () => useObservable(useRepository().event.preview);
 export const useFeed = () => useObservable(useRepository().chat.feed);
 export const useSchedule = () => useObservable(useRepository().schedule.items);
 export const useQueue = () => useObservable(useRepository().music.queue);
@@ -61,4 +65,33 @@ export function useNowNext() {
     now: idx === -1 ? null : schedule[idx]!,
     next: idx === -1 ? null : (schedule[idx + 1] ?? null),
   };
+}
+
+/* ------------------------------------------------------------------ invitation */
+
+/**
+ * Resolve `?code=` into `event.preview`, once, on arrival.
+ *
+ * ONLY FROM A LINK OR A QR. It deliberately does not fire while someone types: a
+ * lookup per keystroke would mint an anonymous auth user for every half-typed code
+ * and turn the join field into a code-guessing probe with the rate limit as its only
+ * brake. Somebody who followed a link has already been given the code by whoever is
+ * running the event.
+ *
+ * THE EFFECT SETS NO STATE. It calls one repository method, and the answer arrives
+ * through the observable that `usePreview` already reads. That is not tidiness -- the
+ * React Compiler rules reject `setState` inside an effect, and they are right to: the
+ * version that keeps a local copy has two sources of truth for the same lookup.
+ *
+ * A failure is swallowed on purpose. The consequence of a preview that does not load
+ * is a screen that says "An event", which is exactly what this screen said before the
+ * lookup existed. Raising a toast for it would interrupt someone who came here to
+ * type a nickname, over a thing they never asked for.
+ */
+export function useLookUpInvite(code: string | undefined): void {
+  const repo = useRepository();
+  useEffect(() => {
+    if (!code?.trim()) return;
+    void repo.event.lookUp(code).catch(() => {});
+  }, [repo, code]);
 }

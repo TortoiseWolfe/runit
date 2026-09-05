@@ -19,6 +19,9 @@ import type { Seed } from '../MemoryRepository';
  */
 export const emptySeed: Seed = {
   event: null,
+  // No event AND no code. `invitedSeed` is the neighbouring world -- no event, but a
+  // code from a link that resolves to one.
+  preview: null,
   hosts: [],
   broadcasts: [],
   schedule: [],

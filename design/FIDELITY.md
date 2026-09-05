@@ -689,3 +689,70 @@ Also corrected while here: `removeChannel()` does **not** leave the socket open 
 passes only `eventsPerSecond`, so we inherit it. The explicit `disconnect()` buys
 *immediate* rather than *deferred*, which is worth having across a room of phones — a
 smaller claim than the one originally written down.
+
+## S. The invitation carries a date, and the event's details became editable
+The canvas draws the join screen as a poster. Line 44 of `Runit.dc.html` is one string —
+`Sat, Oct 17 · Doors 4:00 PM · Willow Barn` — sitting under the event name, above a
+`+ Add to calendar` pill. It is a prototype for one reader, so those are literals in a
+`state` block and there is nothing anywhere that edits them.
+
+The app inherited both halves of that, and both stopped being design choices the moment a
+real person opened a link on an iPhone: *"first button doesn't even work, I can't add the
+invite to my calendar, who set the date and where."* Three complaints, one sentence, two
+issues — #15 and #14.
+
+**`doorsLabel` was carrying a date and a venue, and now carries neither.** It was the
+canvas's whole subtitle, transcribed. It held the date because nothing could derive one —
+`formatClock` rendered a time and there was no formatter anywhere in the app that could
+render a *day*. `formatEventDate` is that formatter, so JoinScreen now composes
+`date · doors · venue` from three fields and `doorsLabel` means what its name says.
+
+That is not cosmetics. **A date stored as prose cannot disagree with `starts_at` out loud
+— it disagrees silently.** `HOUSE7` on the live project held a start time of **11:13 AM**
+under a label reading "Doors 7:00 PM", because `seed-events.sql` wrote `now() + interval
+'7 days'` and nothing ever rendered the result. The moment the invitation derives its date
+and the calendar pill exports it, that becomes a wrong entry in a guest's calendar. The
+seed is now anchored to the next Friday at 19:00 *venue-local*, and a host can correct it.
+
+**The preview is poorer than the event, deliberately.** `event_preview` returns id, code,
+name, venue, `starts_at`, timezone and `doors_label` — and withholds `tier` and every
+count. The fine print three lines down the same screen promises *"guests can't see each
+other"*, and a headcount for a room you have not entered is the first crack in it. So an
+invitation names the event and does not say how many people are already inside. The pill
+returns the instant you join. `EventPreview` is a `Pick<RunitEvent, …>` rather than its own
+interface so it cannot drift, and `previewOf` in the fixtures exists because assigning a
+whole `RunitEvent` to it typechecks — TypeScript only runs excess-property checks on
+literals — and would hand the fake a tier the RPC never sent.
+
+**A fifth host segment, where the canvas drew three.** `Runit.dc.html:215` is a three-up
+grid: Broadcast, DJ queue, Photos. Reports was the first divergence (Guideline 1.2 asks for
+timely responses, and a queue you have to go looking for is not one you answer). `/host/event`
+is the second, and it is where event-level settings will keep accumulating — tier, invitees,
+co-hosts. It is a scrolling document rather than a sheet, because note Q's decision table
+already settled that: anything under `/host/*` sits below `HostConsoleChrome`, so it takes
+`automaticallyAdjustKeyboardInsets`, not a `KeyboardAvoidingView` that would need a
+hand-measured header height.
+
+**Typed date and time, not a picker.** `@react-native-community/datetimepicker` is a native
+module with no web support, so Lane B, the screenshot lane and the contrast gate would all
+go blind on exactly the one screen where a wrong value is expensive. A text field is worse
+to use and honestly measurable, and the reading under the fields — `Fri, Sep 11 · 7:00 PM` —
+is what a host actually checks. `wallClockToInstant` was promoted out of `wedding.ts`
+rather than rewritten, because that converter was already proven on Hermes; note M records
+what the string round-trip did there. It gained a **second pass**, which is not decoration:
+across a spring-forward boundary one pass puts 3:00 AM an hour out, and a test fails if
+anybody removes it.
+
+**What proved this, and what could not.** Lane B runs `MemoryRepository`, so all 170
+journeys say nothing about whether the column grant was widened or whether `event_preview`
+is reachable by a non-member — against Supabase a non-host's UPDATE affects zero rows and
+raises nothing, which no assertion in `tests/e2e/` can see. **Lane E is what proves it**,
+and it now does: 45 assertions, 0 failures, run live. Including that a non-member gets one
+row from `event_preview`, that it leaks no counts, that all five columns write, and that a
+host still gets 42501 on `tier`, on `code`, and on the run-of-show cursor.
+
+Lane E also turned out not to have been running at all — see issue #31. A setup line raised
+42501 outside an exception handler and aborted the `DO` block, so every assertion past the
+folders section had never executed once, and the lane skips silently without a database URL.
+The three new tests here were mutation-checked instead of trusted: deleting the lookup,
+reverting the composed subtitle, and no-oping the save each fail the tests that name them.

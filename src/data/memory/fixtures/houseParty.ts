@@ -13,10 +13,23 @@
  *   FULL DJ queue    -> accept, decline, mark played and play next all work here.
  *                       They were gated once; see the note in MemoryRepository.
  */
+import { wallClockToInstant } from '@/lib/format';
+
 import type { Seed } from '../MemoryRepository';
+import { previewOf } from './preview';
 
 const DAY = '2026-11-08';
-const at = (hhmm: string) => `${DAY}T${hhmm}:00.000Z`;
+const ZONE = 'America/New_York';
+
+/**
+ * Wall clock AT THE FLAT, not UTC wearing its clothes.
+ *
+ * This read `${DAY}T${hhmm}:00.000Z` until the invitation started rendering a real
+ * date beside the doors line: 19:00Z is 2:00 PM in New York, so every clock in this
+ * fixture sat five hours away from the label above it and nothing displayed both at
+ * once to notice. Same bug wedding.ts fixed, same fix. FIDELITY note M.
+ */
+const at = (hhmm: string) => wallClockToInstant(DAY, hhmm, ZONE);
 
 export const housePartySeed: Seed = {
   event: {
@@ -25,8 +38,8 @@ export const housePartySeed: Seed = {
     name: 'Taco night',
     venue: 'The flat',
     startsAt: at('19:00'),
-    timezone: 'America/New_York',
-    doorsLabel: 'Sat, Nov 8 · 7:00 PM · The flat',
+    timezone: ZONE,
+    doorsLabel: 'Doors 7:00 PM',
     tier: 'house_party',
     activeFolderId: 'fld_all',
     nowScheduleItemId: 'sch_h2',
@@ -55,5 +68,8 @@ export const housePartySeed: Seed = {
   nowPlaying: null,
   folders: [{ id: 'fld_all', name: 'Tonight', position: 1, photoCount: 98 }],
   pendingPhotos: [],
+  preview: null, // derived below, from the event above.
   nextPhotoSeq: 1,
 };
+
+housePartySeed.preview = previewOf(housePartySeed.event!);

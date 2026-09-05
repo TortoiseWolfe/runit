@@ -219,9 +219,15 @@ for (const scheme of ['dark', 'light']) {
   await page.waitForSelector('[data-testid="host-broadcast"]', { timeout: 30_000 });
   await shot('03-host-broadcast');
 
-  for (const [seg, name] of [['dj', '03-host-dj'], ['photos', '03-host-photos']]) {
+  // The testID of the panel is not always the segment name -- /host/event renders
+  // `host-event-details` -- so the pair carries both rather than deriving one.
+  for (const [seg, panel, name] of [
+    ['dj', 'dj', '03-host-dj'],
+    ['photos', 'photos', '03-host-photos'],
+    ['event', 'event-details', '03-host-event'],
+  ]) {
     await page.click(`[data-testid="host-segment-${seg}"]`);
-    await page.waitForSelector(`[data-testid="host-${seg}"]`, { timeout: 30_000 });
+    await page.waitForSelector(`[data-testid="host-${panel}"]`, { timeout: 30_000 });
     await shot(name);
   }
 

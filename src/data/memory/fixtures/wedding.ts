@@ -10,7 +10,10 @@
  * date, so the feed can actually sort. Run-of-show keeps wall-clock labels,
  * because that is genuinely what a schedule board shows.
  */
+import { wallClockToInstant } from '@/lib/format';
+
 import type { Seed } from '../MemoryRepository';
+import { previewOf } from './preview';
 
 /**
  * The seeded event happened YESTERDAY, and that is load-bearing.
@@ -30,11 +33,11 @@ import type { Seed } from '../MemoryRepository';
  * have vanished with nothing fixed and no one any wiser. Anchoring to yesterday is
  * correct on every future run instead of on all but one.
  *
- * `doorsLabel` below is a literal string and does not derive from this, so the
- * invite still reads "Sat, Oct 17" -- the canvas is already internally
- * inconsistent about time (see the note under `minutesAgo`), and this changes
- * nothing a guest sees. The clock labels stay 4:10/5:45/7:02 PM because those come
- * from the fixed `hhmm` below, not from the date.
+ * `doorsLabel` no longer carries the date. It used to read the canvas's whole
+ * subtitle -- "Sat, Oct 17 · Doors 4:00 PM · Willow Barn" -- because nothing could
+ * derive a day or repeat a venue. `formatEventDate` can, so the label is now just the
+ * doors line and the invitation composes the three parts itself. That also means the
+ * date it shows finally MOVES with this constant instead of contradicting it.
  */
 const DAY = new Date(Date.now() - 24 * 60 * 60_000).toISOString().slice(0, 10);
 
@@ -50,40 +53,11 @@ const ZONE = 'America/New_York';
  * the conversion, so a runtime instant and a seeded one are finally the same kind
  * of value.
  *
- * The offset is measured rather than hardcoded, because DAY moves and a fixed
- * -04:00 would be an hour out for half the year.
+ * The conversion itself now lives in `src/lib/format.ts`, because a host setting a
+ * date performs exactly the same one and two copies of it would drift. This fixture
+ * is where it was written and proven on Hermes; it just is not fixture-only any more.
  */
-function at(hhmm: string): string {
-  const guess = new Date(`${DAY}T${hhmm}:00.000Z`);
-
-  // formatToParts, NOT `new Date(d.toLocaleString(...))`. The string round-trip is
-  // the usual recipe for this and it works fine under Node -- which is why 144
-  // jest tests passed over it -- but Hermes produces a locale string `Date`
-  // cannot parse, so the app died on launch with "Date value out of bounds".
-  // Reading numeric parts never round-trips through a parser at all.
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: ZONE,
-    hour12: false,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  }).formatToParts(guess);
-  const part = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? 0);
-
-  // `hour` can come back as 24 for midnight under hour12:false; % 24 normalises it.
-  const wallAsUtc = Date.UTC(
-    part('year'),
-    part('month') - 1,
-    part('day'),
-    part('hour') % 24,
-    part('minute'),
-    part('second'),
-  );
-  return new Date(guess.getTime() - (wallAsUtc - guess.getTime())).toISOString();
-}
+const at = (hhmm: string) => wallClockToInstant(DAY, hhmm, ZONE);
 
 /**
  * The canvas is internally inconsistent about time: the event is dated in the
@@ -104,7 +78,7 @@ export const weddingSeed: Seed = {
     venue: 'Willow Barn',
     startsAt: at('16:00'),
     timezone: ZONE,
-    doorsLabel: 'Sat, Oct 17 · Doors 4:00 PM · Willow Barn',
+    doorsLabel: 'Doors 4:00 PM',
     tier: 'event',
     activeFolderId: 'fld_reception',
     nowScheduleItemId: 'sch_4',
@@ -192,5 +166,10 @@ export const weddingSeed: Seed = {
     { id: 'pho_3', folderId: 'fld_reception', uploadedByGuestId: 'gst_lou', uploadedByName: 'Grandpa Lou', status: 'pending', hue: 120, localUri: null, progress: null, failureReason: null, storagePath: null, createdAt: minutesAgo(3) },
   ],
   /** Canvas: nextPending starts at 4, and hue = (nextPending * 67) % 360. */
+  preview: null, // filled below -- it derives from the event above.
   nextPhotoSeq: 4,
 };
+
+// Derived rather than written out, so a code can never preview as one thing and join
+// as another. Assigned after the literal because it reads the event out of it.
+weddingSeed.preview = previewOf(weddingSeed.event!);

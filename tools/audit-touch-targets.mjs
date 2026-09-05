@@ -48,7 +48,13 @@ const MIN_AA = 24;
  * audit-native-styles.mjs: a gate whose selector stops matching passes having
  * measured nothing, so falling below the floor is itself a failure.
  */
-const COVERAGE_FLOOR = 20;
+/*
+ * Set at the exact current count, not below it. It sat at 20 while the app carried 44
+ * interactive elements -- which meant more than half of them could have been deleted
+ * with this gate still reporting success, and a floor that loose measures nothing.
+ * A real reduction should fail here and be lowered on purpose; that is the point.
+ */
+const COVERAGE_FLOOR = 44;
 
 /** Opens an interactive element. Pressable covers this repo; Touchable* is here
  *  so the check keeps working if someone reaches for the older API. */
