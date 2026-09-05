@@ -101,8 +101,9 @@ pnpm test                       # jest
 pnpm typecheck                  # tsc --noEmit
 pnpm audit:styles               # Lane A: the RN colour-parser gate
 pnpm audit:targets              # Lane A2: touch targets, WCAG 2.2 SC 2.5.8 (AA)
+pnpm audit:keyboard             # Lane A3: keyboard strategy + return-key contract
 pnpm export:web && pnpm shots   # Lane B: screenshots at 402x874 + colour gate
-pnpm test:e2e                   # Lane B: 110 Playwright journeys, dark + light
+pnpm test:e2e                   # Lane B: 132 Playwright journeys, dark + light
 pnpm render:canvas              # regenerate design/renders/ from the canvas
 ```
 
@@ -144,6 +145,27 @@ the same coverage floor as Lane A.
 (Enhanced), Level AAA — and Apple's HIG number, which is why it gets quoted as
 though it were the standard. An audit run at the wrong level reports two dozen
 false failures and gets switched off.
+
+**A3 — static keyboard audit** (`pnpm audit:keyboard`). Same band, same doctrine: no
+lane that runs in CI can see a soft keyboard. Chromium has none to raise, and
+react-native-web renders `KeyboardAvoidingView` as a plain `View` with `behavior`
+stripped while its `View` filters `keyboardShouldPersistTaps`, `submitBehavior` and
+`automaticallyAdjustKeyboardInsets` out before they reach the DOM — so a Playwright
+assertion passes identically on a correct fix and on no fix at all.
+
+It checks that every screen holding a `TextInput` names a strategy, that every
+`ScrollView` beside one declares `keyboardShouldPersistTaps` (RN's `'never'` default
+eats the first tap on any button while the keyboard is up), and that every single-line
+input wiring `onSubmitEditing` also declares `submitBehavior` rather than inheriting
+it. It does **not** try to prove a `KeyboardAvoidingView` wraps a given input —
+JoinScreen's wraps `Screen`, in another file — for the same reason A2 refuses to
+resolve `StyleSheet.create`. FIDELITY note Q.
+
+**Android does not resize for the keyboard here**, measured rather than assumed:
+`edgeToEdgeEnabled=true` plus targetSdk 36 makes the manifest's `adjustResize` inert,
+so the IME overlays exactly as on iOS. `/android` is gitignored prebuild output, so
+that manifest line is Expo's default and not a decision — any real change goes through
+`app.json`'s `android.softwareKeyboardLayoutMode`.
 
 **A — static style audit** (`pnpm audit:styles`). The only check that catches a
 colour RN cannot parse. Has a coverage floor: if it audits fewer literals than
@@ -324,6 +346,13 @@ that lives in a button handler is bypassed by the second caller.
   testID and `patchRequest` — which matches by id — patched both. Removing a
   vote from the new song pulled the seeded one down with it. If you add a seed,
   you inherit the fix; if you replace the id scheme, keep the property.
+- **Gboard on the AVD can come up FLOATING**, and a floating IME never resizes or
+  overlays anything — so a keyboard measurement taken against it silently "confirms"
+  whatever you expected. `adb shell pm clear com.google.android.inputmethod.latin`
+  resets it to docked. This is the same trap as `hw.keyboard = no`, one layer down.
+- **`useRef<TextInput>(null)` contains the literal `<TextInput`.** Any source-scanning
+  tool that matches `/<TextInput\b/` counts a type argument as a control. `tools/audit-keyboard.mjs`
+  requires the `<` to follow start-of-line, whitespace or a bracket for that reason.
 - `fade` (`src/theme/typography.ts`) is **per-scheme and comes from `useTheme()`**,
   not from the module import. The canvas's single ramp fails WCAG AA — the two
   schemes need different numbers because `#1F2937` on `#F5F0EB` has less headroom

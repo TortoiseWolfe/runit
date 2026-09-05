@@ -1,5 +1,7 @@
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
+} from 'react-native';
 
 import { EventHeader } from '@/features/chat/EventHeader';
 import { ReportSheet } from '@/features/moderation/ReportSheet';
@@ -102,9 +104,31 @@ export function MusicScreen() {
   };
 
   return (
-    <View style={s.wrap}>
+    /**
+     * The composer is a flex sibling AFTER the ScrollView, so it sits on the visible
+     * bottom -- and with the keyboard up it is covered, on both platforms. (Android
+     * does not resize: edgeToEdgeEnabled + targetSdk 36 makes adjustResize inert.
+     * Measured, see JoinScreen.tsx.) A KAV rather than the ScrollView's iOS keyboard
+     * insets, because the thing that must move is outside the scroll view.
+     *
+     * keyboardVerticalOffset is 0 for the same reason as on /join: this is the
+     * <Slot/> of (guest)/_layout.tsx, whose root View starts at window y=0. The KAV's
+     * frame already ends above <GuestTabBar/> -- a sibling OUTSIDE it -- so the tab
+     * bar is left under the keyboard, which is what iOS does with a tab bar during
+     * text entry.
+     */
+    <KeyboardAvoidingView behavior="padding" style={s.wrap}>
       <EventHeader eyebrow="Requests" />
-      <ScrollView style={s.scroll} contentContainerStyle={s.content} testID="music-queue">
+      {/* 'handled' so a vote or a report lands on the FIRST press while the composer
+          is focused; RN's 'never' default would spend that tap dismissing the
+          keyboard. 'on-drag' so scrolling the queue puts the keyboard away. */}
+      <ScrollView
+        style={s.scroll}
+        contentContainerStyle={s.content}
+        testID="music-queue"
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+      >
         {nowPlaying && (
           <View style={[s.nowPlaying, { backgroundColor: tokens.neutral }]}>
             <View style={[s.art, { backgroundColor: tokens.base300 }]} />
@@ -180,6 +204,14 @@ export function MusicScreen() {
           value={draft}
           onChangeText={setDraft}
           onSubmitEditing={submit}
+          returnKeyType="send"
+          /* The real defect on this line. RN's default ('blurAndSubmit') drops the
+             keyboard after EVERY request, which is wrong for a field a guest uses
+             three times in a row at a party. With 'submit' the keyboard stays up, and
+             an empty Return does nothing at all -- useMusicActions().request already
+             trims and returns early, and guest-music.spec.ts pins that the composer
+             still clears, so do NOT add a guard to submit() here. */
+          submitBehavior="submit"
           placeholder="Song – artist"
           placeholderTextColor={alpha(tokens.baseContent, fade.faint)}
           accessibilityLabel="Song and artist"
@@ -198,7 +230,7 @@ export function MusicScreen() {
           <Text style={[s.requestText, { color: tokens.primaryContent }]}>Request</Text>
         </Pressable>
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
