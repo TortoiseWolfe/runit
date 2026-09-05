@@ -165,6 +165,17 @@ export interface RunitRepository {
     claimHost(input: { code: string; key: string }): Promise<void>;
     /** The other direction, without re-running the join validation. */
     becomeGuest(): Promise<void>;
+    /**
+     * Leave the EVENT and keep the identity.
+     *
+     * The distinction from `leave()` is load-bearing rather than stylistic. `join_event`
+     * is idempotent on `(event_id, auth_user_id)`, so a re-join after this lands on the
+     * SAME guest row -- votes, photo attribution and blocks intact. Signing out first
+     * mints a new auth user, which does not conflict, which INSERTS a second row and
+     * strands the first. This is the one a screen should call.
+     */
+    closeEvent(): Promise<void>;
+    /** Leave the event AND forget who you are. Currently has no UI caller, deliberately. */
     leave(): Promise<void>;
   };
 

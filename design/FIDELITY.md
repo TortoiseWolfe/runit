@@ -593,3 +593,69 @@ why the return-key chain is treated as load-bearing rather than as polish.
 **Every iOS claim here is derived from RN's `KeyboardAvoidingView` source arithmetic,
 not measured.** There is no Mac in this environment (deviation 2). iOS is unverified
 until a TestFlight build runs on a physical phone.
+
+## R. Leaving an event, which the canvas never drew
+
+The canvas has no way out of an event, because a prototype for one reader never needs
+one. The app inherited that, and it stopped being a design choice the moment a real
+person joined `HOUSE7` on an iPhone without the optional host key: the tab bar offers
+Chat, Photos and Music; `/join` is unguarded but nothing navigates to it; and the one
+session control on screen, `RoleSwitch`, calls `becomeHost`, fails `is_host`, and
+toasts. **Deleting the app was the only exit.** Found on a device, by a person, not by
+any lane here.
+
+### `closeEvent()` and `leave()` are different operations
+
+The affordance calls **`closeEvent()`**, and the distinction is load-bearing rather
+than stylistic.
+
+`join_event` is idempotent on `(event_id, auth_user_id)`. Keep the anonymous session and
+a re-join lands on the **same** `guests` row — votes, photo attribution and blocks
+intact. Sign out first and `signInAnonymously()` mints a new `auth.uid()`, which does not
+conflict, which **inserts**: the same person twice in the guest list, the first identity
+orphaned, a second seat against the cap, and an abandoned anonymous user Supabase never
+collects. On a visible button that is one permanent `auth.users` row per tap.
+
+So `closeEvent()` tears down the eight channels, the socket and the six row caches, sets
+the session anonymous — and keeps the token. `leave()` is that plus `signOut()`, and
+keeps its zero callers until something genuinely needs to forget a person.
+
+It also unpicks a conflation: `leave()` used to answer *am I in an event* and *do I hold
+a token* on one line. `closeEvent()` answers only the first, which is what the route
+guards actually read.
+
+**No lane here could have caught the wrong choice.** `MemoryRepository` has no auth to
+sign out of, so the e2e suite — which runs Memory — would have shown "leave, re-join,
+same guest" while production doubled the row. A green board asserting the opposite of the
+truth. The guard is in `SupabaseRepository.test.ts`, against the fake that can count
+sign-ins: *join → closeEvent → join returns the same guestId*, plus an explicit assertion
+that a session still exists afterwards. Both fail if `signOut()` is ever reintroduced —
+verified by reintroducing it.
+
+### An unverified race, recorded as unverified
+
+`RealtimeClient.connect()` early-returns while `isDisconnecting()`
+(`RealtimeClient.js:197`), and `disconnect()` is async. A re-join landing in that window
+would subscribe against a socket that never opens — no error, nothing arrives, the screen
+simply stays empty. **Leaving and immediately re-entering with a host key is exactly that
+flow**, so this path is the one most likely to hit it.
+
+A Node probe against the live project subscribed immediately after `disconnect()` and got
+`SUBSCRIBED`. That is **not** an all-clear: instrumenting the client showed
+`disconnecting=false` and `connected=true` at the moment of subscribe, so the probe never
+entered the window. It measured the wrong thing and the finding is that it measured the
+wrong thing.
+
+What would settle it is a device run — close the event, re-enter within a second, then
+wait two minutes foregrounded and have a second device change something, because **the
+first screen being correct proves nothing**: the initial load is plain PostgREST and does
+not need the socket at all. That run is blocked on the emulator's input pipeline, which
+stopped delivering `input text` and `keyevent` to a demonstrably focused field with the
+IME up and no overlay stealing focus.
+
+Also corrected while here: `removeChannel()` does **not** leave the socket open forever.
+`RealtimeClient` schedules a deferred disconnect once channels reach zero, and
+`disconnectOnEmptyChannelsAfterMs` defaults to `2 * HEARTBEAT_INTERVAL`; `client.ts`
+passes only `eventsPerSecond`, so we inherit it. The explicit `disconnect()` buys
+*immediate* rather than *deferred*, which is worth having across a room of phones — a
+smaller claim than the one originally written down.

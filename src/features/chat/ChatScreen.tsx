@@ -1,8 +1,10 @@
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { useEvent, useFeed } from '@/state/hooks';
 import { alpha, border, useTheme } from '@/theme';
 import { RoleSwitch } from '@/components/ui/RoleSwitch';
+import { LeaveSheet } from '@/features/session/LeaveSheet';
 import { BroadcastBubble } from './BroadcastBubble';
 import { EventHeader } from './EventHeader';
 import { NowNextCard } from './NowNextCard';
@@ -18,6 +20,7 @@ export function ChatScreen() {
   const { tokens, fade } = useTheme();
   const feed = useFeed();
   const event = useEvent();
+  const [leaving, setLeaving] = useState(false);
 
   return (
     <View style={s.wrap}>
@@ -33,11 +36,26 @@ export function ChatScreen() {
         ))}
       </ScrollView>
       <View style={[s.footer, { borderTopColor: tokens.base300 }]}>
+        {/* The footer, not EventHeader: this is the least-trafficked surface in the app
+            and the one that already carries session-shaped controls. EventHeader is on
+            all three tabs, and a mis-tap there would drop someone out of the party. */}
+        <Pressable
+          onPress={() => setLeaving(true)}
+          accessibilityRole="button"
+          accessibilityLabel="Leave this event"
+          hitSlop={8}
+          testID="leave-event"
+        >
+          <Text style={[s.footerText, { color: alpha(tokens.baseContent, fade.faint) }]}>
+            Leave
+          </Text>
+        </Pressable>
         <Text style={[s.footerText, { color: alpha(tokens.baseContent, fade.faint) }]}>
           Announcements only · hosts post here
         </Text>
         <RoleSwitch />
       </View>
+      <LeaveSheet visible={leaving} onClose={() => setLeaving(false)} />
     </View>
   );
 }

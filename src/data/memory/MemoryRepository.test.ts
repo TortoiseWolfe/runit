@@ -379,6 +379,21 @@ describe('chat', () => {
 });
 
 describe('joining', () => {
+  /**
+   * Parity with the Supabase adapter on the one behaviour Lane B cannot feel.
+   *
+   * There is no auth here, so both methods look identical from inside this file. The
+   * point is that they EXIST separately: the e2e suite runs this adapter, and if the two
+   * were one method it would prove the wrong thing about the one that ships.
+   */
+  it('closeEvent leaves the event without pretending to be a sign-out', async () => {
+    const r = make();
+    await r.session.joinAsGuest({ code: 'SR1017', nickname: 'Ada' });
+    expect(r.session.current.get()).toMatchObject({ kind: 'guest' });
+    await r.session.closeEvent();
+    expect(r.session.current.get()).toEqual({ kind: 'anonymous' });
+  });
+
   it('rejects a code that matches no event', async () => {
     const r = make();
     await expect(r.session.joinAsGuest({ code: 'NOPE', nickname: 'Ada' })).rejects.toThrow(JoinError);

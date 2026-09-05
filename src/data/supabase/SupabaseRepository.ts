@@ -807,10 +807,52 @@ export class SupabaseRepository implements RunitRepository {
       });
     },
 
-    leave: async () => {
+    /**
+     * Leave the EVENT, and stay exactly who you are.
+     *
+     * THE DISTINCTION THIS METHOD EXISTS TO MAKE. `leave()` below signs out, and for a
+     * long time it was the only teardown -- which made "I want to go back to the join
+     * screen" and "forget me" the same operation. They are not. `join_event` is
+     * idempotent on `(event_id, auth_user_id)`, so keeping the anonymous session means a
+     * re-join lands on the SAME `guests` row: same votes, same photo attribution, same
+     * blocks. Signing out first mints a new `auth.uid()`, which does not conflict, which
+     * INSERTS -- the person appears twice, their first identity is orphaned, a second
+     * seat burns against the cap, and Supabase never collects the abandoned user.
+     *
+     * That last part is why this matters more than it looks: a visible button on a
+     * signing-out leave would be one permanent auth.users row per tap.
+     *
+     * NO OTHER LANE CAN SEE THE DIFFERENCE. MemoryRepository has no auth to sign out of,
+     * so the e2e suite -- which runs Memory -- would show "leave, re-join, same guest"
+     * while production quietly doubled the row. The test that catches a regression here
+     * is `join -> closeEvent -> join returns the same guestId`, plus the explicit
+     * assertion that a session still exists afterwards.
+     *
+     * It sets the session anonymous because that is what the route guards read to mean
+     * "not in an event". That is a different question from "do you hold a token", and
+     * `leave()` used to answer both on one line. This answers only the first.
+     */
+    closeEvent: async () => {
       await this.stopTables();
-      // Closing every channel does NOT close the socket -- removeChannel() only
-      // unsubscribes one. Without this the heartbeat outlives the event.
+      // Closing every channel does not close the socket IMMEDIATELY -- but it does
+      // close it. RealtimeClient schedules a deferred disconnect once channels reach
+      // zero, and `disconnectOnEmptyChannelsAfterMs` defaults to 2 * HEARTBEAT_INTERVAL;
+      // client.ts passes only `eventsPerSecond`, so we inherit that default. The
+      // explicit call makes it immediate rather than deferred, which is worth having
+      // across a room of backgrounded phones.
+      //
+      // A RACE IS POSSIBLE HERE AND IS NOT YET DISPROVED. RealtimeClient.connect()
+      // early-returns while isDisconnecting() (RealtimeClient.js:197) and disconnect() is
+      // async, so a re-join landing in that window would subscribe against a socket that
+      // never opens: no error, nothing arrives, the screen just stays empty. Leaving and
+      // immediately re-entering with a host key is exactly that flow.
+      //
+      // I TRIED TO REPRODUCE IT AND FAILED, and the failure does not clear it. A Node
+      // probe against the live project subscribed immediately after disconnect() and got
+      // SUBSCRIBED -- but instrumenting the client showed `disconnecting=false` and
+      // `connected=true` at that moment, so the probe never entered the window and proves
+      // nothing. The device run that would settle it is blocked on the emulator's input
+      // pipeline. Treat this as UNVERIFIED, not as safe. FIDELITY note R.
       await this.db.realtime.disconnect();
       // Fresh caches too: a stale RowCache would hand back objects belonging to
       // the event that was just left, and shallowArrayEqual would then report the
@@ -828,9 +870,22 @@ export class SupabaseRepository implements RunitRepository {
       // Blocks are per-event and per-guest. Carrying them across a leave would filter
       // the NEXT event's album against the last event's grudges.
       this.blockRows = [];
-      await this.db.auth.signOut();
       this.sigSession.set({ kind: 'anonymous' });
       this.recompute();
+    },
+
+    /**
+     * Leave the event AND forget who you are.
+     *
+     * Everything closeEvent() does, plus the sign-out. It has no caller today and does
+     * not need one for the "let me back to the join screen" case -- see closeEvent's
+     * header for why using this there would be actively wrong. It stays because a real
+     * sign-out is a real thing, and it is the half of the split that account deletion
+     * and host sign-in will need (docs/design-host-accounts.md).
+     */
+    leave: async () => {
+      await this.session.closeEvent();
+      await this.db.auth.signOut();
     },
   };
 

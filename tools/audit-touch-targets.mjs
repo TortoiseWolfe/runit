@@ -69,6 +69,19 @@ const EXCEPTIONS = [
       'geometry is load-bearing elsewhere and must not be "fixed" casually.',
   },
   {
+    file: 'src/features/session/LeaveSheet.tsx',
+    why:
+      'The modal BACKDROP, `flex: 1` inside a <Modal>, exactly as in ReportSheet below ' +
+      'and exempt for exactly the same reason: it is the largest target in the app, it ' +
+      'is the standard tap-outside-to-dismiss affordance, and `flex: 1` resolves against ' +
+      'the modal root at runtime so there is no number in the source to read. Every ' +
+      'other control in this file declares 52 or 48 explicitly. ' +
+      'NOTE: this is the SECOND entry of this exact shape. A third means the tool should ' +
+      'learn the pattern -- a Pressable whose only style is `flex: 1` directly inside a ' +
+      '<Modal> -- rather than this list growing one sheet at a time. Matching on the ' +
+      'NAME "backdrop" would not do: a name is not a measurement.',
+  },
+  {
     file: 'src/features/moderation/ReportSheet.tsx',
     why:
       'The only flagged element is the modal BACKDROP, whose style is `flex: 1` inside ' +

@@ -422,8 +422,21 @@ export class MemoryRepository implements RunitRepository {
         nickname: s.kind === 'guest' ? s.nickname : 'you',
       });
     },
-    leave: async () => {
+    /**
+     * Parity with the Supabase adapter, and the parity is the point.
+     *
+     * There is no auth here to keep or discard, so closeEvent and leave would otherwise
+     * be indistinguishable -- and Lane B runs THIS adapter. If the two were left as one
+     * method, the e2e suite would prove "leave, re-join, same guest" while the real
+     * backend signed out and doubled the row. Both exist so the seam stays honest about
+     * a difference the fixture cannot feel.
+     */
+    closeEvent: async () => {
       this.sigSession.set({ kind: 'anonymous' });
+    },
+
+    leave: async () => {
+      await this.session.closeEvent();
     },
   };
 

@@ -353,6 +353,52 @@ describe('realtime lifecycle', () => {
     expect(repo.event.current.get()).toBeNull();
     expect(repo.session.current.get()).toEqual({ kind: 'anonymous' });
   });
+
+  /**
+   * THE ASSERTION THIS FILE MOST NEEDS.
+   *
+   * closeEvent() must NOT sign out. join_event is idempotent on
+   * (event_id, auth_user_id), so keeping the session means a re-join returns the SAME
+   * guests row. Sign out first and the new auth.uid() does not conflict -- it INSERTS:
+   * the guest appears twice, their first identity is orphaned, a second seat burns
+   * against the cap, and an abandoned anonymous user is left behind forever.
+   *
+   * No other lane can see this. MemoryRepository has no auth to sign out of, so the e2e
+   * suite would show the correct behaviour while production doubled the row.
+   */
+  it('closeEvent keeps the identity, so a re-join lands on the SAME guest row', async () => {
+    const c = ready();
+    const repo = await join(c);
+    const first = repo.session.current.get();
+
+    await repo.session.closeEvent();
+    expect(c.signOutCalls).toBe(0);
+
+    await repo.session.joinAsGuest({ code: 'test01', nickname: 'Ada' });
+    expect(repo.session.current.get()).toEqual(first);
+    // One sign-in for the original join and none since: the second join reused the
+    // session rather than minting a second anonymous user.
+    expect(c.signInCalls).toBe(1);
+  });
+
+  it('still has a session after closeEvent, which is what makes the re-join idempotent', async () => {
+    const c = ready();
+    const repo = await join(c);
+    await repo.session.closeEvent();
+    // Pinned as an explicit property rather than left emergent, so a refactor that
+    // reintroduces signOut() into this path fails here instead of silently doubling rows.
+    const { data } = await c.auth.getSession();
+    expect(data.session).not.toBeNull();
+  });
+
+  it('closeEvent tears the transport down exactly as leave does', async () => {
+    const c = ready();
+    const repo = await join(c);
+    expect(c.channels.length).toBe(8);
+    await repo.session.closeEvent();
+    expect(c.channels.every((ch) => ch.removed)).toBe(true);
+    expect(c.disconnectCalls).toBe(1);
+  });
 });
 
 /* ------------------------------------------------- writes with no server route */

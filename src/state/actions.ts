@@ -102,6 +102,28 @@ export function useJoinActions() {
   );
 }
 
+/**
+ * Leaving the event, which is the only session write a guest can make.
+ *
+ * closeEvent rather than leave: see LeaveSheet's header and the seam's own doc. The
+ * navigation is here rather than in the sheet because every other action in this file
+ * routes from here too, and a screen that both mutates the session and decides where to
+ * go afterwards is the shape that made /join unreachable in the first place.
+ */
+export function useSessionActions() {
+  const repo = useRepository();
+  const router = useRouter();
+  return useMemo(
+    () => ({
+      closeEvent: async () => {
+        await repo.session.closeEvent();
+        router.replace('/join');
+      },
+    }),
+    [repo, router],
+  );
+}
+
 export function useMusicActions() {
   const repo = useRepository();
   const { show } = useToast();

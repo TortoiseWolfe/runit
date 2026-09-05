@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
-import { TOKENS, WEDDING, open, switchToHost } from './helpers';
+import { TOKENS, WEDDING, joinAsGuest, open, switchToHost } from './helpers';
 
 /**
  * Artboard 01 -> Chat: getting into the event.
@@ -284,6 +284,47 @@ test.describe('Join', () => {
     // the whole point: a seed of 173 that never increments fails at the FIRST
     // one. "Once per join, not once per attempt" is covered separately by the
     // host-console round trip below.
+  });
+});
+
+test.describe('Join · leaving', () => {
+  /**
+   * The trap this closes: a guest who joined WITHOUT the optional host key had no route
+   * out. The tab bar is Chat/Photos/Music, /join is unguarded but nothing navigates to
+   * it, and RoleSwitch's becomeHost fails and toasts. Deleting the app was the only exit,
+   * and it was found on a real iPhone rather than here.
+   *
+   * WHAT THIS CANNOT SEE, said plainly: whether leaving preserves the guest's IDENTITY.
+   * That is the whole reason the screen calls closeEvent() rather than leave() -- keeping
+   * the anonymous session is what makes a re-join land on the same guests row instead of
+   * inserting a second one. MemoryRepository, which this suite runs, has no auth to sign
+   * out of, so it would pass either way. The assertion that catches a regression there is
+   * in SupabaseRepository.test.ts, against the fake that can count sign-ins.
+   */
+  test('a guest can leave, and lands back on the join screen with the tabs gone', async ({ page }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await open(page, scheme);
+    await joinAsGuest(page, scheme, 'Ada');
+    await expect(page.getByTestId('chat-feed')).toBeVisible();
+
+    await page.getByTestId('leave-event').click();
+    await expect(page.getByTestId('leave-sheet')).toBeVisible();
+    await page.getByTestId('leave-confirm').click();
+
+    await expect(page).toHaveURL(/\/join$/);
+    await expect(page.getByTestId('join-submit')).toBeVisible();
+    // The tab bar belongs to the guest layout, which an anonymous session must not reach.
+    await expect(page.getByTestId('tab-chat')).toHaveCount(0);
+  });
+
+  test('the sheet can be dismissed without leaving', async ({ page }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await open(page, scheme);
+    await joinAsGuest(page, scheme, 'Ada');
+    await page.getByTestId('leave-event').click();
+    await page.getByTestId('leave-cancel').click();
+    await expect(page.getByTestId('leave-sheet')).toHaveCount(0);
+    await expect(page.getByTestId('chat-feed')).toBeVisible();
   });
 });
 
