@@ -76,6 +76,9 @@ environment. See `CLAUDE.md` for what the checks do and do not cover.
 | `src/domain/` | pricing tiers and entitlement checks |
 | `src/theme/` | oklch conversion, tokens, provider |
 
-The app runs entirely on an in-memory repository today. Screens depend on the
-`RunitRepository` interface and never on an implementation, so a Supabase
-adapter drops in without touching a screen — see `src/data/supabase/README.md`.
+Screens depend on the `RunitRepository` interface and never on an
+implementation. Two adapters satisfy it: an in-memory one, and a Supabase one
+selected by `EXPO_PUBLIC_BACKEND=supabase` (`src/data/supabase/README.md`).
+The in-memory adapter is what every test and screenshot runs against, which is
+both why the suite is fast and why a green board says nothing about the adapter
+that ships — issue #20.

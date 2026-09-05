@@ -497,8 +497,13 @@ export class MemoryRepository implements RunitRepository {
       if (!host) throw new Error('no host to author the broadcast');
 
       // Degrade rather than reject. Refusing to post an announcement because
-      // the plan cannot PIN it would be hostile; the toggle was already locked
-      // in the UI, so this is defence in depth.
+      // the plan cannot PIN it would be hostile.
+      //
+      // This used to say the toggle was already locked in the UI, so this was
+      // defence in depth. It is not: `BroadcastPanel.tsx` renders an ungated
+      // Pressable and imports no entitlements at all. This IS the only gate --
+      // and only in this adapter. SupabaseRepository.chat.send never reads the
+      // flag, so a free-tier host CAN pin against the real backend. Issue #21.
       const e = this.computeEntitlements();
       const canPin = pinned && checkFeature(e, 'pinnedAnnouncements').allowed;
       const canPush = push && checkFeature(e, 'pushNotifications').allowed;

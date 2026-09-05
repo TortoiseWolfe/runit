@@ -130,7 +130,7 @@ export default function RootLayout() {
   /**
    * The one place an implementation is named.
    *
-   * NOT a straight swap, and the reason is worth stating: all 98 e2e runs boot
+   * NOT a straight swap, and the reason is worth stating: all 142 e2e runs boot
    * `dist/` against `weddingSeed` through MemoryRepository, with a webServer that
    * only serves static files. Repointing this line unconditionally would make the
    * whole Playwright suite depend on a live network and a seeded database -- so
@@ -138,9 +138,10 @@ export default function RootLayout() {
    *
    * So the backend is chosen by env. EXPO_PUBLIC_* is inlined by Metro at bundle
    * time, so a build made without it does not contain the Supabase branch at all;
-   * the harness never sets it and keeps its 98 runs unchanged. The honest cost is
+   * the harness never sets it and keeps its 142 runs unchanged. The honest cost is
    * that those runs then prove nothing about the adapter, which is what the
-   * two-devices-on-one-code gate exists to cover.
+   * two-devices-on-one-code gate exists to cover -- and issue #20, which is the
+   * standing proposal to close it with a throwaway project rather than a device.
    */
   const repository = useMemo(
     () =>

@@ -1,8 +1,10 @@
 # Supabase adapter — contract
 
-The **database exists**; the TypeScript adapter does not. This file records what
-an implementation has to satisfy so the interface does not need reshaping when
-it lands.
+Both halves exist now: the database, and `SupabaseRepository.ts`. This file
+remains the **contract** — what an implementation has to satisfy — because the
+adapter is not the only thing that will ever read it, and because two of its
+requirements are still unmet (server-side `maxGuests`, issue #22; and the three
+entitlements enforced only in the in-memory adapter, issue #21).
 
 ## The live project
 
