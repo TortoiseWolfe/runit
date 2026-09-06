@@ -70,6 +70,18 @@ create table public.guests (
   -- The anonymous auth user. One guest row per signed-in identity per event.
   auth_user_id uuid not null references auth.users(id) on delete cascade,
   nickname     text not null,
+  -- The Expo push token for THIS person's device at THIS event (#27). Nullable, and
+  -- stays null for anyone who declines the permission or is on a device that cannot
+  -- receive -- a notification is a courtesy, never a precondition for using the app.
+  --
+  -- WRITTEN ONLY BY `set_push_token`, never by a client UPDATE. `guests` has no SELECT
+  -- policy, and Postgres applies SELECT policies to the rows an `UPDATE ... WHERE` must
+  -- read to evaluate its WHERE -- so a direct update matches zero rows and raises
+  -- nothing. PostgREST always emits a WHERE. See issue #36; measured, not reasoned.
+  --
+  -- READ ONLY BY THE FAN-OUT, which runs as the owner. No client may read any token,
+  -- their own included: a token is a routable address for a person's device.
+  push_token   text,
   created_at   timestamptz not null default now(),
   unique (event_id, auth_user_id)
 );
@@ -386,6 +398,212 @@ $$;
 
 revoke execute on function public.event_preview(text) from public, anon;
 grant  execute on function public.event_preview(text) to authenticated;
+
+
+-- ------------------------------------------------------------------------
+-- PUSH TOKENS (#27)
+-- ------------------------------------------------------------------------
+--
+-- A GUEST HANDS IN A TOKEN THROUGH A FUNCTION, not through an UPDATE, and that is
+-- forced rather than stylistic. `guests` has no SELECT policy; Postgres applies SELECT
+-- policies to the rows an `UPDATE ... WHERE` must read in order to evaluate its WHERE,
+-- and PostgREST always emits a WHERE. A direct `update guests set push_token = ...`
+-- therefore matches ZERO ROWS AND RAISES NOTHING -- the silent shape `assertWrote()`
+-- exists to catch, arriving on every device forever. Issue #36 has the measurement.
+--
+-- It is scoped to the caller's own seat at ONE event. The token is not global: a person
+-- at two events has two guest rows, and revoking at one must not silence the other.
+create or replace function public.set_push_token(p_event uuid, p_token text)
+returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  v_guest uuid;
+begin
+  if auth.uid() is null then
+    raise exception 'not authenticated' using errcode = '28000';
+  end if;
+
+  select g.id into v_guest
+    from public.guests g
+   where g.event_id = p_event and g.auth_user_id = auth.uid();
+
+  -- A HOST HAS NO `guests` ROW. Founders reach the console without joining, so this is
+  -- a real state with an empty answer rather than an error -- the same shape `loadBlocks`
+  -- uses. Raising here would break the host console on first open.
+  if v_guest is null then
+    return;
+  end if;
+
+  -- NULL clears it, which is how a guest turns notifications off: the same call with no
+  -- token, rather than a second function that could drift from this one.
+  update public.guests
+     set push_token = nullif(btrim(coalesce(p_token, '')), '')
+   where id = v_guest;
+end $$;
+
+revoke execute on function public.set_push_token(uuid, text) from public, anon;
+grant  execute on function public.set_push_token(uuid, text) to authenticated;
+
+-- A COLUMN GRANT ON `guests`, which it has never had. Every other write target narrows
+-- its UPDATE this way -- `events` (:events grant), `broadcasts`, `reports` -- and `guests`
+-- was the exception. `guests_update_self` permits a whole ROW, so without this a guest
+-- could set their own `event_id` and walk their seat into another party, routing around
+-- `join_event`'s code check AND its guest cap (#22).
+--
+-- It is not exploitable today for an unrelated reason -- the missing SELECT policy makes
+-- `UPDATE ... WHERE` match nothing (#36) -- which is exactly why the grant should exist
+-- anyway: the day somebody adds a select-own policy, the hole opens silently.
+--
+-- `push_token` is named here for completeness, not because the client uses it: writes go
+-- through `set_push_token`, which is SECURITY DEFINER and unaffected by table grants.
+revoke update on public.guests from authenticated, anon;
+grant  update (nickname, push_token) on public.guests to authenticated;
+
+
+-- ------------------------------------------------------------------------
+-- PUSH FAN-OUT (#27)
+-- ------------------------------------------------------------------------
+--
+-- pg_net is the FIRST extension this file has ever turned on. It is async: the request
+-- is queued and flushed on commit, so a rolled-back broadcast sends nothing.
+create extension if not exists pg_net with schema extensions;
+
+-- WHY A TRIGGER RATHER THAN A CALL FROM THE CLIENT.
+--
+-- A client-invoked send is not a check, it is a side effect -- but it fails the same way
+-- a client-side check does, in both directions. A second caller can insert a broadcast
+-- through the SDK and simply never call the function (announcement sent, nobody buzzed,
+-- silently); and it can call the function WITHOUT inserting, which would make the sender
+-- a second authority on who may address the room. The tokens are unreadable to every
+-- client, so that function would have to hold a service key and re-implement `is_host`
+-- outside the schema. The GRANTS section of this file exists to argue against exactly
+-- that class of second route.
+--
+-- A trigger fires on a row RLS has already admitted, so authorisation is settled before
+-- the request is even built. Same reasoning as `fold_pin_to_plan`.
+--
+-- IT MUST NEVER FAIL THE INSERT. Losing a host's announcement because a notification
+-- could not be queued is precisely backwards -- the announcement is the thing she came
+-- to send. Every failure path here returns normally.
+create or replace function public.fan_out_push() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  v_url    text;
+  v_key    text;
+  v_ok     boolean;
+  v_title  text;
+begin
+  -- THE TIER GATE, and it is why `tier_limits.push_notifications` exists at all. A flag
+  -- nothing reads gates nothing; this is the read that makes it real.
+  select tl.push_notifications into v_ok
+    from public.tier_limits tl
+    join public.events e on e.tier = tl.tier
+   where e.id = new.event_id;
+  if not coalesce(v_ok, false) then
+    return null;
+  end if;
+
+  -- Secrets live in Vault, never in this file. Absent = not configured yet, which is a
+  -- normal state before someone wires the credentials, not an error.
+  select decrypted_secret into v_url from vault.decrypted_secrets where name = 'push_fanout_url';
+  select decrypted_secret into v_key from vault.decrypted_secrets where name = 'push_fanout_key';
+  if v_url is null or v_key is null then
+    return null;
+  end if;
+
+  select e.name into v_title from public.events e where e.id = new.event_id;
+
+  perform net.http_post(
+    url     := v_url,
+    headers := jsonb_build_object(
+                 'Content-Type', 'application/json',
+                 'Authorization', 'Bearer ' || v_key
+               ),
+    body    := jsonb_build_object(
+                 'event_id', new.event_id,
+                 'title',    coalesce(v_title, 'Runit'),
+                 'body',     new.body,
+                 'kind',     new.kind
+               )
+  );
+  return null;
+end $$;
+
+revoke execute on function public.fan_out_push() from public, anon, authenticated;
+
+-- AFTER insert, and after only. A pin can be folded before the row lands because the row
+-- is what is being written; a notification is about a row that already exists.
+--
+-- ONE TRIGGER COVERS TWO OF THE THREE THINGS THAT SHOULD BUZZ, because `start_schedule_item`
+-- posts a `schedule_started` broadcast rather than notifying separately -- so host
+-- announcements and run-of-show cues arrive through the same door. `kind` is in the payload
+-- so the client can tell them apart.
+create trigger broadcasts_fan_out_push
+  after insert on public.broadcasts
+  for each row execute function public.fan_out_push();
+
+
+-- "YOUR SONG IS NEXT", the one notification addressed to a PERSON rather than the room.
+--
+-- Separate function rather than a branch inside `fan_out_push`, because the two differ in
+-- the thing that matters: this one carries a `guest_id`, which the Edge Function uses to
+-- narrow the token query to one row. A single function taking an optional guest would
+-- read as "sometimes everyone", and the failure mode of getting that wrong is telling a
+-- whole wedding that their song is next.
+create or replace function public.fan_out_song_push() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  v_url text; v_key text; v_ok boolean; v_title text;
+begin
+  -- Only the pending -> accepted edge. An UPDATE that leaves the status alone (a vote
+  -- fold, a rename) must not re-notify, and `played`/`declined` are not good news.
+  if new.status <> 'accepted' or old.status = 'accepted' then
+    return null;
+  end if;
+
+  -- A request from a guest who has since left has no addressee. Nothing to send.
+  if new.requested_by_guest_id is null then
+    return null;
+  end if;
+
+  select tl.push_notifications into v_ok
+    from public.tier_limits tl
+    join public.events e on e.tier = tl.tier
+   where e.id = new.event_id;
+  if not coalesce(v_ok, false) then
+    return null;
+  end if;
+
+  select decrypted_secret into v_url from vault.decrypted_secrets where name = 'push_fanout_url';
+  select decrypted_secret into v_key from vault.decrypted_secrets where name = 'push_fanout_key';
+  if v_url is null or v_key is null then
+    return null;
+  end if;
+
+  select e.name into v_title from public.events e where e.id = new.event_id;
+
+  perform net.http_post(
+    url     := v_url,
+    headers := jsonb_build_object(
+                 'Content-Type', 'application/json',
+                 'Authorization', 'Bearer ' || v_key
+               ),
+    body    := jsonb_build_object(
+                 'event_id', new.event_id,
+                 'guest_id', new.requested_by_guest_id,
+                 'title',    coalesce(v_title, 'Runit'),
+                 'body',     'Your song is coming up: ' || new.title,
+                 'kind',     'song_accepted'
+               )
+  );
+  return null;
+end $$;
+
+revoke execute on function public.fan_out_song_push() from public, anon, authenticated;
+
+create trigger song_requests_fan_out_push
+  after update on public.song_requests
+  for each row execute function public.fan_out_song_push();
 
 -- ========================================================================
 -- HOST ACTIONS -- the guards live here, not in a button handler
@@ -1173,11 +1391,12 @@ create table public.tier_limits (
   -- tier; this is about a co-host SEAT wearing a role, which is a different product.
   host_roles  boolean not null,
   -- Whether an announcement may be pinned to the top of every guest's feed.
-  --
-  -- Only the flags the SERVER can actually enforce belong in this table. `pushNotifications`
-  -- deliberately is not here: push does not exist (#27), and a column claiming to gate it
-  -- would be a second place asserting a capability nothing has.
-  pinned_announcements boolean not null default false
+  pinned_announcements boolean not null default false,
+  -- Whether the fan-out actually sends (#27). This column did not exist while push did
+  -- not exist -- a column claiming to gate a capability nothing has is a second place
+  -- asserting a fiction. It exists now because `fan_out_push` READS it, which is the
+  -- only thing that makes a gate a gate.
+  push_notifications   boolean not null default false
 );
 
 alter table public.tier_limits enable row level security;
@@ -1188,16 +1407,17 @@ create policy tier_limits_read on public.tier_limits for select using (true);
 revoke insert, update, delete on public.tier_limits from authenticated, anon;
 
 insert into public.tier_limits
-  (tier, max_guests, max_hosts, max_photos, max_folders, host_roles, pinned_announcements)
-values ('house_party',   10,    1,  100,    1, false, false),
-       ('party',         50,    2, 1000,    3, false, false),
-       ('event',        300,    5, null,   10, true,  true),
-       ('venue',       3000, null, null, null, true,  true)
+  (tier, max_guests, max_hosts, max_photos, max_folders, host_roles, pinned_announcements, push_notifications)
+values ('house_party',   10,    1,  100,    1, false, false, false),
+       ('party',         50,    2, 1000,    3, false, false, false),
+       ('event',        300,    5, null,   10, true,  true,  true),
+       ('venue',       3000, null, null, null, true,  true,  true)
 on conflict (tier) do update set
   max_guests  = excluded.max_guests,  max_hosts   = excluded.max_hosts,
   max_photos  = excluded.max_photos,  max_folders = excluded.max_folders,
   host_roles  = excluded.host_roles,
-  pinned_announcements = excluded.pinned_announcements;
+  pinned_announcements = excluded.pinned_announcements,
+  push_notifications   = excluded.push_notifications;
 
 -- Minting a second host seat, and the key that redeems it.
 --

@@ -87,12 +87,13 @@ describe('checkFeature', () => {
     expect(firstTierWith('requestCaps')).toBeNull();
   });
 
-  // Same shape, and it used to read `.toBe('event')`. The $79 and $599 tiers granted
-  // push while `expo-notifications` was not a dependency, so the flag gated nothing and
-  // the Event card sold it anyway (#27). The flag stays as the build target; `null` is
-  // the honest answer. Change this line the day push exists.
-  it('does not grant push to any tier, because there is no push', () => {
-    expect(firstTierWith('pushNotifications')).toBeNull();
+  // This read `.toBeNull()` while push did not exist. It exists now: `fan_out_push` is a
+  // trigger on `broadcasts` that reads `tier_limits.push_notifications`, so the flag is
+  // enforced by the same party a second client cannot route around (#27).
+  it('grants push from Event up, and enforces it in Postgres', () => {
+    expect(firstTierWith('pushNotifications')).toBe('event');
+    expect(checkFeature(ent('party'), 'pushNotifications').allowed).toBe(false);
+    expect(checkFeature(ent('event'), 'pushNotifications').allowed).toBe(true);
   });
 });
 

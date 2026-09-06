@@ -275,7 +275,7 @@ would hit.
 see row-level security behave. It runs `supabase/verify-policies.sql`, which seeds an
 event, a guest and a host inside a `DO` block, switches
 role with `set local role authenticated` and a forged `request.jwt.claims`, asserts
-**eighty-three** behaviours, and RAISES at the end so nothing commits -- the "error" it
+**ninety-five** behaviours, and RAISES at the end so nothing commits -- the "error" it
 prints IS the report.
 
 **It did not run at all until 2026-09-05, and nothing said so.** A setup line inserted
@@ -292,7 +292,7 @@ photo insert had.
 RAISE never runs, so there is no report to parse, and the unparseable case is a red gate
 that says so. And a **coverage floor** (`EXPECTED_ASSERTIONS`, the same doctrine as lanes
 A and A2) fails a run that measures less than the last one -- because "0 FAILURE(S)" over
-forty assertions and over eighty-three are the same sentence. Raise the number when you
+forty assertions and over ninety-five are the same sentence. Raise the number when you
 add assertions; that friction is the feature. What is still open in #31 is that **nothing
 re-runs it in CI** -- there is no secret store for the URL, so the lane skips there.
 
@@ -375,6 +375,12 @@ src/data/       types, the RunitRepository interface, the in-memory adapter
 src/state/      providers, read hooks, write actions
 src/domain/     tiers and entitlements
 src/theme/      the converter, tokens, provider, layout, typography
+
+supabase/functions/   Deno Edge Functions. NOT in the app's tsconfig -- they have their
+                      own globals and module specifiers, so compiling them with the React
+                      Native program reports errors about the wrong runtime. Deployed via
+                      the Supabase MCP, and `run-checks.sh` never executes one, so NO LANE
+                      HERE PROVES ONE WORKS.
 ```
 
 **The seam.** Screens depend on `RunitRepository`, never an implementation. An
@@ -410,6 +416,14 @@ that lives in a button handler is bypassed by the second caller.
   overlays anything — so a keyboard measurement taken against it silently "confirms"
   whatever you expected. `adb shell pm clear com.google.android.inputmethod.latin`
   resets it to docked. This is the same trap as `hw.keyboard = no`, one layer down.
+- **A CLIENT `UPDATE` ON `guests` MATCHES NOTHING, SILENTLY.** The table has no SELECT
+  policy, and Postgres applies SELECT policies to the rows an `UPDATE ... WHERE` must read
+  to evaluate its WHERE. PostgREST always emits a WHERE, so `from('guests').update(...)`
+  affects **zero rows and raises nothing** — on every device, forever. `assertWrote()`
+  cannot catch it either: `.select()` after the update is subject to the same missing
+  policy, so a SUCCESSFUL write also comes back empty. The guard fires on the good path and
+  is silent on the bad one. Every write to `guests` goes through a SECURITY DEFINER RPC
+  (`join_event`, `set_push_token`). Measured in #36.
 - **`useRef<TextInput>(null)` contains the literal `<TextInput`.** Any source-scanning
   tool that matches `/<TextInput\b/` counts a type argument as a control. `tools/audit-keyboard.mjs`
   requires the `<` to follow start-of-line, whitespace or a bracket for that reason.
@@ -560,13 +574,26 @@ every guest and, against Supabase, only ever refuses).
 
 **Promised and not built.** #28 (QR *scanning* — generation shipped, the scan never did).
 
-**Push is no longer promised** (#27). The two tiers that granted it, the "+ push" in the
-Event card's copy, and the `push` argument every adapter discarded are all gone; the FLAG
-stays at `false` everywhere as the build target. `src/domain/tiers.test.ts` asserts push is
-neither granted nor sold — no column in SQL, no tier granting it, no feature line — and its
-docblock says to delete that test the day push is built rather than weaken it.
+**PUSH IS BUILT** (#27). `set_push_token` stores a token on the caller's own `guests` row;
+`fan_out_push` (a trigger on `broadcasts`) and `fan_out_song_push` (on `song_requests`
+UPDATE) call the `send-push` Edge Function through `pg_net`, which reads tokens as the
+service role and posts to Expo. `tier_limits.push_notifications` is the gate and
+`fan_out_push` is what reads it, so `audit:tiers` reports `pushNotifications — SQL`. The
+"+ push" line is back on the $79 card because it is now true. FIDELITY notes Z and AA.
 
-**Do not assert that an unenforced flag is ABSENT.** Nine of them are meant to be present
+**What no lane here can prove about it, and this must not be glossed:** that a phone
+buzzes. Lane B has no push API and boots `MemoryRepository`; Lane C could witness an
+Android notification only once FCM credentials are wired; iOS is unprovable in this
+environment at all. And `pg_net` is fire-and-forget — a failed push lands in
+`net._http_response`, outside the transaction, so it is **silent**.
+
+**Two credentials only a human can supply**, both one-time, both behind an interactive
+login: an **APNs auth key** (`eas credentials`, Apple ID + 2FA) and an **FCM service
+account** (Firebase console, Google login). Plus two Vault secrets on the project,
+`push_fanout_url` and `push_fanout_key`. Until those exist the fan-out returns early and
+sends nothing — deliberately, and without failing any insert.
+
+**Do not assert that an unenforced flag is ABSENT.** Eight of them are meant to be present
 and `false`; a test demanding absence contradicts the remedy `audit:tiers` prints, and
 removes the flag from the ladder-monotonicity test that was already covering it. FIDELITY
 note Z.
