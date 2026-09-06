@@ -1088,6 +1088,28 @@ Mutation-checked, which is the only thing that makes a passing gate mean anythin
 reverting the one-line fix fails it with 18 named elements, all on `00-create-event`
 and none anywhere else.
 
+### It measures the ink, not the box — added when it flagged a screen that was fine
+
+The retention line in note AI sets `paddingHorizontal` on the `<Text>` itself, because it
+is a sibling of the album grid rather than a child of it and has no container to inherit a
+gutter from. react-native-web renders that `<Text>` as a div, so the padding insets the
+glyphs while the div's own rect still starts at **x = 0** — and the gate, reading
+`getBoundingClientRect()`, reported a defect the screen did not have. Two elements, both
+correct on screen.
+
+The fix is to measure where the characters land: for a leaf text element the gate now takes
+a `Range` over its contents and uses that rect. This cannot weaken it — a full-bleed line
+with no gutter still measures 0 either way — and the probe that proves it is the one that
+matters: with the padding the album is clean, and zeroing that padding **in the DOM**, so
+nothing else on the page moves, brings the line straight back at `left 0`.
+
+That last detail is the method, not a footnote. Deleting the padding **in the source** and
+re-running the walk fails the *colour* gate first — the line rewraps, the page gets shorter,
+and the sampled pixel lands inside a hue tile — so the run goes red without the gutter gate
+ever having been consulted. A red board is not evidence that the gate you were testing has
+teeth. Mutate in the DOM when the source mutation moves the layout out from under a
+different gate.
+
 ### The walk now includes the key panel
 
 `00-create-key` was added to `tools/shoot-app.mjs`. It is the screen in this app where a
@@ -1713,3 +1735,50 @@ flag to hang it on, and gating the only way to keep your own photograph — on a
 deletes it after thirty days — is a pricing decision with a sharp edge. It ships available
 to everyone, because that is the honest default while retention exists, and narrowing it
 later is a deliberate choice somebody makes rather than one that arrives by accident.
+
+## AI. The album says how long it lasts, and the number is real
+`albumRetentionDays` was **transcribed marketing copy with no reader anywhere** — 90 on the
+$19 tier, 365 on the $79, and `null` on the free tier, which meant *forever*. Not as a
+decision: nothing swept, so photos stayed because nobody had written the code to remove
+them. `tiers.ts` says as much about its own feature lines: *"transcribed verbatim from the
+canvas, and that is exactly how the file came to advertise eight things nothing enforces."*
+
+**The free tier is 30 days now**, and the numbers live in `tier_limits` where the drift
+guard can see them. They could not before: because these two fields had no SQL counterpart,
+`tiers.test.ts` **structurally could not cover them** — they were the only `TierLimits`
+members outside it.
+
+**`fromSql` was the wrong helper**, and the new test caught it on its first run. It maps SQL
+`null` to `Infinity`, which is the convention the numeric *caps* use (`maxGuests: INF`);
+`albumRetentionDays` is `number | null` and uses `null` for unlimited, so the venue tier
+would never have compared equal. Two conventions, both correct in their place, and a shared
+helper that quietly bridged them wrongly.
+
+### It ships after the save control, not before
+
+A deadline nobody can act on is not a warning, it is bad news. The line names the thing to
+do — *"Tap one and choose Save"* — and the thing exists (note AH), which is the entire
+reason that landed first.
+
+**It sits at the FOOT of the album**, deliberately, and a journey asserts the position. A
+deadline should not be the first thing someone meets when they open a shared photo album at
+a party; it should be there when they scroll to the end and start choosing favourites.
+
+**The copy says photos are KEPT for N days. It does not promise a deletion**, because no
+code performs one. Saying "removed after 30 days" would be the exact failure this session
+has spent its time unpicking — a sentence the software cannot honour.
+
+**No line at all on the unlimited tier.** `null` is not "kept forever"; that is a promise
+about somebody else's storage bill that nobody should make in UI copy.
+
+### What is deliberately still missing
+
+**The sweep.** It is irreversible, and it cannot be built in SQL at all —
+`storage.protect_delete()` refuses every direct delete on `storage.objects`, for the owner
+as much as for a guest, which Lane E now asserts. It has to go through the Storage API with
+a service role, and it deletes strangers' wedding photographs, so it gets its own work and
+its own care.
+
+**`eventTtlHours` is untouched** and still has no reader. It is a different decision from
+retention — TTL is enforcement (an event past its TTL refuses writes; no bytes at stake),
+retention is destruction — and #23 was right that they are two issues wearing one number.

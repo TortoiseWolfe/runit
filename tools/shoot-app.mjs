@@ -199,7 +199,19 @@ async function auditGutter(page, viewportWidth) {
         const st = getComputedStyle(el);
         if (st.visibility === 'hidden' || parseFloat(st.opacity) < 0.05) continue;
 
-        const box = el.getBoundingClientRect();
+        // Measure the INK, not the box. react-native-web renders <Text> as a div, so
+        // paddingHorizontal on it insets the glyphs while leaving the div's own rect at
+        // x=0 -- the element box would report a defect the screen does not have. A Range
+        // over the text node reports where the characters actually land, which is what
+        // this gate is about. It cannot weaken the check: full-bleed text with no gutter
+        // still measures 0, and the mutation test in note X confirms that.
+        let box = el.getBoundingClientRect();
+        if (text) {
+          const r = document.createRange();
+          r.selectNodeContents(el);
+          const ink = r.getBoundingClientRect();
+          if (ink.width >= 1 && ink.height >= 1) box = ink;
+        }
         if (box.width < 1 || box.height < 1) continue;
         // Off-screen vertically is not this gate's business; the walk screenshots a
         // scrolled document and plenty is below the fold.

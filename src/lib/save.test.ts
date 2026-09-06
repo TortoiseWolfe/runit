@@ -7,6 +7,8 @@
  * a refusal rather than a failure, that a remote photo is fetched before being handed to
  * the OS, and that our own copy is not left behind.
  */
+import { savePhotoToLibrary } from './save';
+
 const mockRequest = jest.fn();
 const mockSave = jest.fn();
 const mockDownload = jest.fn();
@@ -26,7 +28,6 @@ jest.mock('expo-file-system', () => ({
   },
   File: class {
     uri = 'file:///cache/runit-saves/1.jpg';
-    constructor(..._a: unknown[]) {}
     delete() {
       mockDelete();
     }
@@ -41,7 +42,6 @@ jest.mock('expo-file-system', () => ({
   },
 }));
 
-import { savePhotoToLibrary } from './save';
 
 beforeEach(() => {
   jest.clearAllMocks();

@@ -1410,7 +1410,21 @@ create table public.tier_limits (
   -- not exist -- a column claiming to gate a capability nothing has is a second place
   -- asserting a fiction. It exists now because `fan_out_push` READS it, which is the
   -- only thing that makes a gate a gate.
-  push_notifications   boolean not null default false
+  push_notifications   boolean not null default false,
+  -- How long the album survives the event, in days (#23). NULL is unlimited, the same
+  -- convention every other cap here uses -- 0 would mean the opposite and read as
+  -- plausible.
+  --
+  -- IT WAS TRANSCRIBED MARKETING COPY UNTIL NOW. `tiers.ts` carried 90 and 365 with no
+  -- reader anywhere, and the free tier carried NULL -- forever, by omission rather than
+  -- by decision. The number is here because something reads it: the app tells a guest
+  -- how long they have, beside a control that can actually save a photo.
+  --
+  -- NOTHING DELETES ANYTHING YET, deliberately. A sweep is irreversible and cannot be
+  -- built in SQL at all -- `storage.protect_delete()` refuses every direct delete on
+  -- storage.objects, for the owner as much as a guest, which Lane E asserts. It has to go
+  -- through the Storage API with a service role, and that is its own piece of work.
+  album_retention_days integer
 );
 
 alter table public.tier_limits enable row level security;
@@ -1421,17 +1435,18 @@ create policy tier_limits_read on public.tier_limits for select using (true);
 revoke insert, update, delete on public.tier_limits from authenticated, anon;
 
 insert into public.tier_limits
-  (tier, max_guests, max_hosts, max_photos, max_folders, host_roles, pinned_announcements, push_notifications)
-values ('house_party',   10,    1,  100,    1, false, false, false),
-       ('party',         50,    2, 1000,    3, false, false, false),
-       ('event',        300,    5, null,   10, true,  true,  true),
-       ('venue',       3000, null, null, null, true,  true,  true)
+  (tier, max_guests, max_hosts, max_photos, max_folders, host_roles, pinned_announcements, push_notifications, album_retention_days)
+values ('house_party',   10,    1,  100,    1, false, false, false,   30),
+       ('party',         50,    2, 1000,    3, false, false, false,   90),
+       ('event',        300,    5, null,   10, true,  true,  true,   365),
+       ('venue',       3000, null, null, null, true,  true,  true,  null)
 on conflict (tier) do update set
   max_guests  = excluded.max_guests,  max_hosts   = excluded.max_hosts,
   max_photos  = excluded.max_photos,  max_folders = excluded.max_folders,
   host_roles  = excluded.host_roles,
   pinned_announcements = excluded.pinned_announcements,
-  push_notifications   = excluded.push_notifications;
+  push_notifications   = excluded.push_notifications,
+  album_retention_days = excluded.album_retention_days;
 
 -- Minting a second host seat, and the key that redeems it.
 --

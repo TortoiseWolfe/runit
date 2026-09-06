@@ -38,14 +38,14 @@ const fromSql = (raw: string): number => (raw === 'null' ? INF : Number(raw));
  * Deliberately parses the REAL statement rather than a copy: a test that reads a fixture
  * of the migration proves the fixture matches, which is not the claim being made.
  */
-function seededLimits(): Record<string, Record<string, number | boolean>> {
+function seededLimits(): Record<string, Record<string, number | boolean | null>> {
   const at = SQL.indexOf('insert into public.tier_limits');
   if (at === -1) throw new Error('no tier_limits seed in the migration');
   const block = SQL.slice(at, SQL.indexOf('on conflict', at));
 
-  const rows: Record<string, Record<string, number | boolean>> = {};
+  const rows: Record<string, Record<string, number | boolean | null>> = {};
   const re =
-    /\('(\w+)',\s*([\d]+|null),\s*([\d]+|null),\s*([\d]+|null),\s*([\d]+|null),\s*(true|false),\s*(true|false),\s*(true|false)\)/g;
+    /\('(\w+)',\s*([\d]+|null),\s*([\d]+|null),\s*([\d]+|null),\s*([\d]+|null),\s*(true|false),\s*(true|false),\s*(true|false),\s*([\d]+|null)\)/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(block)) !== null) {
     rows[m[1]!] = {
@@ -56,6 +56,11 @@ function seededLimits(): Record<string, Record<string, number | boolean>> {
       hostRoles: m[6] === 'true',
       pinnedAnnouncements: m[7] === 'true',
       pushNotifications: m[8] === 'true',
+      // NOT `fromSql`. That maps SQL null to Infinity, which is the convention the numeric
+      // CAPS use (`maxGuests: INF`). `albumRetentionDays` is `number | null` in TypeScript
+      // and uses null for unlimited, so the two would never compare equal on the venue
+      // tier -- caught by this test on its first run.
+      albumRetentionDays: m[9] === 'null' ? null : Number(m[9]),
     };
   }
   return rows;
@@ -85,6 +90,21 @@ describe('tier_limits in Postgres matches src/domain/tiers.ts', () => {
       maxPhotos: ts.maxPhotos,
       maxFolders: ts.maxFolders,
     });
+  });
+
+  /**
+   * #23. These numbers were transcribed marketing copy with NO reader anywhere -- and
+   * because they had no `tier_limits` counterpart, this drift guard structurally could not
+   * cover them. They were the only `TierLimits` members outside it.
+   */
+  it.each(TIER_ORDER)('%s keeps the album for the same time on both sides', (tier) => {
+    expect(SEEDED[tier]!.albumRetentionDays).toBe(TIERS[tier].limits.albumRetentionDays);
+  });
+
+  it('no longer keeps the free tier forever by omission', () => {
+    // It was `null` -- unlimited -- which was never a decision. Nothing swept, so photos
+    // stayed forever because nobody had written the code to remove them.
+    expect(TIERS.house_party.limits.albumRetentionDays).toBe(30);
   });
 
   it.each(TIER_ORDER)('%s grants push on both sides or neither', (tier) => {
