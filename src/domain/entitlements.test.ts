@@ -86,6 +86,14 @@ describe('checkFeature', () => {
   it('does not yet grant request caps to any tier, because nothing enforces them', () => {
     expect(firstTierWith('requestCaps')).toBeNull();
   });
+
+  // Same shape, and it used to read `.toBe('event')`. The $79 and $599 tiers granted
+  // push while `expo-notifications` was not a dependency, so the flag gated nothing and
+  // the Event card sold it anyway (#27). The flag stays as the build target; `null` is
+  // the honest answer. Change this line the day push exists.
+  it('does not grant push to any tier, because there is no push', () => {
+    expect(firstTierWith('pushNotifications')).toBeNull();
+  });
 });
 
 describe('the demo wedding', () => {
