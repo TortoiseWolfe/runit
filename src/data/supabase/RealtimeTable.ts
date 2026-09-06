@@ -31,11 +31,27 @@ type RowOf<T extends TableName> = Tables[T]['Row'];
  * constructor argument rather than assumed to be `id`: `now_playing` is keyed by
  * `event_id`, and `song_votes` by a composite.
  */
+/**
+ * What a table reports about its own channel -- #45.
+ *
+ * A discriminated union rather than `Error | null`, so a caller cannot read "no error" as
+ * "healthy" on a table that has never started.
+ */
+export type TableHealth = { live: true } | { live: false; error: Error };
+
 export class RealtimeTable<T extends TableName> {
   private rows = new Map<string, RowOf<T>>();
   private channel: RealtimeChannel | null = null;
   private buffer: RealtimePostgresChangesPayload<RowOf<T>>[] | null = null;
   private started = false;
+
+  /**
+   * `null` until the first report, which is what makes the transition guard work in BOTH
+   * directions: the first failure and the first success each notify once, and a burst of
+   * repeats notifies nobody. A plain boolean seeded `false` would swallow the first
+   * failure -- it would look like "already down".
+   */
+  private healthy: boolean | null = null;
 
   constructor(
     private readonly client: RunitClient,
@@ -46,7 +62,27 @@ export class RealtimeTable<T extends TableName> {
     private readonly filter: { column: string; value: string } | null,
     /** Called after any change, including the initial load. */
     private readonly onChange: () => void,
+    /**
+     * Called when the CHANNEL's health changes -- on transitions only, never on every event.
+     *
+     * A SECOND CALLBACK RATHER THAN AN ARGUMENT ON `onChange`, and the difference matters.
+     * `onChange` is wired straight to `SupabaseRepository.recompute`, which is also called
+     * from about twenty other sites; giving it a parameter would mean either `recompute`
+     * branches on why it was called -- collapsing "the rows moved" and "the channel died"
+     * into one wire, which is the defect this exists to fix -- or the argument is ignored,
+     * and TypeScript would not complain, because a function taking fewer arguments satisfies
+     * the wider type. That is the same shape as the `push` boolean this repo already deleted.
+     *
+     * Required, not optional: an optional health callback is an opt-out, and the eight
+     * production sites already share one `onChange` reference. They share this one too.
+     */
+    private readonly onHealth: (h: TableHealth) => void,
   ) {}
+
+  /** Whether this table's channel is currently delivering. */
+  get live(): boolean {
+    return this.healthy === true;
+  }
 
   /**
    * The same client with its schema types dropped, for exactly one call.
@@ -70,14 +106,52 @@ export class RealtimeTable<T extends TableName> {
   }
 
   /**
-   * Why the last subscribe failed, when it did. Null while live.
+   * Why the channel last failed, when it did. Null while live.
    *
    * Kept rather than swallowed: a table serving a frozen snapshot looks identical to a
-   * healthy one, and the difference matters to anyone debugging "why is nothing
-   * updating". Nothing renders it yet -- surfacing it is a UI decision, not this
-   * class's -- but it is here to be surfaced rather than re-derived.
+   * healthy one, and the difference matters to anyone debugging "why is nothing updating".
+   *
+   * IT HAD NO READER FOR MONTHS, and this docblock used to say "Nothing renders it yet --
+   * surfacing it is a UI decision, not this class's". That deferral is what made #45
+   * undiagnosable: the one fact that explains a frozen screen was recorded and nobody
+   * looked. It is written on every terminal status now, not only at join time, and the
+   * supervisor in SupabaseRepository reads it.
    */
   liveError: Error | null = null;
+
+  /**
+   * THE ONE PLACE A TABLE GOES DOWN. Both the join-time failure and a channel that dies
+   * later come through here, so the teardown, the `started` reset and the report cannot
+   * drift apart -- they used to be a `catch` block that only the first case reached.
+   */
+  private async fail(e: unknown): Promise<void> {
+    this.liveError = e instanceof Error ? e : new Error(String(e));
+    this.started = false;
+    // THE BUFFER IS NOT TOUCHED HERE, and that is not an omission. On the join-time path
+    // `start()` is still running: it goes on to select and then replays `this.buffer`, so
+    // nulling it here made that replay throw on `null`. Post-join the buffer is already
+    // null. The buffer belongs to start()'s flow; this method owns health and teardown.
+    // The anti-storm teardown, unchanged in intent and now reaching the case it never
+    // did: a channel that dies AFTER joining was previously left registered, so
+    // supabase-js kept rejoining it on its own backoff while we knew nothing about it.
+    await this.teardownChannel();
+    if (this.healthy === false) return;
+    this.healthy = false;
+    this.onHealth({ live: false, error: this.liveError });
+  }
+
+  /**
+   * Reported at the END of `start()`, never from the SUBSCRIBED callback.
+   *
+   * A channel is joined before its snapshot has returned. Publishing "live" there would
+   * announce a healthy table that has no rows yet -- the inverse of the bug this fixes.
+   */
+  private up(): void {
+    this.liveError = null;
+    if (this.healthy === true) return;
+    this.healthy = true;
+    this.onHealth({ live: true });
+  }
 
   async start(): Promise<void> {
     if (this.started) return;
@@ -108,10 +182,10 @@ export class RealtimeTable<T extends TableName> {
         await this.subscribed();
       } catch (e) {
         live = false;
-        this.liveError = e instanceof Error ? e : new Error(String(e));
-        // The channel is already unusable; drop it rather than leave supabase-js
-        // rejoining it on its own backoff for the life of the process.
-        await this.teardownChannel();
+        // `fail()` owns the teardown, the `started` reset and the report. It is called
+        // here and from the post-join branch of the status callback, so the two paths
+        // cannot drift.
+        await this.fail(e);
       }
 
       // 3. Now the snapshot. Any change from here on is in the buffer.
@@ -131,9 +205,11 @@ export class RealtimeTable<T extends TableName> {
       for (const p of queued) this.apply(p);
 
       // `started` stays FALSE when there is no channel, so a later start() -- an app
-      // returning to the foreground, say -- retries the subscription instead of being
-      // a silent no-op on a table that is showing a frozen snapshot.
+      // returning to the foreground, or the reconnect supervisor -- retries the
+      // subscription instead of being a silent no-op on a table showing a frozen snapshot.
       this.started = live;
+      // Only now, with the snapshot in hand. `fail()` has already reported the other case.
+      if (live) this.up();
 
       this.onChange();
     } catch (e) {
@@ -196,20 +272,52 @@ export class RealtimeTable<T extends TableName> {
       // able to remove this channel, and subscribe() may invoke its callback before
       // the assignment that used to sit at the end of this function ever ran.
       this.channel = ch;
+
+      // THE CALLBACK STAYS LIVE FOR THE CHANNEL'S LIFETIME (#45). It used to be a one-shot
+      // promise settler: `SUBSCRIBED` resolved, the two error statuses rejected, and after
+      // the promise settled every later call was a no-op on an already-settled promise. But
+      // supabase-js keeps invoking this -- for a socket drop, a failed rejoin, a server-side
+      // close -- so a channel that joined and THEN died produced no observable effect
+      // anywhere. Measured twice in ~15 live runs: a host's own announcement never appeared.
+      let settled = false;
       ch.subscribe((status, err) => {
+        // THE IDENTITY GUARD, and it is the most load-bearing line in this file.
+        //
+        // `teardownChannel()` nulls `this.channel` BEFORE awaiting `removeChannel(ch)`, so a
+        // `CLOSED` produced by OUR OWN pause()/stop()/fail() arrives here afterwards. Without
+        // this line, backgrounding the app would report eight faults and kick the reconnect
+        // supervisor into retrying channels we deliberately closed -- a new bug wearing the
+        // old one's clothes.
+        if (ch !== this.channel) return;
+
         if (status === 'SUBSCRIBED') {
-          resolve();
+          if (!settled) {
+            settled = true;
+            resolve();
+          }
+          // Health is NOT reported here: a joined channel has no snapshot yet. `start()`
+          // calls `up()` once the select returns.
           return;
         }
-        // CHANNEL_ERROR and TIMED_OUT are terminal for this attempt. Rejecting
-        // rather than hanging matters: a silent never-resolving start() presents
-        // as an app stuck on a spinner with no error anywhere.
-        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-          // Rejecting is enough HERE because `start()` removes the channel in its
-          // catch, and that is the only caller. Removing it again on this branch
-          // would be a second mechanism for one job -- one that no test can tell
-          // apart from the first, since either alone satisfies the assertion.
-          reject(err ?? new Error(`Realtime channel for ${this.table} failed: ${status}`));
+
+        // CLOSED IS HANDLED NOW, and its absence was a second bug. There was no `else`: a
+        // CLOSED arriving first left this promise unsettled forever, so `await
+        // this.subscribed()` hung, the select never ran, `startTables`' allSettled never
+        // settled, and `joinAsGuest` hung with no timeout and no message -- which is
+        // precisely the failure the comment below names.
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          const e = err ?? new Error(`Realtime channel for ${this.table} failed: ${status}`);
+          if (!settled) {
+            // Rejecting rather than hanging matters: a silent never-resolving start()
+            // presents as an app stuck on a spinner with no error anywhere. `start()`'s
+            // catch calls fail(), which owns the teardown.
+            settled = true;
+            reject(e);
+            return;
+          }
+          // Post-join death. Nothing is awaiting this promise any more, so the report and
+          // the teardown have to happen here.
+          void this.fail(e);
         }
       });
     });

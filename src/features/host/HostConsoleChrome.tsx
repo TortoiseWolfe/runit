@@ -2,6 +2,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePathname, useRouter } from 'expo-router';
 
+import { ConnectionPill } from '@/components/ui/ConnectionPill';
 import { RoleSwitch } from '@/components/ui/RoleSwitch';
 import { useIncoming, usePendingPhotos, useReports, useSession } from '@/state/hooks';
 import { border, insetDelta, radius, useTheme, weight } from '@/theme';
@@ -58,6 +59,13 @@ export function HostConsoleChrome() {
     >
       <View style={s.titleRow}>
         <Text style={[s.title, { color: tokens.baseContent }]}>Host</Text>
+        {/*
+          THE HOST NEEDS THIS MOST, and `EventHeader` is not on her console -- so a
+          guest-only pill would leave the person who POSTS the announcements without one.
+          That is the shape of #29 and #37: the surface existed everywhere except where the
+          affected person was standing. Renders nothing while live.
+        */}
+        <ConnectionPill />
         <RoleSwitch />
         {session.kind === 'host' && (
           <View style={[s.rolePill, { backgroundColor: tokens.secondary }]}>

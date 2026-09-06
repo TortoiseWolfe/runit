@@ -95,6 +95,45 @@ const JOIN_COPY: Record<JoinReason, string> = {
 };
 
 /**
+ * Whether the live connection is actually live -- #45.
+ *
+ * READS ARE OBSERVABLES, and `src/data/supabase/README.md` says an Observable "maps onto a
+ * Realtime channel subscription". So a channel that dies is not a cosmetic problem: every
+ * screen is quietly serving a frozen snapshot, and the app used to have no way to know. The
+ * fact was even recorded -- `RealtimeTable.liveError` -- and read by nobody, which is the
+ * same shape as `broadcast_reads` (a policy, a fold and no writer) and `albumRetentionDays`
+ * (declared, no reader).
+ *
+ * THE ARMS ARE CARVED WHERE THE REMEDY CHANGES, which is the test `JoinReason` above is
+ * carved on. `reconnecting` and `stale` differ in TRUTH VALUE, not in severity: waiting fixes
+ * one and never fixes the other, so they must not be one state with an adjective.
+ *
+ * NO `offline` ARM, deliberately. `@react-native-community/netinfo` is not a dependency and
+ * nothing here can honestly tell "this phone has no network" from "our socket died". The one
+ * `offline` in this file (JoinReason) is a post-hoc reading of an auth error at the door, and
+ * guessing it during a party would be inventing a distinction we cannot make.
+ */
+export type ConnectionState = 'live' | 'reconnecting' | 'stale';
+
+/**
+ * One place the wording lives, exactly as `JOIN_COPY` above -- and for the same reason. That
+ * table exists because a reason and its message contradicted each other on one line and
+ * nobody noticed, since nothing read the reason. Resolving copy FROM the state makes the
+ * state load-bearing.
+ *
+ * `Exclude<..., 'live'>` rather than a null entry: it makes "a healthy connection renders
+ * nothing" a fact the type checker holds, so no screen can invent copy for `live` and none
+ * can forget to hide the surface.
+ */
+const CONNECTION_COPY: Record<Exclude<ConnectionState, 'live'>, string> = {
+  reconnecting: 'Reconnecting… new posts may not appear yet.',
+  stale: 'Not live. Tap to reconnect.',
+};
+
+export const connectionMessage = (s: Exclude<ConnectionState, 'live'>): string =>
+  CONNECTION_COPY[s];
+
+/**
  * The public face of an event: what an invitation may carry before it is accepted.
  *
  * A `Pick` rather than its own interface, deliberately -- it cannot drift from
@@ -507,6 +546,29 @@ export interface RunitRepository {
    * copy of the arithmetic and drifting from it.
    */
   entitlements: Observable<Entitlements>;
+
+  /**
+   * Whether live updates are actually arriving -- #45.
+   *
+   * Beside `entitlements` and for the same reason its docblock gives: the repository already
+   * knows, and a UI that re-derives it grows a second copy that drifts. Here there is no
+   * deriving it at all -- only the adapter can see a channel.
+   *
+   * `MemoryRepository` is `live` by definition: it has no socket. That is not a stub, it is
+   * the honest answer for a fixture, and it is why the harness needs `?stale=1` to reach the
+   * other two states at all.
+   */
+  connection: Observable<ConnectionState>;
+
+  /**
+   * Try again NOW, rather than waiting out the backoff.
+   *
+   * This is what stops `stale` being a dead end. The app has closed that shape three times
+   * already -- #29 (a control that could only refuse), #37 (a console with no exit), #24 (a
+   * number that could never move) -- and a pill that names a problem with no way to act on it
+   * is the same thing again.
+   */
+  reconnect(): Promise<void>;
 
   photos: {
     folders: Observable<Folder[]>;

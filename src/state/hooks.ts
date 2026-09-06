@@ -32,6 +32,8 @@ export const useHosts = () => useObservable(useRepository().hosts.all);
 export const useInvitees = () => useObservable(useRepository().invitees.all);
 /** Live tier + usage. For ADVISORY checks only -- the write methods enforce. */
 export const useEntitlements = () => useObservable(useRepository().entitlements);
+/** Whether live updates are actually arriving (#45). `live` on MemoryRepository always. */
+export const useConnection = () => useObservable(useRepository().connection);
 
 /* -------------------------------------------------- moderation (Guideline 1.2) */
 

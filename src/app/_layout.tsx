@@ -178,6 +178,22 @@ export default function RootLayout() {
    * separate worlds because they differ in exactly the thing under test: with no
    * preview the join screen must fall back to "An event", and with one it must not.
    */
+  /**
+   * Boot with the live connection already broken -- #45.
+   *
+   * `MemoryRepository` has no socket, so it is `live` by definition and the connection pill
+   * is UNREACHABLE in the only lane that can screenshot it. That is precisely the gap
+   * `?empty=1` was added to close: the failure is never "the control is broken", it is "no
+   * test can reach the state where the control matters".
+   *
+   * `stale` rather than `reconnecting` because it is the state with a control on it.
+   */
+  const staleWorld =
+    fidelity &&
+    typeof window !== 'undefined' &&
+    typeof window.location?.search === 'string' &&
+    new URLSearchParams(window.location.search).get('stale') === '1';
+
   const invitedWorld =
     fidelity &&
     typeof window !== 'undefined' &&
@@ -208,9 +224,12 @@ export default function RootLayout() {
             // Order matters: `?invited=1` is a strictly more furnished empty world, so
             // it has to be read before the plainer flag can claim the same request.
             invitedWorld ? invitedSeed : emptyWorld ? emptySeed : weddingSeed,
-            flaky ? { transfer: flakyTransfer({ steps: [0.4], failAttempts: [1] }) } : {},
+            {
+              ...(flaky ? { transfer: flakyTransfer({ steps: [0.4], failAttempts: [1] }) } : {}),
+              ...(staleWorld ? { connection: 'stale' as const } : {}),
+            },
           ),
-    [flaky, emptyWorld, invitedWorld],
+    [flaky, emptyWorld, invitedWorld, staleWorld],
   );
 
   const app = (

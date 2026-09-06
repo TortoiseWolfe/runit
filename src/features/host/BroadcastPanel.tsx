@@ -41,7 +41,12 @@ export function BroadcastPanel() {
 
   const onSend = async () => {
     if (!draft.trim()) return;
-    await send(draft, pinned);
+    // THE DRAFT SURVIVES A FAILURE. `send` used to be unguarded, so a refusal was an
+    // unhandled rejection -- and because the clear ran on the line after an `await` that
+    // never returned, the text happened to stay. Now that the throw is caught, clearing
+    // unconditionally would DESTROY what she typed on exactly the failure that most
+    // deserves a retry.
+    if (!(await send(draft, pinned))) return;
     setDraft('');
     setPinned(false);
   };
