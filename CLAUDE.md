@@ -628,6 +628,22 @@ own announcement read "seen by 1" before anyone has seen it. `hosts` folds on
 `update of auth_user_id` too, because `claim_host` promotes a guest without touching
 `guests` at all. FIDELITY notes AJ and AK.
 
+**One song, one row (#44).** `music.request` inserted unconditionally and the queue is ranked
+by votes, so two people asking for the same song made two rows with one vote each.
+`public.song_key(title, artist)` under a PARTIAL unique index (`pending`/`accepted` only, so
+a played song can come round again) is what decides two requests are the same song, and
+`request_song` inserts-or-votes in one statement. It reports which branch ran via `xmax = 0`,
+because otherwise the toast claims to have added a row that did not appear.
+`src/domain/songKey.ts` mirrors it for `MemoryRepository` and `songKey.test.ts` re-parses the
+migration — folding LESS than the index shows up at once, folding MORE is silent.
+
+**A guest can see and change their own name (#43/#36).** No screen ever showed a guest their
+own nickname, so a typo lasted all night; and `guests_update_self` — which looked like the
+route — could never fire, because `guests` has no SELECT policy and PostgREST always sends a
+WHERE. That policy is deleted rather than kept as documentation for an implementation that
+fails silently. `set_nickname` rewrites the denormalised copies on that guest's own requests
+and photos, and deliberately not `blocked_name` or a report's subject label.
+
 **Promised and now built.** #28 shipped the scanner — `expo-camera`, `codeFromScan` living
 beside `joinLink` because every interesting failure of a scanner is a string failure, and
 typing still the primary path with the field never hidden. **No lane here can point a lens
