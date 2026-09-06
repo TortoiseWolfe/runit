@@ -2370,3 +2370,76 @@ after.
 
 **pg_net is fire-and-forget**, so a failed nightly run lands in `net._http_response` and
 nowhere else — the same silence the push fan-out has. `docs/retention-sweep.md` has the query.
+
+## AR. The camera nobody had ever run
+
+`#28` shipped the scanner and `#42` filed the honest caveat under it: **nothing in this repo
+had ever executed `CameraView`.** `src/lib/invite.test.ts` proved the parsing, and
+`tests/e2e/qr-scan.spec.ts` proved the wiring through `QrScanner.web.tsx` — but headless
+Chromium refuses `getUserMedia` and react-native-web has no `CameraView`, so the entire
+native half was inference. That is closed now, by Lane C, and `pnpm scan:device` is the lane.
+
+It witnesses five things a phone would have had to be held to see: the ungranted copy and its
+button, the system permission dialog, `CameraView` mounting with `barcodeTypes: ['qr']`
+accepted, the preview **painting**, and `onBarcodeScanned` firing on a QR that our own
+`EventQr` generated — arriving in `join-code` as `SR1017`, which nothing else can put there.
+
+### It scans our own generator's output, not a QR from somewhere else
+
+`pnpm qr:poster` drives the same web export Lane F decodes, screenshots the same
+`[data-testid="event-qr"]` element, and mounts it on a 1024×1024 poster which it then
+**decodes before writing**. That gate is the point: when a scan fails on the emulator there
+are two candidate causes — the app cannot read QRs, or the wall is unreadable — and they
+have completely different fixes. Proving the poster decodes at generation time leaves one.
+
+Scanning a QR made by some other library would have proved that `expo-camera` reads QRs,
+which nobody doubted, and nothing about whether `EventQr` and `codeFromScan` agree.
+
+### Three things the mutation tests caught, and one of them was fatal
+
+The repo standard is to mutate every new assertion. Doing it here earned its keep three
+times over, and the middle one is the reason this section exists.
+
+**The lane passed while reading a poster it had not hung.** `virtualscene-image` swaps the
+scene's posters on a running emulator and answers `OK` whether or not anything happens —
+the scene uploads its poster textures when a camera client attaches, so a swap issued while
+`CameraView` is already running changes nothing the lens sees. With the poster step sitting
+after the permission grant, the lane was reading a QR that the emulator's
+`-virtualscene-poster` **launch flag** had put on the wall half an hour earlier. It went
+green. Restarting the emulator without that flag is what exposed it: **the mutation only
+proves something once you have checked it reached the assertion.**
+
+**The camera mounts long before it paints.** The first live-preview screenshot this lane
+filed was a photograph of a black rectangle — the hierarchy said `CameraView` had taken over,
+and the surface had not yet produced a frame. A dead SurfaceView and a working one are
+identical to every check short of looking at pixels, so the lane now samples the middle of
+the sheet and requires real spread (a flat surface reads ~0; the rendered room reads ~33).
+
+**`am force-stop` returns before the process is gone.** One run in the same sitting landed on
+the launcher between two that passed, with nothing changed but a filename. The intent was
+swallowed by the teardown it had been ordered after — the same trap CLAUDE.md already
+records, one layer down. The lane waits for the pid to disappear and retries the intent.
+
+### The camera does not start out looking at the poster
+
+The virtual scene's default pose faces the television; both posters hang behind it. A
+`CameraView` running perfectly against a wall it cannot see is indistinguishable from one
+that never started, which is exactly how the first run failed. The lane plays the emulator's
+own `Reset_position` and `Walk_to_image_room` macros, borrowing Google's ground truth about
+where in that room the poster is rather than inventing a pose. Reset first, because the walk
+is a recorded pose sequence rather than a destination — without it a second run compounds
+instead of repeating.
+
+Facing the television is also *useful*, and the lane spends it: that is where the
+live-preview evidence is taken, because a camera that is genuinely running and genuinely
+cannot see a QR makes the observation deterministic instead of a race against the scan.
+
+### What it still cannot say
+
+**Nothing about iOS.** Lane C is Android, and there is no Mac in this environment.
+
+**Nothing about `NSCameraUsageDescription`.** Android composes its permission dialog from the
+permission group; the usage string is an iOS plist key and no Android run can read one.
+`src/lib/appConfig.test.ts` is what guards that the two plugins writing it agree, and only a
+real iPhone confirms what it says. The screenshot in `design/device/` shows *Android's*
+sentence, not ours — reading it as our copy would be the error this paragraph exists to stop.
