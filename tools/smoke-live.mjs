@@ -516,6 +516,43 @@ try {
   check(boErrors.length === 0, 'no page errors on the second client', boErrors.slice(0, 2).join(' | '));
   await boCtx.close();
 
+  // ------------------------------------------------- the connection itself (#45)
+  //
+  // THE ONLY PLACE THE SELF-HEAL CAN BE PROVEN. jest can drive the status callback and the
+  // backoff against a fake; the 270 journeys boot MemoryRepository, which has no socket at
+  // all and reaches the pill only through `?stale=1`. Here there is a real websocket to a
+  // real project, and `setOffline` kills it on demand -- so this is deterministic rather
+  // than waiting for the outage that produced #45 in the first place.
+  //
+  // Before this, a channel that joined and then died produced NO observable effect: the
+  // subscribe callback was a one-shot promise settler, `liveError` was written by one line
+  // and read by none, and every screen went on serving a frozen snapshot.
+  await bo.close().catch(() => {});
+  await page.getByTestId('tab-chat').click();
+  await page.waitForSelector('[data-testid="chat-feed"]', { timeout: 20_000 });
+
+  await page.context().setOffline(true);
+  const noticed = await page
+    .waitForSelector('[data-testid="connection-pill"]', { timeout: 60_000 })
+    .then(() => true)
+    .catch(() => false);
+  check(noticed, 'a real socket dying is NOTICED and said out loud (#45)');
+
+  await page.context().setOffline(false);
+  // GUARDED ON `noticed`, because waiting for something to DISAPPEAR passes instantly when
+  // it was never there. Reverting the fix made this pass vacuously while the check above
+  // correctly failed -- a green line reporting recovery from an outage the app never saw.
+  const healed = noticed
+    ? await page
+        // The supervisor's backoff is 2s, 5s, 15s, 30s, so a recovery lands inside this
+        // window without the test having to know which attempt did it.
+        .waitForSelector('[data-testid="connection-pill"]', { state: 'detached', timeout: 60_000 })
+        .then(() => true)
+        .catch(() => false)
+    : false;
+  check(healed, 'and the app heals itself once the network comes back',
+        noticed ? '' : 'not reached -- the outage was never noticed');
+
   check(errors.length === 0, 'no page errors during the journey', errors.slice(0, 2).join(' | '));
 
 } catch (e) {

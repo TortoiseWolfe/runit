@@ -9,12 +9,12 @@ import {
   toScheduleItem, toSongRequest,
 } from './mappers';
 import { attachAppStateBridge } from './appStateBridge';
-import { RealtimeTable } from './RealtimeTable';
+import { RealtimeTable, type TableHealth } from './RealtimeTable';
 import { Signal, setEqual, shallowArrayEqual } from './signal';
 import { SignedUrls } from './SignedUrls';
 import { UploadOverlay } from './UploadOverlay';
 import {
-  EntitlementError, JoinError, ScheduleError,
+  EntitlementError, JoinError, ScheduleError, type ConnectionState,
   type EventDetails, type EventPreview, type JoinReason, type NewEvent, type NewHost,
   type Observable, type RunitRepository, type UploadOutcome,
 } from '../repository';
@@ -181,6 +181,24 @@ export class SupabaseRepository implements RunitRepository {
    * and a screen cannot await an RPC during render.
    */
   private readonly sigHoldsHostSeat = new Signal<boolean>(false);
+  private readonly sigConnection = new Signal<ConnectionState>('live');
+
+  /**
+   * THE RECONNECT SUPERVISOR -- one for all eight tables, not one per table (#45).
+   *
+   * The realistic outage is socket-level: every channel dies together. Eight independent
+   * schedules would fire eight uncoordinated selects per round on eight clocks, which is a
+   * smaller version of the vendor storm `RealtimeTable.fail()`'s teardown exists to prevent.
+   * The repository already owns exactly this operation -- `resume()` is "start the eight
+   * again" -- so the knowledge lives where it already lived.
+   *
+   * BOUNDED, and that is the point of the array rather than a formula. Four attempts, ~52s,
+   * then it stops asking and SAYS SO. An unbounded retry is how a "reconnecting" spinner
+   * becomes a permanent lie.
+   */
+  private static readonly BACKOFF = [2_000, 5_000, 15_000, 30_000] as const;
+  private retryAt = 0;
+  private cancelRetry: (() => void) | null = null;
   /**
    * The guest list (#25). Fetch-once like `hosts`: `invitees` is not in the realtime
    * publication, and it barely changes. The COUNT reaches every device on its own,
@@ -233,7 +251,19 @@ export class SupabaseRepository implements RunitRepository {
   private readonly sigReports = new Signal<Report[]>([], shallowArrayEqual);
   private readonly sigMyReports = new Signal<ReadonlySet<string>>(new Set(), setEqual);
 
-  private constructor(db: RunitClient, private readonly now: () => string) {
+  private constructor(
+    db: RunitClient,
+    private readonly now: () => string,
+    /**
+     * The timer seam, for the same reason `now` is one: every retry assertion would
+     * otherwise need fake timers, and this suite has never used them (jest-expo plus RN
+     * timers is not a fight worth starting for a backoff). Returns its own canceller.
+     */
+    private readonly setTimer: (fn: () => void, ms: number) => () => void = (fn, ms) => {
+      const id = setTimeout(fn, ms);
+      return () => clearTimeout(id);
+    },
+  ) {
     this.db = db;
     this.signed = new SignedUrls(db);
     // THE ONE SIGNAL IN THIS FILE THAT HAD NO COMPARATOR, and computeEntitlements()
@@ -265,6 +295,7 @@ export class SupabaseRepository implements RunitRepository {
     this.music.nowPlaying = this.sigNowPlaying;
     this.music.myVotes = this.sigMyVotes;
     this.entitlements = this.sigEntitlements;
+    this.connection = this.sigConnection;
     this.photos.folders = this.sigFolders;
     this.photos.pending = this.sigPending;
     this.photos.approved = this.sigApproved;
@@ -289,12 +320,17 @@ export class SupabaseRepository implements RunitRepository {
      * bridge is global, and a test that installs one is asserting on the listener
      * rather than on the behaviour.
      */
-    opts: { now?: () => string; appState?: boolean } = {},
+    opts: {
+      now?: () => string;
+      appState?: boolean;
+      /** Named `setTimer`, not `schedule`: this class already has a run-of-show `schedule`. */
+      setTimer?: (fn: () => void, ms: number) => () => void;
+    } = {},
   ): SupabaseRepository {
     // Synchronous on purpose: src/app/_layout.tsx builds this inside useMemo, and
     // the real work starts at joinAsGuest, which is the first moment there is an
     // event to subscribe to.
-    const repo = new SupabaseRepository(db, opts.now ?? (() => new Date().toISOString()));
+    const repo = new SupabaseRepository(db, opts.now ?? (() => new Date().toISOString()), opts.setTimer);
     // The adapter owns its own lifecycle. Doing this here rather than in
     // _layout.tsx keeps `react-native` out of the repository interface and leaves
     // MemoryRepository -- which has no socket and no token to refresh -- untouched.
@@ -679,18 +715,24 @@ export class SupabaseRepository implements RunitRepository {
 
     const byEvent = { column: 'event_id', value: eventId };
     const on = this.recompute;
-    this.tEvents = new RealtimeTable(this.db, 'events', (r) => r.id, { column: 'id', value: eventId }, on);
-    this.tBroadcasts = new RealtimeTable(this.db, 'broadcasts', (r) => r.id, byEvent, on);
-    this.tSchedule = new RealtimeTable(this.db, 'schedule_items', (r) => r.id, byEvent, on);
-    this.tRequests = new RealtimeTable(this.db, 'song_requests', (r) => r.id, byEvent, on);
+    // One shared health handler, exactly as `on` is one shared change handler.
+    const hp = this.onTableHealth;
+    this.tEvents = new RealtimeTable(this.db, 'events', (r) => r.id, { column: 'id', value: eventId }, on, hp);
+    this.tBroadcasts = new RealtimeTable(this.db, 'broadcasts', (r) => r.id, byEvent, on, hp);
+    this.tSchedule = new RealtimeTable(this.db, 'schedule_items', (r) => r.id, byEvent, on, hp);
+    this.tRequests = new RealtimeTable(this.db, 'song_requests', (r) => r.id, byEvent, on, hp);
     // now_playing is keyed by event_id -- there is no id column and at most one row.
-    this.tNowPlaying = new RealtimeTable(this.db, 'now_playing', (r) => r.event_id, byEvent, on);
-    this.tFolders = new RealtimeTable(this.db, 'folders', (r) => r.id, byEvent, on);
-    this.tPhotos = new RealtimeTable(this.db, 'photos', (r) => r.id, byEvent, on);
+    this.tNowPlaying = new RealtimeTable(this.db, 'now_playing', (r) => r.event_id, byEvent, on, hp);
+    this.tFolders = new RealtimeTable(this.db, 'folders', (r) => r.id, byEvent, on, hp);
+    this.tPhotos = new RealtimeTable(this.db, 'photos', (r) => r.id, byEvent, on, hp);
     // Published so the host console's open-report badge moves without a refresh, for
     // the same reason the photo approvals badge does. `guest_blocks` is deliberately
     // NOT published -- see the note on blockRows.
-    this.tReports = new RealtimeTable(this.db, 'reports', (r) => r.id, byEvent, on);
+    this.tReports = new RealtimeTable(this.db, 'reports', (r) => r.id, byEvent, on, hp);
+
+    // A fresh join is a fresh budget: whatever went wrong at the last event has no
+    // bearing on how hard we should try at this one.
+    this.retryAt = 0;
 
     // ALL-OR-NOTHING, BECAUSE Promise.all IS NOT. It rejects on the first failure
     // while the other seven channels are already subscribed and stay registered on
@@ -714,6 +756,10 @@ export class SupabaseRepository implements RunitRepository {
    * failure path above, so there is one list of tables rather than two that drift.
    */
   private async stopTables(): Promise<void> {
+    // Same reasoning as suspend(): retrying tables that are being torn down is work for
+    // an event nobody is in any more. `publishConnection()` below then reads `live`,
+    // because no channels is not a fault.
+    this.stopRetrying();
     await Promise.all([
       this.tEvents?.stop(), this.tBroadcasts?.stop(), this.tSchedule?.stop(),
       this.tRequests?.stop(), this.tNowPlaying?.stop(), this.tFolders?.stop(),
@@ -727,6 +773,7 @@ export class SupabaseRepository implements RunitRepository {
     this.tFolders = null;
     this.tPhotos = null;
     this.tReports = null;
+    this.publishConnection();
   }
 
   /**
@@ -742,6 +789,13 @@ export class SupabaseRepository implements RunitRepository {
    * select returns, so the screen still has content on the first frame after resume.
    */
   async suspend(): Promise<void> {
+    // STOP RETRYING FIRST. A backgrounded app that keeps re-subscribing re-opens the exact
+    // cost this bridge was written to close, and "reconnecting" is not a state anyone can
+    // see with the phone in a pocket. A PAUSED table is not a FAILED one -- the identity
+    // guard in RealtimeTable is what keeps the CLOSED events this produces from being
+    // reported as faults, and this is the other half of that pair.
+    this.stopRetrying();
+    this.sigConnection.set('live');
     await Promise.all([
       this.tEvents?.pause(), this.tBroadcasts?.pause(), this.tSchedule?.pause(),
       this.tRequests?.pause(), this.tNowPlaying?.pause(), this.tFolders?.pause(),
@@ -755,12 +809,98 @@ export class SupabaseRepository implements RunitRepository {
   async resume(): Promise<void> {
     await this.db.auth.startAutoRefresh();
     if (!this.eventId) return;
-    await Promise.all([
-      this.tEvents?.start(), this.tBroadcasts?.start(), this.tSchedule?.start(),
-      this.tRequests?.start(), this.tNowPlaying?.start(), this.tFolders?.start(),
-      this.tPhotos?.start(), this.tReports?.start(),
-    ]);
+    // A FRESH BUDGET. Foregrounding is the user asking, so it must not inherit the
+    // exhausted counter of a session that went stale in a pocket -- that is what makes
+    // "reopen the app" a real recovery rather than folklore.
+    this.retryAt = 0;
+    // allSettled, not all: one dead table must not abort the other seven. It used to,
+    // and the failure went nowhere because this whole call is fire-and-forget from
+    // appStateBridge. Health reports each one now.
+    await Promise.allSettled(this.tables().map((t) => t.start()));
+    // The tables NOT in the realtime publication -- hosts, votes, blocks, invitees -- are
+    // read once at join and never again. A resume is the one moment we know time has
+    // passed, so it is the honest place to re-read them.
+    await this.loadFetchOnce().catch(() => {});
+    this.recompute();
+    this.publishConnection();
   }
+
+  /* ------------------------------------------------- realtime health (#45) */
+
+  /** The eight tables that exist right now. Empty before a join, which is not a fault. */
+  private tables(): { start(): Promise<void>; live: boolean }[] {
+    return [
+      this.tEvents, this.tBroadcasts, this.tSchedule, this.tRequests,
+      this.tNowPlaying, this.tFolders, this.tPhotos, this.tReports,
+    ].filter((t): t is NonNullable<typeof t> => t !== null);
+  }
+
+  private publishConnection(): void {
+    const t = this.tables();
+    // NO CHANNELS IS NOT A FAULT. Before a join there is nothing to be disconnected from,
+    // and a join screen wearing a warning would be the app blaming itself for standing
+    // still. Same instinct as JOIN_COPY's rule about never blaming the guest's code.
+    const state: ConnectionState =
+      t.length === 0 || t.every((x) => x.live)
+        ? 'live'
+        : this.retryAt < SupabaseRepository.BACKOFF.length
+          ? 'reconnecting'
+          : 'stale';
+    this.sigConnection.set(state);
+  }
+
+  private onTableHealth = (h: TableHealth): void => {
+    if (!h.live) {
+      // House style: subsystem, what failed, what it costs the person using it.
+      console.warn('realtime: a table stopped receiving updates; reconnecting', h.error);
+    }
+    this.publishConnection();
+    if (!h.live) this.scheduleRetry();
+  };
+
+  private scheduleRetry(): void {
+    // ONE TIMER, EVER. Eight tables die together in the realistic outage, and eight
+    // schedules would be the vendor storm rebuilt by hand.
+    if (this.cancelRetry) return;
+    const ms = SupabaseRepository.BACKOFF[this.retryAt];
+    if (ms === undefined) {
+      // The budget is spent. Stop asking and let the state say so.
+      this.publishConnection();
+      return;
+    }
+    this.cancelRetry = this.setTimer(() => void this.runRetry(), ms);
+  }
+
+  private async runRetry(): Promise<void> {
+    this.cancelRetry = null;
+    this.retryAt += 1;
+    // `start()` IS the reconnect. A rejoined channel has a gap -- everything that happened
+    // while it was down is lost -- and start() is by construction subscribe, buffer, select,
+    // replay. A bespoke re-subscribe would be a second, weaker path into the same state.
+    // It early-returns for tables that never died, so one dead channel costs one select.
+    await Promise.allSettled(this.tables().map((t) => t.start()));
+    if (this.tables().every((t) => t.live)) this.retryAt = 0;
+    else this.scheduleRetry();
+    this.publishConnection();
+  }
+
+  /** Cancel any pending retry and forget the budget. */
+  private stopRetrying(): void {
+    this.cancelRetry?.();
+    this.cancelRetry = null;
+    this.retryAt = 0;
+  }
+
+  /**
+   * Try again NOW. What makes `stale` an action rather than a dead end.
+   */
+  reconnect = async (): Promise<void> => {
+    this.stopRetrying();
+    await Promise.allSettled(this.tables().map((t) => t.start()));
+    if (!this.tables().every((t) => t.live)) this.scheduleRetry();
+    this.recompute();
+    this.publishConnection();
+  };
 
   /**
    * Get a session, or make one. Every failure in here becomes a JoinError.
@@ -1612,6 +1752,7 @@ export class SupabaseRepository implements RunitRepository {
   }
 
   entitlements = undefined as unknown as Observable<Entitlements>;
+  connection = undefined as unknown as Observable<ConnectionState>;
 
   /* ------------------------------------------------------------------ photos */
 

@@ -2212,3 +2212,86 @@ leading "the" — so there is now a case pinning exactly that.
 | The TS mirror cannot fold more or less than the SQL | **jest**, re-parsing the migration, three mutations caught |
 | The index enforces it, the merge is reported, a played song returns, a non-member is refused | **E**, live, 8 assertions |
 | Two guests asking in the same second | **E only, in principle** — no journey here can stage the race; the unique index is what makes it safe |
+
+## AP. The connection that could die without anyone noticing
+`src/data/supabase/README.md` states the contract: *"Reads are observables. `Observable<T>`
+maps onto a Realtime channel subscription."* So a channel that stops delivering is not a
+cosmetic problem — every screen in the app is quietly serving a frozen snapshot.
+
+**It could, and nothing knew.** `RealtimeTable`'s subscribe callback was used purely as a
+one-shot promise settler: `SUBSCRIBED` resolved it, two error statuses rejected it, and once
+the promise settled the callback was inert. supabase-js keeps invoking it for the life of the
+channel — a socket drop, a failed rejoin, a server-side close all arrive there — so a channel
+that joined and *then* died produced **zero observable effect**. Measured twice in roughly
+fifteen lane-H runs: a host's own announcement never appeared, and there was no recovery but
+backgrounding the app.
+
+**`CLOSED` had no branch at all**, which is worse than silent. Arriving first, it left the
+promise unsettled forever: `await this.subscribed()` hung, the select never ran,
+`startTables`' `allSettled` never settled, and `joinAsGuest` hung with no timeout and no
+message. The comment four lines above named that exact failure — *"an app stuck on a spinner
+with no error anywhere"* — while leaving the status uncovered.
+
+**And the fact was already recorded.** `liveError` was written by one line and read by none;
+its docblock said *"Nothing renders it yet — surfacing it is a UI decision, not this class's."*
+That is the same shape as `broadcast_reads` (a policy, a fold trigger and no writer),
+`albumRetentionDays` (declared, no reader) and `guests_update_self` (a policy that could never
+fire) — every one of them closed this month.
+
+### The identity guard is the line this change turns on
+
+`teardownChannel()` nulls `this.channel` **before** awaiting `removeChannel(ch)`, so a
+`CLOSED` produced by our **own** `pause()` arrives at a callback still holding the old
+channel. Without `if (ch !== this.channel) return`, backgrounding the app reports eight faults
+and kicks the reconnect supervisor into retrying channels we deliberately closed — a new bug
+wearing the old one's clothes. It has its own test, and removing it turns that test red.
+
+### One supervisor, not eight timers
+
+The realistic outage is socket-level: every channel dies together. Eight independent backoffs
+would be a hand-built version of the vendor storm `fail()`'s teardown exists to prevent. The
+repository already owns "start the eight again" — that is what `resume()` is — so the retry
+lives there: **one** timer, a bounded budget of 2s / 5s / 15s / 30s, and then it stops asking
+and says so. A retry is `start()` and nothing smaller, because a rejoined channel has a gap
+and `start()` is by construction subscribe → buffer → select → replay.
+
+**It cancels on `suspend()`.** A pocketed phone that keeps re-subscribing re-opens the exact
+cost `appStateBridge` was written to close, and "reconnecting" is not a state anyone can see
+from a pocket. A paused table is not a failed one.
+
+### The pill, which is not in the canvas
+
+A prototype's socket never dies, so the canvas has no surface for this. Two states are drawn
+and `live` draws nothing — the copy table types that as `Exclude<ConnectionState, 'live'>`, so
+no screen can invent wording for a healthy connection or forget to hide the surface.
+
+**It replaces the "N here" headcount rather than joining it.** Partly layout — the guest header
+already carries up to three pills beside a flexing event name. Mainly honesty: a headcount fed
+by a dead channel is stale, and showing it is a small lie of the kind this file keeps
+recording. Swapping it puts a true thing in the space the false one was using.
+
+**It is drawn on the host console too**, which does not use `EventHeader`. She is the person
+whose announcements silently vanish; a guest-only pill would have left her without one, which
+is the shape of #29 and #37 — the surface existing everywhere except where the affected person
+was standing.
+
+**`stale` is tappable and `reconnecting` is not.** While the backoff is running a tap would
+restart what is already running. Once the budget is spent nothing further happens on its own,
+so the pill becomes the way back — a control that names a problem and cannot act on it is the
+shape closed three times already.
+
+### What proves it
+
+| Claim | Lane |
+|---|---|
+| A channel dying after join is recorded, torn down, restartable | **jest**, 5 assertions, all five mutations caught |
+| `CLOSED` no longer hangs a join | **jest** — the mutation is a test timeout |
+| Our own `pause()` does not report a fault | **jest** — the identity guard |
+| Bounded backoff, cancelled on background, reset by `reconnect()` | **jest**, 6 mutations caught |
+| The pill is drawn, replaces the headcount, reaches both surfaces, is a control | **B** via `?stale=1`, 3 mutations caught |
+| **A real socket dying is noticed, and the app heals** | **H** — `context.setOffline()`, and restoring the one-shot callback turns both red |
+
+`?stale=1` exists for the same reason `?empty=1` does: `MemoryRepository` has no socket, so it
+is `live` by definition and the pill would be unreachable in the only lane that can screenshot
+it. The failure is never "the control is broken", it is "no test can reach the state where the
+control matters".

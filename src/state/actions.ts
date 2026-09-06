@@ -319,7 +319,31 @@ export function useHostActions() {
   const { show } = useToast();
   return useMemo(
     () => ({
-      send: (body: string, pinned: boolean) => repo.chat.send({ body, pinned }),
+      /**
+       * GUARDED, and the draft survives a failure (#45's neighbour).
+       *
+       * This was a bare pass-through, awaited by `BroadcastPanel` with no catch, over a
+       * method that throws three ways -- not a host, a PostgREST error, and `assertWrote`'s
+       * RLS refusal. There is no error boundary in this app, so a refused broadcast was an
+       * unhandled rejection: no toast, no log, and the host left staring at her own text
+       * with no idea whether it went. On the exact path #45 was reported from.
+       *
+       * NOT through `useGuardedAction`: `chat.send` cannot raise an EntitlementError -- a
+       * pin the tier cannot carry is FOLDED, not refused -- so routing it through the
+       * paywall guard could only mislead, exactly as `retry` argues above.
+       *
+       * Returns whether it landed so the caller can keep the draft. Destroying what she
+       * typed on a failure is worse than the silence this replaces.
+       */
+      send: async (body: string, pinned: boolean): Promise<boolean> => {
+        try {
+          await repo.chat.send({ body, pinned });
+          return true;
+        } catch (e) {
+          show(e instanceof Error ? e.message : 'Could not send that announcement.');
+          return false;
+        }
+      },
       /**
        * #26. Through `guarded`, so a free tier's attempt to pin surfaces as the toast
        * that NAMES the limit rather than as an unhandled throw -- the same treatment

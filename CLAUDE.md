@@ -514,6 +514,26 @@ that lives in a button handler is bypassed by the second caller.
   policy, so a SUCCESSFUL write also comes back empty. The guard fires on the good path and
   is silent on the bad one. Every write to `guests` goes through a SECURITY DEFINER RPC
   (`join_event`, `set_push_token`). Measured in #36.
+- **A REALTIME CHANNEL CAN DIE AFTER IT JOINS, and the callback that hears about it is the
+  same one that resolved the join.** `RealtimeTable`'s status callback stays live for the
+  channel's lifetime now; before, it was a one-shot promise settler and a channel that
+  joined and then died produced no observable effect at all (#45). Three rules fell out and
+  all three have tests: **`CLOSED` must have a branch** (arriving first, it left the promise
+  unsettled and hung the whole join with no message); **the identity guard
+  `if (ch !== this.channel) return` is load-bearing**, because `teardownChannel` nulls the
+  field before awaiting `removeChannel`, so our OWN `pause()` produces a `CLOSED` that would
+  otherwise report eight faults and retry channels we deliberately closed; and **health is
+  reported after the SELECT, never from `SUBSCRIBED`**, or you announce a live table with no
+  rows. FIDELITY note AP.
+- **The reconnect supervisor is ONE timer in `SupabaseRepository`, not one per table**, with a
+  bounded budget (2s/5s/15s/30s) that then reports `stale` and stops. Eight timers would be a
+  hand-built version of the vendor storm the teardown exists to prevent. It **cancels on
+  `suspend()`** — a pocketed phone that keeps re-subscribing re-opens the cost
+  `appStateBridge` closed. A retry is `start()` and nothing smaller: a rejoined channel has a
+  gap, and `start()` is subscribe → buffer → select → replay.
+- **`?stale=1` boots a world where the connection is already broken.** `MemoryRepository` has
+  no socket, so it is `live` by definition and the connection pill is otherwise unreachable in
+  the only lane that can screenshot it — the same gap `?empty=1` was added to close.
 - **`useRef<TextInput>(null)` contains the literal `<TextInput`.** Any source-scanning
   tool that matches `/<TextInput\b/` counts a type argument as a control. `tools/audit-keyboard.mjs`
   requires the `<` to follow start-of-line, whitespace or a bracket for that reason.

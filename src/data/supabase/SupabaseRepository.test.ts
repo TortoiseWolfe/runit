@@ -37,10 +37,44 @@ function ready(extra: (c: FakeClient) => void = () => {}) {
   return c;
 }
 
-const build = (c: FakeClient) =>
+/**
+ * A hand-cranked clock, for the same reason `appState: false` exists below.
+ *
+ * The reconnect supervisor (#45) schedules a real `setTimeout` on the first channel
+ * failure. Left alone that is a live handle a finished test never cancels -- jest reports
+ * "asynchronous operations that weren't stopped" and hangs on exit -- and every retry
+ * assertion would need fake timers, which this suite has never used. `run()` fires what is
+ * pending, so a backoff is asserted synchronously.
+ */
+function makeClock() {
+  const pending: (() => void)[] = [];
+  return {
+    pending,
+    setTimer: (fn: () => void, _ms: number) => {
+      pending.push(fn);
+      return () => {
+        const i = pending.indexOf(fn);
+        if (i >= 0) pending.splice(i, 1);
+      };
+    },
+    /** Fire everything queued right now. */
+    async run() {
+      const due = pending.splice(0, pending.length);
+      for (const fn of due) fn();
+      await Promise.resolve();
+      await Promise.resolve();
+    },
+  };
+}
+
+const build = (c: FakeClient, clock = makeClock()) =>
   // `appState: false` everywhere except the bridge's own tests: the listener is
   // global, so leaving it on would have each of these tests racing the last one's.
-  SupabaseRepository.create(c as unknown as RunitClient, { now: () => FIXED, appState: false });
+  SupabaseRepository.create(c as unknown as RunitClient, {
+    now: () => FIXED,
+    appState: false,
+    setTimer: clock.setTimer,
+  });
 
 const join = async (c: FakeClient) => {
   const repo = build(c);
@@ -1109,6 +1143,183 @@ describe('realtime lifecycle', () => {
     await repo.session.leave();
     expect(live(c)).toHaveLength(0);
     expect(c.disconnectCalls).toBe(1);
+  });
+});
+
+/**
+ * CONNECTION HEALTH AND RECOVERY -- issue #45.
+ *
+ * Realtime usually delivers in 240ms-1.2s and twice in ~15 live runs delivered nothing at
+ * all inside a minute. The mechanism turned out to be that a channel which joined and then
+ * died produced NO observable effect: the subscribe callback was a one-shot promise settler,
+ * `liveError` was written by one line and read by none, and the seam between the table and
+ * the repository could not express "the channel died" at all.
+ *
+ * These assertions are the half a fixture CAN see. Whether a real socket recovers is lane
+ * H's, and even there it can only be forced with `context.setOffline`.
+ */
+describe('connection health and recovery', () => {
+  /**
+   * The CURRENT channel for a table -- the last one opened, not the first.
+   *
+   * Every reconnect opens a new channel under the same name and the fake keeps them all.
+   * Pushing to a stale handle is correctly ignored by RealtimeTable's identity guard, so
+   * `find` would make a test look like "the failure was not reported" when what actually
+   * happened is that the test aimed at a channel nobody is listening to.
+   */
+  const chan = (c: FakeClient, table: string) =>
+    [...c.channels].reverse().find((x) => x.name === `runit:${table}`)!;
+
+  /**
+   * Drain the microtask queue. `fail()` awaits `removeChannel` before it reports, so a
+   * fixed number of `await Promise.resolve()` is a guess about how many hops that takes --
+   * and a guess that is one short reads as "no fault was reported", which is the assertion
+   * passing for the wrong reason.
+   */
+  const flush = () => new Promise((r) => setTimeout(r, 0));
+
+  it('is live after a clean join, and no channels is not a fault', async () => {
+    const c = ready();
+    const repo = build(c);
+    // Before a join there is nothing to be disconnected from. A join screen wearing a
+    // warning would be the app blaming itself for standing still.
+    expect(repo.connection.get()).toBe('live');
+    await repo.session.joinAsGuest({ code: 'test01', nickname: 'Ada' });
+    expect(repo.connection.get()).toBe('live');
+  });
+
+  it('a channel that dies after joining turns the connection reconnecting', async () => {
+    const c = ready();
+    const repo = await join(c);
+
+    chan(c, 'photos').push('CHANNEL_ERROR', new Error('socket died'));
+    await flush();
+
+    // `every`, not `some`: one dead table is a degraded app, and aggregating the other way
+    // would report live while the album silently stopped updating.
+    expect(repo.connection.get()).toBe('reconnecting');
+  });
+
+  it('the retry RE-SELECTS, because a rejoined channel has a gap', async () => {
+    const c = ready();
+    const clock = makeClock();
+    const repo = build(c, clock);
+    await repo.session.joinAsGuest({ code: 'test01', nickname: 'Ada' });
+    const before = c.find('select', 'photos').length;
+
+    chan(c, 'photos').push('CHANNEL_ERROR', new Error('socket died'));
+    await flush();
+    await clock.run();
+    // `run()` FIRES the retry; it does not await it. `runRetry` then awaits a subscribe, a
+    // select and a teardown, so the state it publishes lands several hops later.
+    await flush();
+
+    // Everything that happened while the channel was down is lost, so a bare re-subscribe
+    // would come back live and permanently missing rows. `start()` is subscribe, buffer,
+    // select, replay -- which is why the retry is start() and not something smaller.
+    expect(c.find('select', 'photos').length).toBe(before + 1);
+    expect(repo.connection.get()).toBe('live');
+  });
+
+  it('gives up after a bounded number of attempts and says so', async () => {
+    const c = ready();
+    const clock = makeClock();
+    const repo = build(c, clock);
+    await repo.session.joinAsGuest({ code: 'test01', nickname: 'Ada' });
+
+    // Every subsequent subscribe fails, so no retry can succeed.
+    const fail = () => { c.failSubscribeFor.add('runit:photos'); };
+    fail();
+    chan(c, 'photos').push('CHANNEL_ERROR', new Error('socket died'));
+    await flush();
+
+    let rounds = 0;
+    while (clock.pending.length > 0 && rounds < 20) {
+      fail();
+      await clock.run();
+      await flush();
+      rounds += 1;
+    }
+
+    // Bounded, and then HONEST. An unbounded retry is how "reconnecting" becomes a
+    // permanent lie; four attempts is the budget, and after it the state changes.
+    expect(rounds).toBe(4);
+    expect(repo.connection.get()).toBe('stale');
+    expect(clock.pending).toHaveLength(0);
+  });
+
+  it('BACKGROUNDING CANCELS THE RETRY, and reports live rather than stale', async () => {
+    const c = ready();
+    const clock = makeClock();
+    const repo = build(c, clock);
+    await repo.session.joinAsGuest({ code: 'test01', nickname: 'Ada' });
+
+    chan(c, 'photos').push('CHANNEL_ERROR', new Error('socket died'));
+    await flush();
+    expect(clock.pending.length).toBe(1);
+
+    await repo.suspend();
+
+    // A phone in a pocket that keeps re-subscribing re-opens the exact cost appStateBridge
+    // was written to close -- and "reconnecting" is not a state anyone can see from there.
+    // A PAUSED table is not a FAILED one.
+    expect(clock.pending).toHaveLength(0);
+    expect(repo.connection.get()).toBe('live');
+  });
+
+  it('resume re-reads the tables realtime does not publish', async () => {
+    const c = ready();
+    const repo = await join(c);
+    const before = c.find('select', 'hosts').length;
+
+    await repo.resume();
+
+    // hosts, song_votes, guest_blocks and invitees are deliberately NOT in the publication,
+    // so they were read once at join and never again for the life of the session. A resume
+    // is the one moment we know time has passed.
+    expect(c.find('select', 'hosts').length).toBeGreaterThan(before);
+  });
+
+  it('a CLOSED on the first status does not hang the join -- #45 reproduced', async () => {
+    const c = ready();
+    c.closeSubscribeFor.add('runit:photos');
+    const repo = build(c);
+
+    // Without the CLOSED branch this never settles: `await this.subscribed()` hangs, so
+    // startTables' allSettled never settles and joinAsGuest hangs with no message. From
+    // here that failure looks like a jest timeout.
+    await repo.session.joinAsGuest({ code: 'test01', nickname: 'Ada' });
+    expect(repo.event.current.get()).not.toBeNull();
+  });
+
+  it('reconnect() tries again immediately, so stale is not a dead end', async () => {
+    const c = ready();
+    const clock = makeClock();
+    const repo = build(c, clock);
+    await repo.session.joinAsGuest({ code: 'test01', nickname: 'Ada' });
+
+    const fail = () => { c.failSubscribeFor.add('runit:photos'); };
+    fail();
+    chan(c, 'photos').push('CHANNEL_ERROR', new Error('socket died'));
+    await flush();
+    let rounds = 0;
+    while (clock.pending.length > 0 && rounds < 20) { fail(); await clock.run(); await flush(); rounds += 1; }
+    expect(repo.connection.get()).toBe('stale');
+
+    // The channel works again; the person taps.
+    await repo.reconnect();
+
+    // This is what stops `stale` being a control that names a problem and does nothing --
+    // the shape closed three times already (#29, #37, #24).
+    expect(repo.connection.get()).toBe('live');
+
+    // AND THE BUDGET CAME BACK WITH IT. While everything is healthy a spent counter is
+    // invisible, so the only place it shows is the NEXT outage: without the reset the very
+    // first failure would report `stale` immediately and never retry again for the life of
+    // the session.
+    chan(c, 'photos').push('CHANNEL_ERROR', new Error('again'));
+    await flush();
+    expect(repo.connection.get()).toBe('reconnecting');
   });
 });
 

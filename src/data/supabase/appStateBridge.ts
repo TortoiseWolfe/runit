@@ -46,7 +46,23 @@ export function attachAppStateBridge(target: AppStateBridgeTarget): () => void {
     // Fire and forget on purpose: React Native gives no way to hold the app open
     // until a promise settles, and a rejected teardown must not crash the app on
     // its way to the background. Both sides are individually idempotent.
-    void (isActive ? target.resume() : target.suspend()).catch(() => undefined);
+    //
+    // THE TWO SIDES ARE NOT THE SAME, and treating them alike is what made a failed
+    // recovery invisible. Discarding `suspend()`'s rejection is justified -- nothing can
+    // hold the app open to hear about it, and the socket is going away regardless.
+    // Discarding `resume()`'s was not: this is the ONLY self-heal path the app has, and a
+    // total failure here leaves every screen serving last night's snapshot with nobody
+    // told. Since `resume()` now settles per-table (allSettled) and reports each one
+    // through `connection`, what reaches this catch is the whole call failing -- the token
+    // refresh, or the re-read of the tables realtime does not publish.
+    void (isActive ? target.resume() : target.suspend()).catch((e: unknown) => {
+      console.warn(
+        isActive
+          ? 'realtime: could not reconnect on foreground; live updates stay stale until you reopen the app'
+          : 'realtime: could not close cleanly on background; the socket may keep heartbeating',
+        e,
+      );
+    });
   });
 
   current = sub;

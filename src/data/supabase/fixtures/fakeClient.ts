@@ -74,6 +74,15 @@ export interface FakeChannel {
   removed: boolean;
   /** Push a postgres_changes payload to this channel's handler. */
   emit(payload: unknown): void;
+  /**
+   * Drive a subscribe STATUS the way supabase-js does after the join -- a socket drop, a
+   * failed rejoin, a server-side close (#45). The real client keeps invoking that callback
+   * for the life of the channel, which is the fact the adapter used to ignore.
+   *
+   * It deliberately does NOT set `removed`: removal has to come from the adapter, or the
+   * anti-storm assertion proves nothing. Same rule the failSubscribe branch already keeps.
+   */
+  push(status: string, err?: unknown): void;
 }
 
 export class FakeClient {
@@ -190,6 +199,14 @@ export class FakeClient {
 
   /** Channel names (`runit:<table>`) whose next subscribe must fail. */
   failSubscribeFor = new Set<string>();
+  /**
+   * Channel names whose next subscribe reports CLOSED as its FIRST status.
+   *
+   * Kept apart from `failSubscribeFor` because the shapes differ where it matters: a
+   * CHANNEL_ERROR was always handled, and CLOSED had no branch at all -- it left the
+   * promise unsettled, so `start()` hung and a join hung with it, silently and forever.
+   */
+  closeSubscribeFor = new Set<string>();
 
   /** Paths whose next signing must come back refused, as RLS would refuse a pending photo. */
   refuseSignFor = new Set<string>();
@@ -247,9 +264,14 @@ export class FakeClient {
 
   channel(name: string) {
     let handler: ((p: unknown) => void) | null = null;
+    let status: ((s: string, e?: unknown) => void) | null = null;
     const ch: FakeChannel = {
       name, subscribed: false, removed: false,
       emit: (p) => handler?.(p),
+      push: (s, e) => {
+        ch.subscribed = s === 'SUBSCRIBED';
+        status?.(s, e);
+      },
     };
     this.channels.push(ch);
     const api = {
@@ -263,6 +285,12 @@ export class FakeClient {
       },
       subscribe: (cb: (status: string, err?: unknown) => void) => {
         this.order.push(`subscribe:${name}`);
+        status = cb;
+        if (this.closeSubscribeFor.has(name)) {
+          this.closeSubscribeFor.delete(name);
+          cb('CLOSED');
+          return api;
+        }
         if (this.failSubscribeFor.has(name)) {
           this.failSubscribeFor.delete(name);
           // The real client leaves the channel REGISTERED on this branch, which is

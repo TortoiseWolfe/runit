@@ -19,7 +19,7 @@ import type {
 import { subjectKey } from '../types';
 import {
   EntitlementError, JoinError, ScheduleError, type UploadOutcome,
-  type EventDetails, type EventPreview, type NewEvent, type NewHost,
+  type ConnectionState, type EventDetails, type EventPreview, type NewEvent, type NewHost,
   type Observable, type RunitRepository, type Unsubscribe,
 } from '../repository';
 import { checkFeature, checkLimit, type Entitlements } from '@/domain/entitlements';
@@ -304,9 +304,18 @@ export class MemoryRepository implements RunitRepository {
   private sigReports: Signal<Report[]>;
   private sigMyReports: Signal<ReadonlySet<string>>;
   private sigEntitlements: Signal<Entitlements>;
+  private sigConnection: Signal<ConnectionState>;
 
   /** Live tier + usage. Advisory reads only; enforcement is in the write methods. */
   entitlements: Observable<Entitlements> = undefined as unknown as Observable<Entitlements>;
+  connection: Observable<ConnectionState> = undefined as unknown as Observable<ConnectionState>;
+
+  /**
+   * Nothing to reconnect TO. This adapter is `live` by definition -- there is no socket --
+   * so this exists to satisfy the seam rather than to do work, and saying that plainly is
+   * better than a comment claiming it retries something.
+   */
+  reconnect = async (): Promise<void> => {};
 
   constructor(
     seed: Seed,
@@ -314,6 +323,13 @@ export class MemoryRepository implements RunitRepository {
       now?: () => string;
       transfer?: (photo: Photo, onProgress: (fraction: number) => void) => Promise<void>;
       hostKey?: string;
+      /**
+       * A FIXTURE STATE, not a simulation. This adapter has no socket, so it is `live` by
+       * definition -- which means the harness could not render the connection surface at
+       * all without this. Same reasoning as `?empty=1`: the bug is never "the control is
+       * broken", it is "no test can reach the state where it matters".
+       */
+      connection?: ConnectionState;
     } = {},
   ) {
     this.now = opts.now ?? (() => new Date().toISOString());
@@ -361,6 +377,7 @@ export class MemoryRepository implements RunitRepository {
     this.sigReports = new Signal<Report[]>([]);
     this.sigMyReports = new Signal<ReadonlySet<string>>(new Set());
     this.sigEntitlements = new Signal<Entitlements>(this.computeEntitlements());
+    this.sigConnection = new Signal<ConnectionState>(opts.connection ?? 'live');
     // Class field initialisers (session = {...}, chat = {...}, ...) run BEFORE
     // this constructor body, so their `current`/`feed` slots are still empty at
     // that point. Wiring happens here, once every signal exists.
@@ -1359,6 +1376,7 @@ export class MemoryRepository implements RunitRepository {
     this.photos.approved = this.sigApproved;
     this.photos.mine = this.sigMine;
     this.entitlements = this.sigEntitlements;
+    this.connection = this.sigConnection;
     this.hosts.all = this.sigHosts;
     this.moderation.blocked = this.sigBlocked;
     this.moderation.reports = this.sigReports;
@@ -1372,6 +1390,7 @@ export class MemoryRepository implements RunitRepository {
       transfer?: (photo: Photo, onProgress: (fraction: number) => void) => Promise<void>;
       /** Fixture value, not a secret -- the real key lives as a bcrypt hash in Postgres. */
       hostKey?: string;
+      connection?: ConnectionState;
     } = {},
   ): MemoryRepository {
     return new MemoryRepository(seed, opts);

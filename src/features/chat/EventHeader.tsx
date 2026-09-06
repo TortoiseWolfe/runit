@@ -3,8 +3,9 @@ import { useRouter } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { ConnectionPill } from '@/components/ui/ConnectionPill';
 import { NameSheet } from '@/features/session/NameSheet';
-import { useBlocked, useEvent, useSession } from '@/state/hooks';
+import { useBlocked, useConnection, useEvent, useSession } from '@/state/hooks';
 import { alpha, border, insetDelta, radius, tracking, useTheme, weight } from '@/theme';
 
 /**
@@ -19,6 +20,7 @@ export function EventHeader({ eyebrow: eyebrowText }: { eyebrow: string }) {
   const event = useEvent();
   const blocked = useBlocked();
   const session = useSession();
+  const connection = useConnection();
   const [renaming, setRenaming] = useState(false);
   // A host has no nickname to show -- she has a display name and a role pill on her own
   // console. This is the guest's identity surface and nobody else's.
@@ -86,12 +88,28 @@ export function EventHeader({ eyebrow: eyebrowText }: { eyebrow: string }) {
           </Text>
         </Pressable>
       )}
-      <View
-        testID="guest-count-pill"
-        style={[s.pill, { backgroundColor: tokens.base200, borderColor: tokens.base300 }]}
-      >
-        <Text style={[s.pillText, { color: tokens.baseContent }]}>{event?.guestCount ?? 0} here</Text>
-      </View>
+      {/*
+        THE CONNECTION PILL REPLACES THE HEADCOUNT while the connection is not live (#45),
+        rather than joining it. Two reasons, and the second is the real one.
+
+        Layout: this row already carries up to three pills beside a flexing event name, and
+        a fourth does not fit at 402pt.
+
+        Honesty: a headcount fed by a dead channel is STALE. Showing "172 here" from a
+        snapshot that stopped updating is a small lie of exactly the kind this app keeps
+        closing, and swapping it for "reconnecting" puts a true thing in the space the false
+        thing was using.
+      */}
+      {connection === 'live' ? (
+        <View
+          testID="guest-count-pill"
+          style={[s.pill, { backgroundColor: tokens.base200, borderColor: tokens.base300 }]}
+        >
+          <Text style={[s.pillText, { color: tokens.baseContent }]}>{event?.guestCount ?? 0} here</Text>
+        </View>
+      ) : (
+        <ConnectionPill />
+      )}
       {/* Rendered only while open, so every opening is a fresh mount and the field starts
           from the name the room is seeing. See NameSheet's own note. */}
       {renaming && <NameSheet nickname={nickname} onClose={() => setRenaming(false)} />}
