@@ -159,6 +159,15 @@ export class SupabaseRepository implements RunitRepository {
   private cHosts = hostCache();
 
   private readonly sigSession = new Signal<Session>({ kind: 'anonymous' });
+  /**
+   * Whether a HOST SEAT is held here (#29), which is not the same question as which view
+   * is on screen. `is_host` matches `hosts.auth_user_id = auth.uid()`, so this is a fact
+   * about the signed-in identity that survives switching to the guest side.
+   *
+   * Tracked rather than asked on demand because it gates whether `RoleSwitch` is DRAWN,
+   * and a screen cannot await an RPC during render.
+   */
+  private readonly sigHoldsHostSeat = new Signal<boolean>(false);
   private readonly sigEvent = new Signal<RunitEvent | null>(null, (a, b) =>
     a === b ||
     (a !== null && b !== null &&
@@ -221,6 +230,7 @@ export class SupabaseRepository implements RunitRepository {
     // them here rather than in the field initialisers keeps each group's shape
     // readable above, and matches how MemoryRepository does it.
     this.session.current = this.sigSession;
+    this.session.holdsHostSeat = this.sigHoldsHostSeat;
     this.event.current = this.sigEvent;
     this.event.preview = this.sigPreview;
     this.chat.feed = this.sigFeed;
@@ -522,7 +532,7 @@ export class SupabaseRepository implements RunitRepository {
     // than a fallback. loadBlocks() immediately below already reasoned this way; this
     // half simply had no caller to force it.
     const guestId = this.myGuestId;
-    const [hosts, votes] = await Promise.all([
+    const [hosts, votes, host] = await Promise.all([
       // NAMED COLUMNS, NOT `*`. `auth_user_id` is revoked from every client role (#34),
       // and PostgREST expands `*` to every column -- which now fails outright rather than
       // quietly omitting the one it cannot read. Listing them is also the honest statement
@@ -534,9 +544,17 @@ export class SupabaseRepository implements RunitRepository {
       guestId === null
         ? Promise.resolve({ data: [] as { request_id: string }[], error: null })
         : this.db.from('song_votes').select('request_id').eq('guest_id', guestId),
+      // ASKED HERE so a RESTORED session knows what it is. A host who claimed a key last
+      // night reopens the app as `kind: 'guest'` until something tells it otherwise, and
+      // #29 hides a control on the answer -- so it has to be known before first paint,
+      // not discovered when she taps something.
+      this.db.rpc('is_host', { p_event: eventId }),
     ]);
     if (hosts.error) throw hosts.error;
     if (votes.error) throw votes.error;
+    // NOT thrown on. A failed is_host means "we do not know", and the safe unknown is
+    // false: it hides a control rather than offering one that refuses.
+    this.sigHoldsHostSeat.set(host.error ? false : host.data === true);
     this.hostRows = (hosts.data as Row<'hosts'>[]).map(toHost);
     this.votes = new Set((votes.data as { request_id: string }[]).map((v) => v.request_id));
     await this.loadBlocks();
@@ -722,6 +740,7 @@ export class SupabaseRepository implements RunitRepository {
 
   session = {
     current: undefined as unknown as Observable<Session>,
+    holdsHostSeat: undefined as unknown as Observable<boolean>,
 
     joinAsGuest: async ({ code, nickname }: { code: string; nickname: string }) => {
       await this.ensureSession();
@@ -801,6 +820,10 @@ export class SupabaseRepository implements RunitRepository {
       }
       const mine = this.hostRows.find((h) => h.id === hostId) ?? this.hostRows[0];
       if (!mine) throw new Error('No host row found for this event.');
+      // Set beside the session rather than left to `loadFetchOnce`'s is_host: all three
+      // routes into a host seat pass through here, and relying on call ORDER for a flag
+      // that gates whether a control is drawn is the kind of coupling that breaks quietly.
+      this.sigHoldsHostSeat.set(true);
       this.sigSession.set({
         kind: 'host', hostId: mine.id, displayName: mine.displayName,
         role: mine.role, roleLabel: mine.roleLabel,
@@ -839,6 +862,10 @@ export class SupabaseRepository implements RunitRepository {
       await this.loadFetchOnce();
       const mine = this.hostRows.find((h) => h.id === (hostId as unknown as string));
       if (!mine) throw new Error('Claimed a host seat that is not readable. This is a bug.');
+      // Set beside the session rather than left to `loadFetchOnce`'s is_host: all three
+      // routes into a host seat pass through here, and relying on call ORDER for a flag
+      // that gates whether a control is drawn is the kind of coupling that breaks quietly.
+      this.sigHoldsHostSeat.set(true);
       this.sigSession.set({
         kind: 'host', hostId: mine.id, displayName: mine.displayName,
         role: mine.role, roleLabel: mine.roleLabel,
@@ -923,6 +950,9 @@ export class SupabaseRepository implements RunitRepository {
       this.cHosts = hostCache();
       this.eventId = null;
       this.myGuestId = null;
+      // The seat belonged to THAT event. Carrying it across would draw a role switch on
+      // the next event's guest screen for someone who holds nothing there.
+      this.sigHoldsHostSeat.set(false);
       this.votes = new Set();
       this.hostRows = [];
       // Blocks are per-event and per-guest. Carrying them across a leave would filter
@@ -1072,6 +1102,10 @@ export class SupabaseRepository implements RunitRepository {
             'every member, so this is a policy regression rather than a refusal.',
         );
       }
+      // Set beside the session rather than left to `loadFetchOnce`'s is_host: all three
+      // routes into a host seat pass through here, and relying on call ORDER for a flag
+      // that gates whether a control is drawn is the kind of coupling that breaks quietly.
+      this.sigHoldsHostSeat.set(true);
       this.sigSession.set({
         kind: 'host', hostId: mine.id, displayName: mine.displayName,
         role: mine.role, roleLabel: mine.roleLabel,

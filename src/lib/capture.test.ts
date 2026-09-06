@@ -20,7 +20,7 @@ import { capturePhoto } from './capture';
  *
  * Recorded per test so an assertion can name the exact resize that was scheduled.
  */
-const mockResizes: Array<{ width?: number | null; height?: number | null }> = [];
+const mockResizes: { width?: number | null; height?: number | null }[] = [];
 let mockSaved = 0;
 
 /** What the DECODER reports. Deliberately independent of what the picker claims. */
@@ -45,7 +45,6 @@ jest.mock('expo-file-system', () => ({
   },
   File: class {
     uri = 'file:///cache/runit-photos/1.jpg';
-    constructor(..._a: unknown[]) {}
     copy() {}
   },
   Paths: { cache: 'file:///cache' },

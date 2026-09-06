@@ -573,6 +573,11 @@ only in `src/domain/tiers.ts` is enforced by whichever client happens to be aski
 `src/domain/tiers.test.ts` re-parses the migration's seed to fail on drift between the two
 — the same shape as `tokens.test.ts` re-parsing `theme.css`.
 
+**`session.holdsHostSeat` is not `session.current.kind`.** The first says which SEAT you
+hold, the second says which VIEW you are looking at. A host who switched to the guest side
+reads `kind: 'guest'` and still holds her seat. Gate a control on the wrong one and you
+either show a door to people who cannot open it (#29) or take the way back from a host.
+
 **Dead ends a host reaches by using the app as designed.** #24 (`seen by 0` forever) ·
 #25 (`invitees` is unreachable from the app, and "Send to N guests" names a number
 nothing can set) · #29 (`RoleSwitch` is shown to

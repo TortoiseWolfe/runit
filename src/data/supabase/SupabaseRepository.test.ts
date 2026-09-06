@@ -673,6 +673,50 @@ describe('un-pinning an announcement (#26)', () => {
   });
 });
 
+describe('holding a host seat (#29)', () => {
+  /**
+   * `RoleSwitch` was drawn for every guest, and against this adapter its only possible
+   * outcome for them is a refusal -- `becomeHost` matches `hosts.auth_user_id = auth.uid()`,
+   * so a role is not something a picker can grant. The screen now asks before drawing it.
+   *
+   * NOTE WHAT LANE B CANNOT SEE: all 208 journeys boot `MemoryRepository`, where this is
+   * hard-coded true so the screenshot harness can reach the host artboards at all. So the
+   * HIDING is provable only here.
+   */
+  it('is false for a plain guest, so the control is not drawn for them', async () => {
+    const c = ready();
+    c.on((op) => (op.kind === 'rpc' && op.table === 'is_host' ? { data: false, error: null } : undefined));
+    const repo = await join(c);
+    expect(repo.session.holdsHostSeat.get()).toBe(false);
+  });
+
+  it('is true once a seat is held, and SURVIVES switching to the guest view', async () => {
+    // The whole reason this is not `session.current.kind`. A host looking at the guest
+    // side reads `kind: 'guest'` and still holds her seat -- she must keep the way back.
+    const c = creatable();
+    const repo = build(c);
+    await repo.event.create(NEW_EVENT);
+    expect(repo.session.holdsHostSeat.get()).toBe(true);
+    expect(repo.session.current.get().kind).toBe('host');
+  });
+
+  it('treats a failed is_host as NOT holding a seat', async () => {
+    // The safe unknown hides a control rather than offering one that refuses.
+    const c = ready();
+    c.on((op) => (op.kind === 'rpc' && op.table === 'is_host' ? refusedLoudly() : undefined));
+    const repo = await join(c);
+    expect(repo.session.holdsHostSeat.get()).toBe(false);
+  });
+
+  it('drops the seat when the event closes, because it belonged to that event', async () => {
+    const c = creatable();
+    const repo = build(c);
+    await repo.event.create(NEW_EVENT);
+    await repo.session.closeEvent();
+    expect(repo.session.holdsHostSeat.get()).toBe(false);
+  });
+});
+
 describe('registering for push (#27)', () => {
   const asHost = async (c: FakeClient) => {
     const repo = build(c);
