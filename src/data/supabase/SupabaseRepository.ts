@@ -1024,6 +1024,35 @@ export class SupabaseRepository implements RunitRepository {
       this.recompute();
     },
 
+    setNickname: async (nickname: string) => {
+      const eventId = this.requireEvent();
+      // requireGuest, not a null check: renaming is structurally a guest's action, and a
+      // host holds no row to rename. The RPC refuses the same case with 42501 -- this is
+      // the client half of the same statement, not a substitute for it.
+      this.requireGuest();
+      const { data, error } = await this.db.rpc('set_nickname', {
+        p_event: eventId,
+        p_nickname: nickname,
+      });
+      if (error) throw error;
+      const stored = data as unknown as string;
+
+      // The session carries the name every screen reads, so it moves here rather than
+      // waiting for a realtime frame -- `guests` is not in the publication and has no
+      // SELECT policy, so no frame is coming.
+      const current = this.sigSession.get();
+      if (current.kind === 'guest') {
+        this.sigSession.set({ ...current, nickname: stored });
+      }
+      // The denormalised copies on this guest's own rows moved in the same transaction,
+      // and THOSE tables are in the publication -- so the queue and the album correct
+      // themselves. This re-read is for the case where they do not arrive: a rename whose
+      // effect is invisible until the next unrelated change reads as a rename that failed.
+      await this.loadFetchOnce();
+      this.recompute();
+      return stored;
+    },
+
     /**
      * Leave the EVENT, and stay exactly who you are.
      *

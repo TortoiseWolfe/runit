@@ -1144,6 +1144,86 @@ begin
 
   delete from public.guests where event_id = ce2.event_id and auth_user_id = cuid;
 
+  -- ==================================================================
+  -- YOUR OWN NAME (#43), AND THE POLICY THAT COULD NEVER FIRE (#36)
+  -- ==================================================================
+  -- `guests_update_self` claimed a guest could update their own row and never could:
+  -- `guests` has no SELECT policy, so the read behind `UPDATE ... WHERE` matches nothing,
+  -- and PostgREST always sends a WHERE. It is deleted rather than left as documentation
+  -- for an implementation that fails SILENTLY -- the shape `assertWrote()` exists for.
+  --
+  -- Note the format() on every line below, including the ones with no substitution.
+  -- `text[] || 'a bare literal'` parses the literal as an ARRAY LITERAL and raises 22P02
+  -- inside whatever exception handler you are standing in -- which, here, reported a
+  -- perfectly good function as uncallable. It has cost this file twice now.
+  execute 'reset role';
+  perform set_config('request.jwt.claims', json_build_object('sub',auid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  insert into public.song_requests (event_id, title, artist, requested_by_guest_id, requested_by_name)
+       values (ce2.event_id, 'Blue Monday', 'New Order', gcap, 'Ada') returning id into bc;
+
+  lbl := public.set_nickname(ce2.event_id, '  Wren  ');
+  out := out || format('%s set_nickname returns the STORED name, trimmed (%s, want Wren)',
+                       case when lbl = 'Wren' then 'PASS' else 'FAIL' end, lbl);
+
+  execute 'reset role';
+  select g.nickname into lbl from public.guests g where g.id = gcap;
+  out := out || format('%s the guests row is renamed (%s)',
+                       case when lbl = 'Wren' then 'PASS' else 'FAIL' end, coalesce(lbl,'null'));
+
+  -- THE HALF THAT MAKES IT A RENAME. `requested_by_name` is denormalised and `not null` so
+  -- a deleted guest does not blank the history; a rename that moved only `guests.nickname`
+  -- leaves the old name in front of the room, which is the state it was opened to fix.
+  select r.requested_by_name into lbl from public.song_requests r where r.id = bc;
+  out := out || format('%s and so is the copy on a request already sent (%s)',
+                       case when lbl = 'Wren' then 'PASS' else 'FAIL' end, coalesce(lbl,'null'));
+
+  perform set_config('request.jwt.claims', json_build_object('sub',auid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  lbl := public.set_nickname(ce2.event_id, repeat('W', 60));
+  out := out || format('%s a 60-character name is capped at 40 (%s)',
+                       case when length(lbl) = 40 then 'PASS' else 'FAIL' end, length(lbl));
+
+  begin
+    perform public.set_nickname(ce2.event_id, '   ');
+    out := out || format('%s an empty nickname was stored', 'FAIL');
+  exception when others then
+    out := out || format('%s an empty nickname is refused (%s)',
+                         case when sqlstate = '22023' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  -- A stranger to this event. `my_guest_id` is null for them, so there is no row to name.
+  execute 'reset role';
+  perform set_config('request.jwt.claims', json_build_object('sub',nuid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  begin
+    perform public.set_nickname(ce2.event_id, 'Interloper');
+    out := out || format('%s a non-member renamed somebody in an event they are not in', 'FAIL');
+  exception when others then
+    out := out || format('%s a non-member cannot rename anyone here (%s)',
+                         case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  -- #36 ITSELF, and the reason the function exists at all.
+  perform set_config('request.jwt.claims', json_build_object('sub',auid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  update public.guests set nickname = 'Direct' where auth_user_id = auid;
+  get diagnostics n = row_count;
+  execute 'reset role';
+  select g.nickname into lbl from public.guests g where g.id = gcap;
+  out := out || format('%s a direct UPDATE touches %s rows and changes nothing',
+                       case when n = 0 and lbl <> 'Direct' then 'PASS' else 'FAIL' end, n);
+
+  select count(*) into n from pg_policies
+   where schemaname = 'public' and tablename = 'guests' and policyname = 'guests_update_self';
+  out := out || format('%s guests_update_self is gone rather than left as documentation (%s)',
+                       case when n = 0 then 'PASS' else 'FAIL' end, n);
+
+  -- Restore the name the sections after this one read back.
+  execute 'reset role';
+  update public.guests set nickname = 'Ada' where id = gcap;
+  delete from public.song_requests where id = bc;
+
   select count(*) into fails from unnest(out) x where x like 'FAIL%';
   raise exception using message =
     format('%s FAILURE(S). %s', fails, array_to_string(out, E'\n  '));

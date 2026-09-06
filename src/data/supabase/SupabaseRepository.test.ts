@@ -752,6 +752,65 @@ describe('holding a host seat (#29)', () => {
   });
 });
 
+describe('changing your own name (#43)', () => {
+  const renameable = () => {
+    const c = ready();
+    c.on((op) =>
+      op.kind === 'rpc' && op.table === 'set_nickname' ? { data: 'Wren', error: null } : undefined,
+    );
+    return c;
+  };
+
+  it('sends the event and the name under the p_ names the RPC expects', async () => {
+    const c = renameable();
+    const repo = await join(c);
+    await repo.session.setNickname('  Wren  ');
+
+    // PostgREST resolves overloads by ARGUMENT NAME, so a typo here is not a type error,
+    // it is a 404 against a function that exists. Nothing else checks these.
+    expect(c.find('rpc', 'set_nickname')[0]!.payload).toEqual({
+      p_event: EVENT,
+      p_nickname: '  Wren  ',
+    });
+  });
+
+  it('takes the name the SERVER stored, not the one it sent', async () => {
+    const c = renameable();
+    const repo = await join(c);
+
+    // The fake returns 'Wren' for an input of '  Wren  ', which is what `set_nickname`
+    // does -- it trims, caps at 40, and returns the result. A client that echoed its own
+    // input would put a name in the header that the room is not seeing.
+    expect(await repo.session.setNickname('  Wren  ')).toBe('Wren');
+    expect(repo.session.current.get()).toMatchObject({ kind: 'guest', nickname: 'Wren' });
+  });
+
+  it('refuses before the round trip when there is no guest row to rename', async () => {
+    const c = creatable();
+    const repo = build(c);
+    await repo.event.create(NEW_EVENT);
+
+    // A founder holds a host seat and no `guests` row. `set_nickname` raises 42501 for the
+    // same case; this is the client half of that statement, not a substitute for it -- and
+    // it means no request goes out to be refused.
+    await expect(repo.session.setNickname('Ruthie')).rejects.toThrow(/Not joined as a guest/);
+    expect(c.find('rpc', 'set_nickname')).toHaveLength(0);
+  });
+
+  it('re-reads the event, because no realtime frame is coming for guests', async () => {
+    const c = renameable();
+    const repo = await join(c);
+    const before = c.find('select', 'hosts').length;
+    await repo.session.setNickname('Wren');
+
+    // `guests` is not in the realtime publication and has no SELECT policy, so nothing
+    // pushes the change back. The denormalised copies on song_requests and photos DO
+    // publish, but a rename whose effect is invisible until the next unrelated change
+    // reads as a rename that failed.
+    expect(c.find('select', 'hosts').length).toBeGreaterThan(before);
+  });
+});
+
 describe('marking an announcement read (#24)', () => {
   const B1 = 'b0000000-0000-0000-0000-000000000001' as never;
   const B2 = 'b0000000-0000-0000-0000-000000000002' as never;

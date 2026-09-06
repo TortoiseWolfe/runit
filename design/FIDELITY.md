@@ -2010,3 +2010,87 @@ pointed at, and it is how photo capture was witnessed end to end. That has not b
 this, and until it is, native scanning is unverified. **Issue #42**, filed rather than left
 in this paragraph — and it wants the dev client rebuilt first, because `expo-camera` is a
 new native dependency.
+
+## AM. Your own name, which no screen ever showed you
+A guest types a nickname once, on the join screen, and that is the last they see of it.
+`grep -rn nickname src/features` found it in `JoinScreen` — the field — and otherwise only
+as somebody *else's* name, on a row you might report.
+
+So a guest learned theirs was wrong the way the room did: **denormalised onto a song
+request, in front of everyone.** And there was nothing anywhere to change it.
+
+### The capability was in SQL the whole time
+
+`join_event` is idempotent on `(event_id, auth_user_id)` and updates the nickname on
+conflict. Nothing ever called it for that. What *looked* like the route —
+`guests_update_self`, `using (auth_user_id = auth.uid())` — **could never fire**, which is
+issue #36: `guests` has no SELECT policy, Postgres applies SELECT policies to the rows an
+`UPDATE … WHERE` must read, and PostgREST always sends a WHERE. Measured live: no-WHERE
+touched 1 row, with a WHERE touched 0.
+
+**That policy is deleted, not kept as documentation.** A policy saying "a guest may update
+their own row" invites exactly that implementation, and the failure is the silent one
+`assertWrote()` exists to catch — zero rows, nothing raised. It had already caught one
+author: the first design for the push token was a direct `update guests set push_token`,
+which would have failed on every device forever. The column grant beside it stays, because
+it is what stops a future select-own policy from silently making `event_id` writable in the
+same commit.
+
+`set_nickname` replaces it — SECURITY DEFINER, scoped to `auth.uid()`, the same shape
+`set_push_token` already uses.
+
+### A rename has to move the copies, and stop before the record
+
+`song_requests.requested_by_name` and `photos.uploaded_by_name` are `not null` on purpose,
+so a deleted guest does not blank the history — the same reasoning as
+`broadcasts.author_name`. A rename touching only `guests.nickname` leaves the old name on
+everything the guest has already sent, which is the state they opened it to fix. So the
+function rewrites both, in the same transaction.
+
+It deliberately does **not** touch `blocks.blocked_name` or a report's subject label. Those
+are a host's record of who they actioned, and a record that changes under the person who
+wrote it is not a record. A rename is not a way to become someone else in a moderation
+queue.
+
+**It returns what it stored.** The trim and the 40-character cap happen server-side, so a
+screen echoing its own input would show a name the room is not seeing.
+
+### The pill, which is not in the canvas
+
+The canvas has no identity surface at all — in a prototype the nickname is whatever the
+designer typed. The pill follows the conditional-pill pattern already beside it (`{n}
+blocked` appears only when non-empty), drawn only for a guest session with a name, capped
+at 110pt so a 40-character name cannot take the header from the event.
+
+### Two lint rules and an audit shaped the sheet, and all three were right
+
+- **`react-hooks/set-state-in-effect`** rejected `useEffect(() => { if (!visible)
+  setDraft(nickname) })`. The caller renders the sheet only while it is open instead, so
+  every opening is a fresh mount — the same property, no effect, and a cancelled draft
+  cannot come back.
+- **Lane A3** required `submitBehavior` to be stated. `blurAndSubmit`: this is the only
+  field of the form and submitting closes the sheet, so a raised keyboard would sit over
+  the screen underneath.
+- **Lane A3 again** required a keyboard strategy. A `KeyboardAvoidingView` per note Q's
+  table — content pinned to the visible bottom, and inside a `Modal` the KAV is the
+  outermost element, so `keyboardVerticalOffset` stays 0.
+
+### One guard no journey reaches, said rather than implied
+
+The pill is drawn only when the session is a guest with a non-empty name. **No e2e journey
+can produce an empty one** — every path into `EventHeader` carries a nickname, including a
+host who has taken a seat (#37), whose name is her host display name. Deleting that
+condition passes all eight journeys; the mutation was run. It stays because `Session`
+permits the empty string, and a bare rounded box in the header is not a thing to discover
+on a phone.
+
+### Coverage
+
+| Claim | Lane |
+|---|---|
+| The name is visible, changeable, and reaches what you already sent | **B**, 8 journeys, three of four mutations caught |
+| A cancelled draft does not come back; an empty name draws no Save | **B** |
+| The client takes the STORED name, refuses without a seat, and re-reads | **jest** + FakeClient, three mutations caught |
+| The rename is scoped to one guest, trimmed, capped | **jest** on the fixture, two mutations caught |
+| `set_nickname` is granted, refuses a non-member, caps server-side, and moves the denormalised copy in one transaction | **E**, live, 9 assertions |
+| `guests_update_self` is gone and a direct UPDATE still touches zero rows | **E**, live |

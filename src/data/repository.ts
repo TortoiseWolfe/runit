@@ -239,6 +239,25 @@ export interface RunitRepository {
     /** The other direction, without re-running the join validation. */
     becomeGuest(): Promise<void>;
     /**
+     * Change the name the room sees -- #43.
+     *
+     * A guest types a nickname once, on the join screen, and no screen ever shows it back.
+     * They discover it is wrong the way everyone else does, under a song request, and
+     * until this there was nothing anywhere to change it.
+     *
+     * IT RETURNS WHAT WAS STORED rather than what was sent. The trim and the length cap
+     * happen server-side, and a screen echoing its own input would show a name the room is
+     * not seeing.
+     *
+     * A rename REWRITES the denormalised copies on this guest's own song requests and
+     * photos -- those columns are `not null` so a deleted guest does not blank the history,
+     * and leaving them stale is the exact state the rename was opened to fix. It does NOT
+     * touch `blocks.blocked_name` or a report's subject label: those are a host's record of
+     * who they actioned, and a rename is not a way to become someone else in a moderation
+     * queue.
+     */
+    setNickname(nickname: string): Promise<string>;
+    /**
      * Leave the EVENT and keep the identity.
      *
      * The distinction from `leave()` is load-bearing rather than stylistic. `join_event`
