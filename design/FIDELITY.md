@@ -1158,3 +1158,40 @@ adversarial pass over the issue survey, before any of it was written.
 - **Lane B**, one journey measuring feed ORDER twice — pinned above, then below again.
   "The control is on screen" and "the label changed" would both pass against a button
   that does nothing to the feed. Making `setPinned` a no-op fails it.
+
+## Z. Push was deleted from the ladder, because you cannot gate what does not exist
+`pushNotifications` was a `TierFeatures` flag, granted on the **$79 Event** and **$599
+Venue** tiers, with *"Pinned announcements + push"* printed on the Event card. There is no
+push. `expo-notifications` is not a dependency and never has been.
+
+Underneath it, `chat.send` took a third argument — `push: boolean` — that **every caller
+passed `true` and every adapter threw away.** `MemoryRepository` computed `canPush` and
+then wrote `void canPush`. `SupabaseRepository` destructured `{ body, pinned }` and left
+`push` in the type signature, unread. A parameter that cannot change any outcome is a
+promise the type system makes on behalf of code that does not exist.
+
+**This closes #21, and it is the second of the two ways that issue could end.**
+`pinnedAnnouncements` ended the other way — real enforcement, a trigger on `broadcasts`
+folding a pin the tier cannot carry. Push had no such route: you cannot gate a capability
+nothing has, so the only honest options were build it or stop selling it, and building it
+is blocked three ways (an APNs key behind an Apple login with 2FA, the dependency, and a
+paid-tier decision). `pnpm audit:tiers` now reports **11 features, 3 granted, every one
+enforced**, with no yellow line under it for the first time.
+
+**The database was already honest and the price list was not**, which is the detail worth
+keeping. `tier_limits` deliberately had no push column, and `tiers.test.ts` asserted that
+— but it asserted only that half. The TypeScript ladder went on carrying the flag,
+granting it on two tiers, and selling it in copy, and the test that existed to catch
+exactly this could not see any of it. It now checks both sides: no column in SQL, no flag
+in any tier's `features`, and no `/push/i` in any tier's `featureLines`. Mutation-checked
+in both directions.
+
+The docblock says to **delete that test on the day push is built, not weaken it.**
+
+**Nothing renders `featureLines` today** — `PricingScreen` is cut (note P), and no paid
+tier is reachable (#30). That is precisely why this was worth doing now rather than later:
+the copy is a promise waiting for a screen, and #30 would have shipped it.
+
+The pill itself was already gone (note O). What survived that pass was the argument and
+the price list behind it — the same shape as the six capabilities that hid inside one line
+of prose until they were made into issues.

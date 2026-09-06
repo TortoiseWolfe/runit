@@ -41,7 +41,7 @@ export function BroadcastPanel() {
 
   const onSend = async () => {
     if (!draft.trim()) return;
-    await send(draft, pinned, true);
+    await send(draft, pinned);
     setDraft('');
     setPinned(false);
   };
@@ -143,12 +143,16 @@ export function BroadcastPanel() {
             {pinned ? 'Pinned ✓' : 'Pin to top'}
           </Text>
         </Pressable>
-        {/* The canvas draws a "Push notification · on" pill here. Removed until
-            push exists: expo-notifications is not a dependency, and the
-            repository's `push` argument is discarded (`void canPush`). A badge
-            telling a host their announcement will buzz 180 phones, over a code
-            path that does nothing, is the most expensive kind of lie in this
-            app -- they would rely on it. FIDELITY note O. */}
+        {/* The canvas draws a "Push notification · on" pill here. It is not drawn,
+            because push does not exist: `expo-notifications` is not a dependency.
+            A badge telling a host her announcement will buzz 180 phones, over a code
+            path that does nothing, is the most expensive kind of lie in this app --
+            she would rely on it.
+
+            The `push` ARGUMENT that used to sit behind it is gone too (#27). It was a
+            boolean every caller passed `true` and every adapter discarded, and the
+            ladder sold it at $79. Restore the pill when push exists, not before.
+            FIDELITY notes O and Z. */}
       </View>
 
       <Pressable

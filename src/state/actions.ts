@@ -265,8 +265,7 @@ export function useHostActions() {
   const { show } = useToast();
   return useMemo(
     () => ({
-      send: (body: string, pinned: boolean, push: boolean) =>
-        repo.chat.send({ body, pinned, push }),
+      send: (body: string, pinned: boolean) => repo.chat.send({ body, pinned }),
       /**
        * #26. Through `guarded`, so a free tier's attempt to pin surfaces as the toast
        * that NAMES the limit rather than as an unhandled throw -- the same treatment

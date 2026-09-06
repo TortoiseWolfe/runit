@@ -72,10 +72,10 @@ describe('checkFeature', () => {
     expect(checkFeature(ent('party'), 'photoModeration').allowed).toBe(true);
   });
 
-  it('gates host roles and push to Event and up', () => {
+  it('gates host roles to Event and up', () => {
     expect(checkFeature(ent('party'), 'hostRoles').allowed).toBe(false);
     expect(checkFeature(ent('event'), 'hostRoles').allowed).toBe(true);
-    expect(firstTierWith('pushNotifications')).toBe('event');
+    expect(firstTierWith('hostRoles')).toBe('event');
   });
 
   // Venue used to grant this, and nothing read it -- so it granted nothing. The

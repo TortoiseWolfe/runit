@@ -529,19 +529,21 @@ day #18 ships).
 and a key, never an account) · #33 (the QR encodes a universal link, so a scan works for
 someone without the app) · #22 (`join_event` counts against `tier_limits.max_guests` and
 raises 54023) · #34 (`auth_user_id` revoked from every client role) · #26 (a host can
-un-pin, and only `pinned` is writable). FIDELITY notes S, T, U, V, W, X and Y.
+un-pin, and only `pinned` is writable) · #21 (every granted feature is enforced, or is no
+longer granted) · #27 (push is not sold). FIDELITY notes S, T, U, V, W, X, Y and Z.
 
 **#26 nearly undid #21, and the interaction is the thing to remember.** The pin-folding
 trigger was `before insert`; an UPDATE policy on top of that leaves a free-tier host one
 statement from the pin she was refused. It is `before insert or update` now. When you add
 a write path to a table, check what triggers guard the paths that already exist.
 
-**Advertised and unenforced.** #21 is down to **one** of four: `pnpm audit:tiers` reports
-`photoModeration`, `hostRoles` and `pinnedAnnouncements` enforced in the shipping adapter
-or in SQL, and `pushNotifications` alone still in `MemoryRepository`. That last one cannot
-be closed here — you cannot gate a feature that is not built, so it is really #27 wearing
-#21's number. Also open: #23 (`eventTtlHours`, `albumRetentionDays`: zero readers) · #30
-(every paid tier is unreachable — the pricing screen is cut and no purchase path exists).
+**Advertised and unenforced — #21 is CLOSED**, and it ended in the two different ways
+this kind of issue can end. `pinnedAnnouncements` got real enforcement (a trigger folding
+a pin the tier cannot carry). `pushNotifications` got deleted from the ladder, because you
+cannot gate a capability nothing has and building push is blocked three ways. `pnpm
+audit:tiers` now reports 11 features, 3 granted, every one enforced, with no yellow line.
+Still open: #23 (`eventTtlHours`, `albumRetentionDays`: zero readers) · #30 (every paid
+tier is unreachable — the pricing screen is cut and no purchase path exists).
 
 **The caps are a table.** `public.tier_limits` holds the numbers; `create_event`,
 `invite_host` and `join_event` read them and no client can write them. A cap that lives
@@ -554,9 +556,13 @@ only in `src/domain/tiers.ts` is enforced by whichever client happens to be aski
 nothing can set) · #29 (`RoleSwitch` is shown to
 every guest and, against Supabase, only ever refuses).
 
-**Promised and not built.** #27 (push: `expo-notifications` is not a dependency and
-`push: true` is hardcoded into a path that discards it) · #28 (QR *scanning* — generation
-shipped, the scan never did).
+**Promised and not built.** #28 (QR *scanning* — generation shipped, the scan never did).
+
+**Push is no longer promised** (#27). The flag, the two tiers that granted it, the "+ push"
+in the Event card's copy and the `push` argument every adapter discarded are all gone.
+`src/domain/tiers.test.ts` asserts push appears on NEITHER side — no column in SQL, no
+flag, no feature line — and its docblock says to delete that test the day push is built
+rather than weaken it. FIDELITY note Z.
 
 **The reason the rest kept arriving by phone.** #20 — all 142 journeys boot
 `MemoryRepository`.

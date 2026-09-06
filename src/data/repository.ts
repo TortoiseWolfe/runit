@@ -311,7 +311,14 @@ export interface RunitRepository {
   chat: {
     /** Pinned first, then oldest-to-newest, matching the canvas's feed order. */
     feed: Observable<Broadcast[]>;
-    send(input: { body: string; pinned: boolean; push: boolean }): Promise<void>;
+    /**
+     * NO `push` ARGUMENT, and its absence is the point. It was here as a `boolean` that
+     * every caller passed `true` and every adapter threw away -- `expo-notifications` is
+     * not a dependency, so there was nothing on the other side of it. A parameter that
+     * cannot change any outcome is a promise the type system makes on behalf of code that
+     * does not exist. #27.
+     */
+    send(input: { body: string; pinned: boolean }): Promise<void>;
     /**
      * Move an announcement's prominence after the fact -- #26. Until this existed a pin
      * was permanent: `broadcasts` carried a SELECT policy and an INSERT policy and

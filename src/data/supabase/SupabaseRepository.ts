@@ -1107,7 +1107,7 @@ export class SupabaseRepository implements RunitRepository {
   chat = {
     feed: undefined as unknown as Observable<Broadcast[]>,
 
-    send: async ({ body, pinned }: { body: string; pinned: boolean; push: boolean }) => {
+    send: async ({ body, pinned }: { body: string; pinned: boolean }) => {
       const eventId = this.requireEvent();
       const s = this.sigSession.get();
       if (s.kind !== 'host') throw new Error('Only a host can broadcast.');

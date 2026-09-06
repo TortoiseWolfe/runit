@@ -636,7 +636,7 @@ export class MemoryRepository implements RunitRepository {
 
   chat = {
     feed: undefined as unknown as Observable<Broadcast[]>,
-    send: async ({ body, pinned, push }: { body: string; pinned: boolean; push: boolean }) => {
+    send: async ({ body, pinned }: { body: string; pinned: boolean }) => {
       const text = body.trim();
       if (!text) return;
       const s = this.sigSession.get();
@@ -662,7 +662,6 @@ export class MemoryRepository implements RunitRepository {
       // numbers, and Lane E is what proves the behaviour.
       const e = this.computeEntitlements();
       const canPin = pinned && checkFeature(e, 'pinnedAnnouncements').allowed;
-      const canPush = push && checkFeature(e, 'pushNotifications').allowed;
 
       this.broadcastList = [
         ...this.broadcastList,
@@ -680,7 +679,6 @@ export class MemoryRepository implements RunitRepository {
           createdAt: this.now(),
         },
       ];
-      void canPush; // push fan-out belongs to the backend adapter
       this.recompute();
     },
 
