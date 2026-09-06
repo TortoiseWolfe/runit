@@ -5,7 +5,7 @@ import { supabase, type RunitClient } from './client';
 import type { Row } from './database.types';
 import {
   broadcastCache, folderCache, hostCache, photoCache, requestCache, scheduleCache,
-  toBroadcast, toEvent, toFolder, toHost, toNowPlaying, toPhoto, toPreview, toReport,
+  toBroadcast, toEvent, toFolder, toHost, toInvitee, toNowPlaying, toPhoto, toPreview, toReport,
   toScheduleItem, toSongRequest,
 } from './mappers';
 import { attachAppStateBridge } from './appStateBridge';
@@ -18,7 +18,8 @@ import {
   type Observable, type RunitRepository, type UploadOutcome,
 } from '../repository';
 import type {
-  BlockedGuest, Broadcast, BroadcastId, Folder, FolderId, GuestId, Host, NowPlaying, Photo,
+  BlockedGuest, Broadcast, BroadcastId, Folder, FolderId, GuestId, Host, Invitee, InviteeId,
+  NowPlaying, Photo,
   PhotoId, Report, ReportId, ReportReason, ReportResolution, ReportSubject, RunitEvent,
   ScheduleItem, ScheduleItemId, Session, SongRequest, SongRequestId,
 } from '../types';
@@ -168,6 +169,13 @@ export class SupabaseRepository implements RunitRepository {
    * and a screen cannot await an RPC during render.
    */
   private readonly sigHoldsHostSeat = new Signal<boolean>(false);
+  /**
+   * The guest list (#25). Fetch-once like `hosts`: `invitees` is not in the realtime
+   * publication, and it barely changes. The COUNT reaches every device on its own,
+   * because the fold's UPDATE lands on `events`, which is published.
+   */
+  private inviteeRows: Invitee[] = [];
+  private readonly sigInvitees = new Signal<Invitee[]>([]);
   private readonly sigEvent = new Signal<RunitEvent | null>(null, (a, b) =>
     a === b ||
     (a !== null && b !== null &&
@@ -231,6 +239,7 @@ export class SupabaseRepository implements RunitRepository {
     // readable above, and matches how MemoryRepository does it.
     this.session.current = this.sigSession;
     this.session.holdsHostSeat = this.sigHoldsHostSeat;
+    this.invitees.all = this.sigInvitees;
     this.event.current = this.sigEvent;
     this.event.preview = this.sigPreview;
     this.chat.feed = this.sigFeed;
@@ -310,6 +319,7 @@ export class SupabaseRepository implements RunitRepository {
   private recompute = (): void => {
     this.sigEntitlements.set(this.computeEntitlements());
     this.sigEvent.set(this.currentEvent());
+    this.sigInvitees.set(this.inviteeRows);
 
     // Pinned first, then oldest-to-newest -- chat order, new messages at the bottom.
     this.sigFeed.set(
@@ -532,7 +542,7 @@ export class SupabaseRepository implements RunitRepository {
     // than a fallback. loadBlocks() immediately below already reasoned this way; this
     // half simply had no caller to force it.
     const guestId = this.myGuestId;
-    const [hosts, votes, host] = await Promise.all([
+    const [hosts, votes, host, invitees] = await Promise.all([
       // NAMED COLUMNS, NOT `*`. `auth_user_id` is revoked from every client role (#34),
       // and PostgREST expands `*` to every column -- which now fails outright rather than
       // quietly omitting the one it cannot read. Listing them is also the honest statement
@@ -549,12 +559,23 @@ export class SupabaseRepository implements RunitRepository {
       // #29 hides a control on the answer -- so it has to be known before first paint,
       // not discovered when she taps something.
       this.db.rpc('is_host', { p_event: eventId }),
+      // HOST-ONLY BY POLICY, and a guest simply gets zero rows. Not gated on
+      // `holdsHostSeat` here: RLS is the authority, and asking the client to decide what
+      // it is allowed to read is how a second, weaker rule gets written.
+      this.db
+        .from('invitees')
+        .select('id, email, display_name, invited_at, joined_guest_id')
+        .eq('event_id', eventId),
     ]);
     if (hosts.error) throw hosts.error;
     if (votes.error) throw votes.error;
     // NOT thrown on. A failed is_host means "we do not know", and the safe unknown is
     // false: it hides a control rather than offering one that refuses.
     this.sigHoldsHostSeat.set(host.error ? false : host.data === true);
+    // A guest's read is refused as zero rows rather than an error, so an error here is a
+    // real one. Not thrown: the guest list is not load-bearing for anyone but a host, and
+    // failing the whole event load over it would be the wrong trade.
+    this.inviteeRows = invitees.error ? [] : (invitees.data as Row<'invitees'>[]).map(toInvitee);
     this.hostRows = (hosts.data as Row<'hosts'>[]).map(toHost);
     this.votes = new Set((votes.data as { request_id: string }[]).map((v) => v.request_id));
     await this.loadBlocks();
@@ -1020,6 +1041,55 @@ export class SupabaseRepository implements RunitRepository {
       // that called it -- the app is fully usable without push, and the guest never asked
       // for this call. Logged, not thrown.
       if (error) console.warn('push: could not register this device', error);
+    },
+  };
+
+  /* ---------------------------------------------------------------- invitees */
+
+  invitees = {
+    all: undefined as unknown as Observable<Invitee[]>,
+
+    add: async ({ email, displayName }: { email: string; displayName?: string }) => {
+      const eventId = this.requireEvent();
+      const addr = email.trim();
+      if (!addr) return;
+
+      const { data, error } = await this.db
+        .from('invitees')
+        .insert({
+          event_id: eventId,
+          email: addr,
+          display_name: displayName?.trim() || null,
+          // invited_at is NOT set. Nothing sends, so nobody has been invited -- the
+          // schema's own way of saying so, and the line this feature deliberately
+          // stops short of.
+        })
+        .select('id');
+
+      if (error) {
+        // 23505 is `invitees_event_email`, which is case-insensitive on purpose:
+        // Sam@x.com and sam@x.com are one person.
+        if (isPgError(error) && error.code === '23505') {
+          throw new Error('That address is already on the list.');
+        }
+        throw error;
+      }
+      // assertWrote GENUINELY WORKS HERE, unlike on `guests`. `invitees_host_read` exists,
+      // so a successful insert reads back and a policy refusal does not -- the guard is
+      // the right way round on this table. Worth stating, because the reader who has just
+      // internalised the `guests` trap will assume otherwise.
+      SupabaseRepository.assertWrote(data, 'invitees.add');
+
+      await this.loadFetchOnce();
+      this.recompute();
+    },
+
+    remove: async (id: InviteeId) => {
+      const { data, error } = await this.db.from('invitees').delete().eq('id', id).select('id');
+      if (error) throw error;
+      SupabaseRepository.assertWrote(data, 'invitees.remove');
+      await this.loadFetchOnce();
+      this.recompute();
     },
   };
 

@@ -26,6 +26,7 @@ export type ScheduleItemId = string;
 export type SongRequestId = string;
 export type PhotoId = string;
 export type FolderId = string;
+export type InviteeId = string;
 
 /** ISO-8601 instant. */
 export type Instant = string;
@@ -104,6 +105,29 @@ export type Session =
   | { kind: 'anonymous' }
   | { kind: 'guest'; guestId: GuestId; nickname: string }
   | { kind: 'host'; hostId: HostId; displayName: string; role: HostRole; roleLabel: string };
+
+/**
+ * Someone a host has put on the guest list (#25).
+ *
+ * THIS IS THE FIRST PERSONAL DATA IN THE APP BEYOND A CHOSEN NICKNAME, and it is somebody
+ * else's: a host uploads an address before that person has consented to anything or heard
+ * of Runit. The schema treats it as the strictest table it has, and the app should not be
+ * more relaxed than the schema.
+ */
+export interface Invitee {
+  id: InviteeId;
+  email: string;
+  /** Optional, purely so an invite could say "Hi Sam". Never required. */
+  displayName: string | null;
+  /**
+   * NULL until an invite is actually SENT -- which nothing does yet, deliberately.
+   * "On the list" and "was emailed" are different facts and the schema keeps them apart:
+   * a host who adds forty addresses and sends none has invited nobody.
+   */
+  invitedAt: Instant | null;
+  /** Set when this address turns up. Nothing writes it yet. */
+  joinedGuestId: GuestId | null;
+}
 
 export type BroadcastKind = 'announcement' | 'schedule_started';
 

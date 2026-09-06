@@ -1,7 +1,7 @@
 import type { PreviewRow, Row } from './database.types';
 import { RowCache } from './signal';
 import type {
-  Broadcast, BroadcastKind, Folder, Host, HostRole, NowPlaying, Photo, PhotoStatus,
+  Broadcast, BroadcastKind, Folder, Host, HostRole, Invitee, NowPlaying, Photo, PhotoStatus,
   Report, ReportReason, ReportResolution, ReportSubject,
   RunitEvent, ScheduleItem, SongRequest, SongRequestStatus, TierId,
 } from '../types';
@@ -107,6 +107,22 @@ export function toHost(r: Row<'hosts'>): Host {
     displayName: r.display_name,
     role: narrow(HOST_ROLES, r.role, 'host'),
     roleLabel: r.role_label,
+  };
+}
+
+/**
+ * `invited_at` and `joined_guest_id` are carried across even though nothing writes either
+ * one yet (#25). They are the two facts that keep "on the list" separate from "was
+ * emailed" and from "turned up", and dropping them here would quietly collapse a
+ * distinction the schema is built around.
+ */
+export function toInvitee(r: Row<'invitees'>): Invitee {
+  return {
+    id: r.id,
+    email: r.email,
+    displayName: r.display_name,
+    invitedAt: r.invited_at,
+    joinedGuestId: r.joined_guest_id,
   };
 }
 

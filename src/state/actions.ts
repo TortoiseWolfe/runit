@@ -18,7 +18,7 @@ import { registerForPush } from '@/lib/push';
 import { checkLimit } from '@/domain/entitlements';
 import { useEntitlements } from './hooks';
 import type {
-  BroadcastId, FolderId, GuestId, PhotoId, ReportId, ReportReason, ReportResolution,
+  BroadcastId, FolderId, GuestId, InviteeId, PhotoId, ReportId, ReportReason, ReportResolution,
   ReportSubject, ScheduleItemId, SongRequestId,
 } from '@/data/types';
 import { useRepository } from './RepositoryProvider';
@@ -287,6 +287,25 @@ export function useHostActions() {
        */
       setBroadcastPinned: (id: BroadcastId, pinned: boolean) =>
         guarded(() => repo.chat.setPinned(id, pinned)),
+      /**
+       * #25. Returns whether it landed, so the screen can keep a rejected address in the
+       * field instead of vanishing it -- a duplicate is the common case and the host
+       * wants to see what they typed.
+       *
+       * A duplicate is not an EntitlementError, so `guarded` would rethrow it; the catch
+       * here surfaces the adapter's sentence, which is already human ("That address is
+       * already on the list.").
+       */
+      addInvitee: async (email: string, displayName?: string) => {
+        try {
+          await repo.invitees.add({ email, displayName });
+          return true;
+        } catch (e) {
+          show(e instanceof Error ? e.message : 'Could not add that address.');
+          return false;
+        }
+      },
+      removeInvitee: (id: InviteeId) => repo.invitees.remove(id),
       /**
        * Forwards through the run of show. A tap that would move the cursor
        * BACKWARDS is refused and explained rather than performed -- the row above

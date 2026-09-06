@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { useEvent, useHosts } from '@/state/hooks';
+import { useEvent, useHosts, useInvitees } from '@/state/hooks';
 import { useHostActions } from '@/state/actions';
 import { formatClock, formatEventDate, instantToWallClock } from '@/lib/format';
 import { instantFrom, zoneChoices, zoneLabel } from '@/lib/eventForm';
@@ -41,8 +41,9 @@ const ROLE_CHOICES: { role: HostRole; label: string }[] = [
 export function EventDetailsPanel() {
   const { tokens, fade } = useTheme();
   const event = useEvent();
-  const { saveEventDetails, rotateHostKey, invite } = useHostActions();
+  const { saveEventDetails, rotateHostKey, invite, addInvitee, removeInvitee } = useHostActions();
   const hosts = useHosts();
+  const invitees = useInvitees();
 
   /**
    * Seeded ONCE from the event, then owned by the form.
@@ -65,6 +66,7 @@ export function EventDetailsPanel() {
   const [coHostRole, setCoHostRole] = useState<HostRole>('dj');
   /** The co-host key, held only long enough to be written down. */
   const [invitedKey, setInvitedKey] = useState<string | null>(null);
+  const [inviteeEmail, setInviteeEmail] = useState('');
 
   const venueRef = useRef<TextInput>(null);
   const doorsRef = useRef<TextInput>(null);
@@ -96,6 +98,17 @@ export function EventDetailsPanel() {
   const tier = TIERS[event?.tier ?? 'house_party'];
   const atHostCap = hosts.length >= tier.limits.maxHosts;
   const hostCap = Number.isFinite(tier.limits.maxHosts) ? String(tier.limits.maxHosts) : null;
+
+
+  const onAddInvitee = async () => {
+    const addr = inviteeEmail.trim();
+    if (!addr || busy) return;
+    setBusy(true);
+    // Clear only on success -- a rejected duplicate leaves the address in the field so
+    // the host can see what they typed rather than watching it vanish.
+    if (await addInvitee(addr)) setInviteeEmail('');
+    setBusy(false);
+  };
 
   const onInvite = async () => {
     if (!coHostName.trim() || busy) return;
@@ -360,6 +373,82 @@ export function EventDetailsPanel() {
             >
               {atHostCap ? `${hostCap} hosts on this plan` : 'Add a co-host'}
             </Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      {/*
+        THE GUEST LIST (#25). Here rather than as a sixth console segment, because
+        HostConsoleChrome already says `/host/event` is "where event-level settings will
+        keep accumulating: tier, invitees, co-hosts" -- and because a block inside a screen
+        the shot walk already visits inherits the contrast and gutter gates for free.
+
+        THIS IS THE FIRST PERSONAL DATA IN THE APP BEYOND A CHOSEN NICKNAME, and it is
+        somebody else's. NOTHING HERE SENDS ANYTHING: there is no send control, and
+        `invited_at` is written by no code path in the product. Whether Runit emails people
+        who have not heard of it is a product and legal decision, and adding a name to a
+        list one host can read is not that decision.
+      */}
+      {event ? (
+        <View style={s.keyBlock}>
+          <Text style={[s.sectionTitle, { color: alpha(tokens.baseContent, fade.muted) }]}>
+            Who is invited
+          </Text>
+
+          {invitees.length === 0 ? (
+            <Text style={[s.helper, { color: alpha(tokens.baseContent, fade.body) }]}>
+              Nobody yet. This is the list your announcements are addressed to — it is not
+              who has turned up.
+            </Text>
+          ) : null}
+
+          {invitees.map((i) => (
+            <View key={i.id} testID="invitee-row" style={s.seatRow}>
+              <Text style={[s.seatName, { color: tokens.baseContent }]}>
+                {i.displayName ?? i.email}
+              </Text>
+              {/* A per-row control, so this one gets its own id -- unlike the row wrapper,
+                  which is static so a count assertion cannot be fooled by a text match.
+                  hitSlop because the label is ~13pt, under SC 2.5.8's 24x24 AA floor. */}
+              <Pressable
+                onPress={() => void removeInvitee(i.id)}
+                accessibilityRole="button"
+                accessibilityLabel={`Remove ${i.displayName ?? i.email} from the guest list`}
+                testID={`invitee-remove-${i.id}`}
+                hitSlop={12}
+              >
+                <Text style={[s.seatRole, { color: alpha(tokens.baseContent, fade.muted) }]}>
+                  Remove
+                </Text>
+              </Pressable>
+            </View>
+          ))}
+
+          <TextInput
+            value={inviteeEmail}
+            onChangeText={setInviteeEmail}
+            placeholder="name@example.com"
+            placeholderTextColor={alpha(tokens.baseContent, fade.faint)}
+            testID="invitee-email"
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoCorrect={false}
+            returnKeyType="done"
+            submitBehavior="blurAndSubmit"
+            onSubmitEditing={onAddInvitee}
+            style={[
+              s.input,
+              { borderColor: tokens.base300, color: tokens.baseContent, backgroundColor: tokens.base100 },
+            ]}
+          />
+
+          <Pressable
+            onPress={onAddInvitee}
+            accessibilityRole="button"
+            testID="invitee-add"
+            style={[s.rotate, { borderColor: tokens.base300 }]}
+          >
+            <Text style={[s.rotateText, { color: tokens.baseContent }]}>Add to the list</Text>
           </Pressable>
         </View>
       ) : null}

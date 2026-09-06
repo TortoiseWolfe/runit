@@ -289,6 +289,53 @@ begin
     out := out || format('PASS one address per event, case-insensitively');
   end;
 
+  -- #25. THE DELETE ARM OF THE FOLD, which had never executed: `after insert or delete`
+  -- has only ever been exercised on insert, so half that trigger was unverified.
+  -- Removing someone strands nothing -- no bytes hang off an invitee -- which is why
+  -- DELETE is granted here and on no other table.
+  delete from public.invitees where event_id = eid and lower(email) = 'sam@example.test';
+  get diagnostics n = row_count;
+  out := out || format('%s a host can delete an invitee (%s row, want 1)',
+                       case when n = 1 then 'PASS' else 'FAIL' end, n);
+  select invited_count into n from public.events where id = eid;
+  out := out || format('%s and the count folds back DOWN (%s, want 0)',
+                       case when n = 0 then 'PASS' else 'FAIL' end, n);
+
+  -- Re-add one so the column-grant assertions below have a row to work on.
+  insert into public.invitees (event_id, email, display_name)
+  values (eid, 'sam@example.test', 'Sam');
+
+  -- THE COLUMN GRANT, which this table never had. A policy says WHO may write; without a
+  -- grant a host could also rewrite `email` (re-pointing an invitation at a different
+  -- person) or `joined_guest_id` (claiming an arrival that never happened).
+  update public.invitees set display_name = 'Samantha'
+   where event_id = eid and lower(email) = 'sam@example.test';
+  get diagnostics n = row_count;
+  out := out || format('%s a host can correct a display name (%s row, want 1)',
+                       case when n = 1 then 'PASS' else 'FAIL' end, n);
+  begin
+    update public.invitees set invited_at = now() where event_id = eid;
+    out := out || format('FAIL a client marked someone as invited, and nothing sends');
+  exception when others then
+    -- `invited_at` is the flag separating "on the list" from "was emailed". Nothing may
+    -- set it until something actually sends -- least of all a client, which cannot.
+    out := out || format('%s a client cannot set invited_at (%s)',
+                         case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+  begin
+    update public.invitees set joined_guest_id = gen_random_uuid() where event_id = eid;
+    out := out || format('FAIL a host forged an arrival');
+  exception when others then
+    out := out || format('%s a client cannot forge joined_guest_id (%s)',
+                         case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  -- CROSS-EVENT ISOLATION. `is_host(event_id)` scopes all four policies, and nothing had
+  -- ever tested that the scoping actually holds. TEST02 belongs to nobody here.
+  select count(*) into n from public.invitees i where i.event_id = eid2;
+  out := out || format('%s a host reads %s invitees of an event that is not theirs (want 0)',
+                       case when n = 0 then 'PASS' else 'FAIL' end, n);
+
   -- Back to the guest identity to prove the list is invisible to them.
   execute 'reset role';
   perform set_config('request.jwt.claims', json_build_object('sub',guid,'role','authenticated')::text, true);

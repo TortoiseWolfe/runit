@@ -28,6 +28,8 @@ export const useApprovedPhotos = () => useObservable(useRepository().photos.appr
 /** This guest's own in-flight and failed uploads. Nobody else's. */
 export const useMyUploads = () => useObservable(useRepository().photos.mine);
 export const useHosts = () => useObservable(useRepository().hosts.all);
+/** Host-only by policy; a guest observes an empty list rather than an error (#25). */
+export const useInvitees = () => useObservable(useRepository().invitees.all);
 /** Live tier + usage. For ADVISORY checks only -- the write methods enforce. */
 export const useEntitlements = () => useObservable(useRepository().entitlements);
 
