@@ -141,6 +141,25 @@ export function useSessionActions() {
   );
 }
 
+/**
+ * #24. Fire-and-forget by contract: the caller is a scroll handler, and a read that fails
+ * to record is a wrong number rather than a broken screen. The `.catch` is REQUIRED and
+ * not a habit -- `void` on a promise does not catch, so a throw here would surface as an
+ * unhandled rejection over a feed someone is quietly reading. The adapter un-marks on
+ * failure, so the next sweep retries; nothing is dropped permanently by swallowing this.
+ */
+export function useChatActions() {
+  const repo = useRepository();
+  return useMemo(
+    () => ({
+      markRead: (ids: BroadcastId[]) => {
+        void repo.chat.markRead(ids).catch(() => {});
+      },
+    }),
+    [repo],
+  );
+}
+
 export function useMusicActions() {
   const repo = useRepository();
   const { show } = useToast();

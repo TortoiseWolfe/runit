@@ -213,6 +213,18 @@ export class MemoryRepository implements RunitRepository {
    * refusal and not a fallback -- the paths that have an honest empty answer (votes,
    * blocks, "my reports") check for null instead of calling this.
    */
+  /** Read marks for THIS device, mirroring the adapter's session-scoped set (#24). */
+  private readonly readMarks = new Set<BroadcastId>();
+  /**
+   * Whether the seat this device holds belongs to someone who also holds a HOST seat.
+   *
+   * `fold_seen_count` and `guest_seats` both exclude such a seat, so the fixture has to
+   * as well or Lane B goes green on a number the backend does not agree with. It is not
+   * `holdsHostSeat`: that signal starts true here so the seeded world can reach the
+   * console, and it answers "could you claim a seat", not "did you arrive as staff".
+   */
+  private seatIsStaff = false;
+
   private requireGuest(): string {
     if (this.myGuestId === null) throw new Error('Not joined as a guest yet.');
     return this.myGuestId;
@@ -534,6 +546,7 @@ export class MemoryRepository implements RunitRepository {
       // A seeded world already knows who you are; a created one does not, and
       // `join_event` mints the row either way.
       this.myGuestId ??= this.id('gst');
+      this.seatIsStaff = false;
       this.sigSession.set({
         kind: 'guest',
         guestId: this.myGuestId,
@@ -583,7 +596,12 @@ export class MemoryRepository implements RunitRepository {
      */
     becomeGuest: async () => {
       const s = this.sigSession.get();
-      this.myGuestId ??= this.id('gst');
+      if (this.myGuestId === null) {
+        this.myGuestId = this.id('gst');
+        // Arrived from the console, so this seat is staff: it counts in no headcount and
+        // no read count. `joinAsGuest` clears the flag, because that IS a guest arriving.
+        this.seatIsStaff = true;
+      }
       this.sigSession.set({
         kind: 'guest',
         guestId: this.myGuestId,
@@ -853,6 +871,21 @@ export class MemoryRepository implements RunitRepository {
 
       this.broadcastList = this.broadcastList.map((b) =>
         b.id === id ? { ...b, pinned } : b,
+      );
+      this.recompute();
+    },
+
+    markRead: async (ids: BroadcastId[]) => {
+      // ONE READER, WHICH IS THE HONEST LIMIT OF A FIXTURE. Against Postgres `seen_count`
+      // is folded over every guest's row; here there is exactly one person, so this counts
+      // this device and nothing else. The property worth keeping is the one a screen can
+      // get wrong: a second look does not add a second read.
+      if (this.myGuestId === null || this.seatIsStaff) return;
+      const fresh = ids.filter((id) => !this.readMarks.has(id));
+      if (fresh.length === 0) return;
+      for (const id of fresh) this.readMarks.add(id);
+      this.broadcastList = this.broadcastList.map((b) =>
+        fresh.includes(b.id) ? { ...b, seenCount: b.seenCount + 1 } : b,
       );
       this.recompute();
     },

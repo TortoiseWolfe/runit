@@ -812,3 +812,52 @@ describe('a founder holds no guest seat (#37)', () => {
     expect(r.event.current.get()).toMatchObject({ guestCount: 1 });
   });
 });
+
+describe('marking an announcement read (#24)', () => {
+  const NEW_EVENT = {
+    name: "Ruth's 40th", venue: 'The garden', startsAt: FIXED,
+    timezone: 'America/New_York', doorsLabel: 'Doors 7:00 PM', hostName: 'Ruth',
+  };
+  const first = (r: ReturnType<typeof make>) => r.chat.feed.get()[0]!;
+
+  it('moves the number, and moves it once', async () => {
+    const r = make();
+    await r.session.joinAsGuest({ code: 'SR1017', nickname: 'Ada' });
+    const b = first(r);
+    const before = b.seenCount;
+
+    await r.chat.markRead([b.id]);
+    expect(first(r).seenCount).toBe(before + 1);
+
+    // The caller is a scroll handler and re-sends whatever is on screen on every frame.
+    // This is where "seen by 172" becomes "seen by 400".
+    await r.chat.markRead([b.id]);
+    await r.chat.markRead([b.id]);
+    expect(first(r).seenCount).toBe(before + 1);
+  });
+
+  it('does not count the host who wrote it', async () => {
+    const r = make();
+    await r.event.create(NEW_EVENT);
+    await r.chat.send({ body: 'Cake at nine.', pinned: false });
+    // She takes a seat to look at her own feed (#37); a seat held by a host of the event
+    // is excluded from `fold_seen_count`, so the fixture must exclude it too or Lane B
+    // goes green on a number the backend does not agree with.
+    await r.session.becomeGuest();
+
+    const b = first(r);
+    await r.chat.markRead([b.id]);
+    expect(first(r).seenCount).toBe(0);
+  });
+
+  it('has nothing to record before there is a seat at all', async () => {
+    const r = make();
+    await r.event.create(NEW_EVENT);
+    await r.chat.send({ body: 'Cake at nine.', pinned: false });
+
+    // A founder holds no guest row until she asks for one. Not a guard against a caller's
+    // mistake -- `ChatScreen` is reachable from the console.
+    await expect(r.chat.markRead([first(r).id])).resolves.toBeUndefined();
+    expect(first(r).seenCount).toBe(0);
+  });
+});

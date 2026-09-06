@@ -752,6 +752,89 @@ describe('holding a host seat (#29)', () => {
   });
 });
 
+describe('marking an announcement read (#24)', () => {
+  const B1 = 'b0000000-0000-0000-0000-000000000001' as never;
+  const B2 = 'b0000000-0000-0000-0000-000000000002' as never;
+
+  /** A plain guest: joined, holds no host seat. */
+  const asGuest = async () => {
+    const c = ready();
+    c.on((op) => (op.kind === 'rpc' && op.table === 'is_host' ? { data: false, error: null } : undefined));
+    return { c, repo: await join(c) };
+  };
+
+  it('writes one row per announcement, carrying the reader', async () => {
+    const { c, repo } = await asGuest();
+    await repo.chat.markRead([B1, B2]);
+
+    // ONE INSERT, NOT TWO. The caller is a scroll handler and a screenful arrives at
+    // once; a request per bubble is what makes this feature expensive on a venue's wifi.
+    const writes = c.find('insert', 'broadcast_reads');
+    expect(writes).toHaveLength(1);
+    expect(writes[0]!.payload).toEqual([
+      { broadcast_id: B1, guest_id: GUEST },
+      { broadcast_id: B2, guest_id: GUEST },
+    ]);
+  });
+
+  it('sends nothing the second time, because the sweep runs on every frame', async () => {
+    const { c, repo } = await asGuest();
+    await repo.chat.markRead([B1]);
+    await repo.chat.markRead([B1, B2]);
+
+    // The second call carries B1 again -- the screen re-sweeps whatever is on screen --
+    // and only B2 should reach the wire. The database would absorb the rest as 23505,
+    // which is precisely why this has to be asserted here rather than assumed there.
+    const writes = c.find('insert', 'broadcast_reads');
+    expect(writes).toHaveLength(2);
+    expect(writes[1]!.payload).toEqual([{ broadcast_id: B2, guest_id: GUEST }]);
+  });
+
+  it('does not count a host reading her own announcement', async () => {
+    const c = creatable();
+    const repo = build(c);
+    await repo.event.create(NEW_EVENT);
+    await repo.session.becomeGuest();
+    await repo.chat.markRead([B1]);
+
+    // She has a guest seat now (#37), so `myGuestId` alone would let this through.
+    // `fold_seen_count` excludes a seat held by a host of the event, so the row would be
+    // stored and then not counted -- and "seen by 1" the moment its author looks at it is
+    // a number the host would believe.
+    expect(c.find('insert', 'broadcast_reads')).toHaveLength(0);
+  });
+
+  it('swallows a duplicate, which is the desired state arriving twice', async () => {
+    const c = ready();
+    c.on((op) => (op.kind === 'rpc' && op.table === 'is_host' ? { data: false, error: null } : undefined));
+    c.on((op) => (op.kind === 'insert' && op.table === 'broadcast_reads' ? pgError('23505', 'duplicate key') : undefined));
+    const repo = await join(c);
+
+    // The composite primary key (broadcast_id, guest_id) already says a read exists at
+    // most once. Same shape as song_votes and blocks.
+    await expect(repo.chat.markRead([B1])).resolves.toBeUndefined();
+  });
+
+  it('forgets the mark when the write really fails, so the next sweep retries', async () => {
+    const c = ready();
+    c.on((op) => (op.kind === 'rpc' && op.table === 'is_host' ? { data: false, error: null } : undefined));
+    let fail = true;
+    c.on((op) => {
+      if (op.kind !== 'insert' || op.table !== 'broadcast_reads') return undefined;
+      if (!fail) return undefined;
+      fail = false;
+      return refusedLoudly();
+    });
+    const repo = await join(c);
+
+    await expect(repo.chat.markRead([B1])).rejects.toBeDefined();
+    // Without the un-mark, an announcement whose first write lost the network is "seen by
+    // 0" for the rest of the night, and nothing anywhere retries it.
+    await repo.chat.markRead([B1]);
+    expect(c.find('insert', 'broadcast_reads')).toHaveLength(2);
+  });
+});
+
 describe('registering for push (#27)', () => {
   const asHost = async (c: FakeClient) => {
     const repo = build(c);
@@ -1163,6 +1246,19 @@ describe('a founder leaving her own console (#37)', () => {
     // guard is `myGuestId === null`, and this is what proves it is the guard rather
     // than a comment.
     expect(c.find('rpc', 'join_event')).toHaveLength(1);
+  });
+
+  it('does not lose the host seat on the way to the guest side', async () => {
+    const repo = build(withSeat());
+    await repo.event.create(NEW_EVENT);
+    await repo.session.becomeGuest();
+
+    // `becomeGuest` calls `loadFetchOnce`, which re-derives this from `is_host`. On the
+    // guest screen `RoleSwitch` is drawn only for someone holding a seat (#29), so a
+    // transient failure there would leave her on the guest side with no way back -- #37
+    // pointing the other way. Caught by the fixture, not by reasoning: the FakeClient's
+    // default rpc reply is not `true`, and this test failed before the flag was pinned.
+    expect(repo.session.holdsHostSeat.get()).toBe(true);
   });
 
   it('keeps her seat when she goes back and forth', async () => {
