@@ -759,3 +759,56 @@ describe('the guest list', () => {
     expect(r.event.current.get()!.invitedCount).toBe(before);
   });
 });
+
+describe('a founder holds no guest seat (#37)', () => {
+  const NEW_EVENT = {
+    name: "Ruth's 40th",
+    venue: 'The garden',
+    startsAt: FIXED,
+    timezone: 'America/New_York',
+    doorsLabel: 'Doors 7:00 PM',
+    hostName: 'Ruth',
+  };
+
+  it('leaves her without one, exactly as create_event does', async () => {
+    const r = make();
+    const seated = r.session.current.get();
+    await r.event.create(NEW_EVENT);
+    await r.session.becomeGuest();
+
+    // THE FIXTURE IS THE POINT. This carried the seeded guest id straight through a
+    // create, which made a founder indistinguishable from someone who had joined -- so
+    // the state where `becomeGuest` had nothing to switch to could not be reached in any
+    // test, and the console's one exit was green here while it raised against Postgres.
+    const now = r.session.current.get();
+    expect(now).toMatchObject({ kind: 'guest', nickname: 'Ruth' });
+    expect(now).not.toMatchObject({ guestId: weddingSeed.myGuestId });
+    // Not a tautology via `seated`: the wedding seed opens anonymous, so this pins that
+    // the id she ends up with is minted rather than inherited from the seed.
+    expect(seated).toMatchObject({ kind: 'anonymous' });
+  });
+
+  it('and her seat is not a guest arriving', async () => {
+    const r = make();
+    await r.event.create(NEW_EVENT);
+    expect(r.event.current.get()).toMatchObject({ guestCount: 0 });
+
+    await r.session.becomeGuest();
+
+    // Parity with `public.guest_seats()`, which excludes anyone holding a host seat at
+    // this event from BOTH the headcount and `tier_limits.max_guests`. If this fixture
+    // incremented, Lane B would go green on a number the backend does not agree with --
+    // and the number is printed on the join screen.
+    expect(r.event.current.get()).toMatchObject({ guestCount: 0 });
+  });
+
+  it('a real guest arriving after her still counts as one', async () => {
+    const r = make();
+    const { code } = await r.event.create(NEW_EVENT);
+    await r.session.becomeGuest();
+    await r.session.joinAsGuest({ code, nickname: 'Ada' });
+
+    // The rule is "staff are not guests", not "the first arrival is free".
+    expect(r.event.current.get()).toMatchObject({ guestCount: 1 });
+  });
+});

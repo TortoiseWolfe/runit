@@ -52,7 +52,10 @@ export function EventHeader({ eyebrow: eyebrowText }: { eyebrow: string }) {
           </Text>
         </Pressable>
       )}
-      <View style={[s.pill, { backgroundColor: tokens.base200, borderColor: tokens.base300 }]}>
+      <View
+        testID="guest-count-pill"
+        style={[s.pill, { backgroundColor: tokens.base200, borderColor: tokens.base300 }]}
+      >
         <Text style={[s.pillText, { color: tokens.baseContent }]}>{event?.guestCount ?? 0} here</Text>
       </View>
     </View>

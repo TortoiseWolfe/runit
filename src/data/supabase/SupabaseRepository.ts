@@ -942,16 +942,65 @@ export class SupabaseRepository implements RunitRepository {
       this.recompute();
     },
 
+    /**
+     * Look at your own event from the floor.
+     *
+     * A FOUNDER HOLDS NO GUEST SEAT, so this used to be a door that raised (#37). It
+     * opened `const guestId = this.requireGuest()`, and `create_event` binds a host seat
+     * while deliberately minting no guest row -- so the one control on the host console
+     * threw for the person most likely to be standing in it, and `RoleSwitch`'s catch-all
+     * then toasted *"The host console is only available to this event's host."* at the
+     * host. Wrong sentence, wrong failure, and no other way out of the console.
+     *
+     * SO SHE TAKES A SEAT, rather than the control being hidden. Hiding it is the fix
+     * that reads as tidy and leaves a host unable to see what her guests see -- and
+     * `RoleSwitch` is already drawn there, which is a promise the app makes.
+     *
+     * `join_event` is the same call a guest makes and is idempotent on
+     * `(event_id, auth_user_id)`, so this is not a second path into `guests` that could
+     * drift from the first. What makes the seat free is in SQL, where a client cannot
+     * bypass it: `public.guest_seats()` excludes anyone holding a host seat at this
+     * event, so she is neither counted in "N already here" nor charged against
+     * `tier_limits.max_guests`.
+     *
+     * THE NICKNAME IS HER HOST NAME, which is a deliberate small thing: a host who posts
+     * a song request from the floor should read as herself, and a blank nickname would be
+     * the one identity in the room with no name on it. `join_event` upserts the nickname,
+     * so re-entering the guest view after a rename carries the new one.
+     *
+     * The discarded `my_guest_id` round trip that used to sit here is gone. It fetched a
+     * value into `void nickname` -- a request per tap that nothing read.
+     */
     becomeGuest: async () => {
-      const guestId = this.requireGuest();
-      const { data: nickname } = await this.db.rpc('my_guest_id', { p_event: this.requireEvent() });
-      void nickname;
       const current = this.sigSession.get();
+
+      if (this.myGuestId === null) {
+        const ev = this.sigEvent.get();
+        // Not a guard against a caller's mistake: `RoleSwitch` is only drawn inside an
+        // event, so a null here means the event went away underneath the session.
+        if (!ev) throw new Error('There is no event to join as a guest.');
+        const nickname = current.kind === 'host' ? current.displayName : '';
+        const { data, error } = await this.db.rpc('join_event', {
+          p_code: ev.code,
+          p_nickname: nickname,
+        });
+        if (error) throw error;
+        this.myGuestId = data as unknown as string;
+        // The realtime tables are already running -- she has been in this event the whole
+        // time. What was never read is everything scoped to a guest id: her votes, her
+        // blocks, her own pending photos. `loadFetchOnce` answers all three with the
+        // empty set while `myGuestId` is null, so without this her seat exists and the
+        // guest view stays empty of anything belonging to her. It ends in `loadBlocks`,
+        // which is the third of those.
+        await this.loadFetchOnce();
+      }
+
       this.sigSession.set({
         kind: 'guest',
-        guestId,
-        nickname: current.kind === 'guest' ? current.nickname : '',
+        guestId: this.myGuestId,
+        nickname: current.kind === 'host' ? current.displayName : current.kind === 'guest' ? current.nickname : '',
       });
+      this.recompute();
     },
 
     /**

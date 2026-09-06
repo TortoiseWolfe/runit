@@ -175,3 +175,78 @@ test.describe('making your own event', () => {
     await expect(page.getByText(/previous key has\s+stopped working/)).toHaveCount(1);
   });
 });
+
+/**
+ * Getting back OUT of the console you just made -- issue #37.
+ *
+ * The console renders exactly one non-segment control, `RoleSwitch`, and for a founder it
+ * raised: `becomeGuest` opened with `requireGuest()`, and `create_event` binds a host seat
+ * while deliberately minting no guest row. So the door out of the host console threw for
+ * the person most likely to be standing in it, and the catch-all toasted "The host console
+ * is only available to this event's host" -- at the host.
+ *
+ * WHAT THESE THREE CANNOT DO IS CATCH IT, and saying so is the point of this paragraph.
+ * MemoryRepository never had the bug -- its `becomeGuest` never called `requireGuest`, so
+ * with the fix removed these still pass. Measured, not assumed: the mutation was run.
+ * They are regression guards for the SCREENS -- the door is drawn, it opens, it swings
+ * back -- and nothing more.
+ *
+ * The fix itself is tested at the seam, in `SupabaseRepository.test.ts`, where a founder's
+ * switch is asserted to call `join_event` at all. The half that lives in SQL -- her seat
+ * excluded from `guest_count` and from `tier_limits.max_guests` by `public.guest_seats()`
+ * -- is Lane E's. Memory keeps the same rule by arithmetic (it does not increment), which
+ * is parity, not verification.
+ *
+ * The fixture change is still worth having: `create` now leaves `myGuestId` null, exactly
+ * as `create_event` leaves a founder, so the state is at least REACHABLE here. That is the
+ * same move as `?empty=1` making `Seed.event` nullable.
+ */
+test.describe('leaving the console you just made', () => {
+  const create = async (page: import('@playwright/test').Page, scheme: 'dark' | 'light') => {
+    await open(page, scheme, '/create', 'create-event');
+    await fillTheForm(page);
+    await page.getByTestId('create-submit').click();
+    await page.getByTestId('created-continue').click();
+    await expect(page.getByTestId('role-switch')).toBeVisible();
+  };
+
+  test('a founder can look at her own event from the floor', async ({ page }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await create(page, scheme);
+
+    await page.getByTestId('role-switch').click();
+
+    // The chat feed IS the guest side: reaching it means the switch completed rather
+    // than throwing behind a toast.
+    await expect(page.getByTestId('chat-feed')).toBeVisible();
+    // The failure this replaced was silent-looking but not silent -- it toasted. Asserting
+    // the toast is absent is what separates "it worked" from "it failed politely".
+    await expect(page.getByTestId('toast')).toHaveCount(0);
+  });
+
+  test('her seat is not a guest arriving, so the room still reads empty', async ({
+    page,
+  }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await create(page, scheme);
+    await page.getByTestId('role-switch').click();
+
+    // Nobody has arrived. A host taking a seat to see her own party must not make the
+    // room read "1 here" to the first person who walks in -- which is the same reason
+    // create_event does not seat her in the first place.
+    await expect(page.getByTestId('guest-count-pill')).toHaveText('0 here');
+  });
+
+  test('and the door swings both ways', async ({ page }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await create(page, scheme);
+    await page.getByTestId('role-switch').click();
+    await expect(page.getByTestId('chat-feed')).toBeVisible();
+
+    // She still holds the seat, so the control is still drawn (#29 hides it only from
+    // people who hold none) and still works.
+    await page.getByTestId('role-switch').click();
+    await expect(page.getByTestId('broadcast-draft')).toBeVisible();
+    await expect(page.getByTestId('toast')).toHaveCount(0);
+  });
+});

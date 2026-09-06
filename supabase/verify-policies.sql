@@ -55,6 +55,8 @@ declare
   auid  uuid := 'cccccccc-0000-0000-0000-000000000002';
   buid2 uuid := 'cccccccc-0000-0000-0000-000000000003';
   ce2 record; pin boolean; gcap uuid; filler uuid; i int; bc uuid;
+  -- #37 fixtures: the second count, and the seat a guest is promoted into.
+  m int; hst uuid;
   out text[] := '{}';
   fails int := 0;
 
@@ -898,6 +900,85 @@ begin
   exception when others then
     out := out || format('FAIL a rejoin at a full event was refused (%s) -- a reinstall locks them out', sqlstate);
   end;
+
+  -- ==================================================================
+  -- STAFF ARE NOT GUESTS (#37)
+  -- ==================================================================
+  -- The room is FULL from the block above -- 10 of 10 on house_party -- which is the only
+  -- state where these mean anything. `cuid` made this event and holds ce2.host_id; she has
+  -- no `guests` row, because `create_event` deliberately mints none. That gap is what made
+  -- `becomeGuest` raise and left a founder with no door out of her own console.
+  execute 'reset role';
+  select e.guest_count into n from public.events e where e.id = ce2.event_id;
+  out := out || format('%s the room is full before the host walks in (guest_count=%s, want 10)',
+                       case when n = 10 then 'PASS' else 'FAIL' end, n);
+
+  perform set_config('request.jwt.claims', json_build_object('sub',cuid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  begin
+    -- ITS CONTROL IS BO, four assertions down: the same call, the same full event, a
+    -- 54023. Without that pair this would pass just as happily against a join_event that
+    -- had no cap at all -- which is what a mutation of `guest_seats` alone cannot show,
+    -- because the host's exemption lives in join_event's guard rather than in the count.
+    hst := public.join_event(ce2.code, 'Ruth');
+    out := out || format('%s a host takes a seat at her OWN full event', case when hst is not null then 'PASS' else 'FAIL' end);
+  exception when others then
+    out := out || format('FAIL a founder was refused a seat at her own event (%s) -- she is stranded in the console', sqlstate);
+  end;
+
+  execute 'reset role';
+  select e.guest_count into n from public.events e where e.id = ce2.event_id;
+  select count(*) into m from public.guests g where g.event_id = ce2.event_id;
+  out := out || format('%s her seat is not a guest arriving (guest_count=%s over %s rows, want 10 over 11)',
+                       case when n = 10 and m = 11 then 'PASS' else 'FAIL' end, n, m);
+
+  -- THE ONE THAT MATTERS MOST HERE. A bypass that let the host in could just as easily
+  -- have let the eleventh guest in -- `guest_seats` is subtracting a row, and if it
+  -- subtracted the wrong one the cap would have quietly grown by a seat per host.
+  perform set_config('request.jwt.claims', json_build_object('sub',buid2,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  begin
+    perform public.join_event(ce2.code, 'Bo');
+    out := out || format('FAIL an 11th guest joined after the host sat down');
+  exception when others then
+    out := out || format('%s the cap still refuses a stranger with the host seated (%s)',
+                         case when sqlstate = '54023' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  begin
+    perform public.guest_seats(ce2.event_id);
+    out := out || format('FAIL guest_seats is callable by a client');
+  exception when others then
+    -- Not a secret, but it answers a headcount for ANY event id, and `event_preview`
+    -- deliberately withholds exactly that. A revoke from `anon` alone would be a silent
+    -- no-op here, which is the same trap #34 fell into.
+    out := out || format('%s guest_seats is revoked from authenticated (%s)',
+                         case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  -- A GUEST PROMOTED TO STAFF STOPS COUNTING, and a trigger on `guests` alone cannot see
+  -- it: `claim_host` binds `auth_user_id` on a seat that already exists, so no row is
+  -- inserted or deleted anywhere. Without `hosts_fold_guests` the stored count is simply
+  -- wrong from that moment until the next arrival.
+  execute 'reset role';
+  insert into public.hosts (event_id, auth_user_id, display_name, role, role_label)
+       values (ce2.event_id, null, 'Ada', 'dj', 'DJ') returning id into hst;
+  select e.guest_count into n from public.events e where e.id = ce2.event_id;
+  update public.hosts set auth_user_id = auid where id = hst;
+  select e.guest_count into m from public.events e where e.id = ce2.event_id;
+  out := out || format('%s binding a host seat to someone already seated drops the count (%s -> %s, want 10 -> 9)',
+                       case when n = 10 and m = 9 then 'PASS' else 'FAIL' end, n, m);
+
+  update public.hosts set auth_user_id = null where id = hst;
+  select e.guest_count into n from public.events e where e.id = ce2.event_id;
+  out := out || format('%s and unbinding it puts her back in the room (%s, want 10)',
+                       case when n = 10 then 'PASS' else 'FAIL' end, n);
+
+  -- Cleaned up rather than left standing: the sections below count hosts and read this
+  -- event's headcount, and an extra unclaimed seat plus the founder's guest row would
+  -- make those assertions describe a fixture this block invented.
+  delete from public.hosts where id = hst;
+  delete from public.guests where event_id = ce2.event_id and auth_user_id = cuid;
 
   -- ==================================================================
   -- PUSH (#27)
