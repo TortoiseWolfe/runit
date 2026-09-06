@@ -504,3 +504,134 @@ if (gfails.length) {
   process.exit(1);
 }
 console.log(`gutter gate: nothing readable sits within ${GUTTER_MIN}px of an edge across ${shots.length} screens`);
+
+/**
+ * THE PAIRING GATE -- issue #35, and the only one of these four gates that guards a HUMAN
+ * check rather than a machine one.
+ *
+ * CLAUDE.md defines lane D as a COMPARISON: read `design/renders/<screen>.png` and
+ * `design/screenshots/<screen>.png` in the same message. A screen with nothing on the
+ * left-hand side therefore does not fail the lane -- it silently does not RUN it, and an
+ * absent check and a passing check look identical from the board. That is the condition
+ * under which `CreateEventScreen` shipped with no `paddingHorizontal`, printing the
+ * recovery key -- returned exactly once by `create_event` -- against the bezel. A person
+ * found it. No lane could.
+ *
+ * WHAT THIS IS NOT. It cannot read a screenshot, so it cannot do lane D. It makes the
+ * ABSENCE loud instead of silent, which is the whole defect: the map of what has been
+ * looked at was wrong, and wrong in more places than the issue recorded.
+ *
+ * MEASURED, not assumed: 6 of 11 walked screens pair by name. FIVE do not, and they are
+ * two different problems wearing one symptom --
+ *
+ *   - THREE have no render at all. `00-create-event` and `00-create-key` came from
+ *     `docs/design-host-accounts.md` rather than the canvas. `03-host-event` is a fourth
+ *     host segment the canvas never drew (it has three), and it was recorded NOWHERE
+ *     before this gate counted it.
+ *   - TWO have a render under a different NAME. The canvas draws two states of each of
+ *     those tabs; the walk shoots one. Following CLAUDE.md literally finds nothing for
+ *     them, so lane D has never run on the music or photos tab either.
+ *
+ * THE VARIANT MAPPINGS WERE READ, NOT GUESSED, and that matters more than it sounds: a
+ * mapping to the wrong render is an absent check REPLACED BY A WRONG ONE, which is worse
+ * than the gap. The obvious guesses are both wrong. `02-guest-music` pairs with
+ * `-nowplaying` and not `-list`, because the walk's music tab shows the Now Playing card
+ * and `-list` is the state without it.
+ *
+ * IT DOES NOT FAIL ON THE FIVE. A gate that goes red the moment it lands is a gate that
+ * gets switched off inside a week -- this repo has written that down twice already. It
+ * fails on a screen that is in NEITHER the manifest nor `renders/`, so adding a screen
+ * costs one line and a sentence, and the bijection below is its own coverage floor: a
+ * stale entry fails too.
+ */
+const RENDER_PAIRS = {
+  '01-join': { render: '01-join' },
+  '02-guest-chat': { render: '02-guest-chat' },
+  '02-guest-chat-schedule-open': { render: '02-guest-chat-schedule-open' },
+  '02-guest-photos': {
+    render: '02-guest-photos-album',
+    // The walk clicks the tab and shoots its default state: the folder chips, the grid and
+    // the shutter. `-shutter` is the other canvas state. The app adds a per-tile menu and
+    // the retention line (#23), which the canvas does not draw.
+    note: 'the album, not the shutter state',
+  },
+  '02-guest-music': {
+    render: '02-guest-music-nowplaying',
+    // NOT `-list`. Both canvas states draw the queue; only this one draws the Now Playing
+    // card, and the walk's music tab has it. `-list` also carries an amber "your request
+    // is #4" banner the walk's guest has not earned -- she has requested nothing.
+    note: 'the Now Playing card is present, so this is -nowplaying',
+  },
+  '03-host-broadcast': { render: '03-host-broadcast' },
+  '03-host-dj': { render: '03-host-dj' },
+  '03-host-photos': { render: '03-host-photos' },
+  '03-host-event': {
+    render: null,
+    why: 'the canvas host control has three segments; Event is the fourth, added here',
+  },
+  '00-create-event': {
+    render: null,
+    why: 'came from docs/design-host-accounts.md, not the canvas — there is no source to render',
+  },
+  '00-create-key': {
+    render: null,
+    why: 'same, and non-deterministic anyway: the code and key are minted from a CSPRNG',
+  },
+};
+
+if (!STORE) {
+  const walked = [...new Set(shots.map((s) => s.name))];
+  const schemes = [...new Set(shots.map((s) => s.scheme))];
+  const problems = [];
+
+  for (const name of walked) {
+    const entry = RENDER_PAIRS[name];
+    if (!entry) {
+      problems.push(
+        `${name} was walked but is not in RENDER_PAIRS — declare a render, or a reason it has none`,
+      );
+      continue;
+    }
+    if (!entry.render) continue;
+    for (const scheme of schemes) {
+      const p = join(ROOT, 'design/renders', `${entry.render}.${scheme}.png`);
+      if (!existsSync(p)) {
+        problems.push(`${name} claims render ${entry.render}.${scheme}, which does not exist`);
+      }
+    }
+  }
+  for (const name of Object.keys(RENDER_PAIRS)) {
+    if (!walked.includes(name)) {
+      problems.push(`RENDER_PAIRS names ${name}, which this walk never shot — a stale entry`);
+    }
+  }
+
+  if (problems.length) {
+    console.error(`\nFAIL: ${problems.length} render-pairing problem(s):`);
+    for (const p of problems) console.error(`  ${p}`);
+    console.error('\n  Lane D is a COMPARISON. A screen with no render does not fail it —');
+    console.error('  it silently does not run, which is how the create screens shipped');
+    console.error('  flush against the bezel. Declare the pair or declare the gap.');
+    process.exit(1);
+  }
+
+  const unpaired = walked.filter((n) => !RENDER_PAIRS[n].render);
+  console.log(
+    `pairing gate: ${walked.length - unpaired.length} of ${walked.length} walked screens have a render`,
+  );
+  for (const n of unpaired) {
+    console.log(`  NO RENDER  ${n} — ${RENDER_PAIRS[n].why}`);
+  }
+  /**
+   * PRINTED, NEVER FAILED. Every container run is a container run, so failing here would
+   * red the normal path and the gate would be deleted. But a lane D read against
+   * container-shot PNGs compares DejaVu renders to Liberation screenshots and reads a wrap
+   * difference as a regression -- issue #6 -- so the reader has to be told which they have.
+   */
+  if (inContainer) {
+    console.log(
+      '  \x1b[33mLANE D NOT READABLE: these are container fonts; design/renders/ is host DejaVu.',
+    );
+    console.log('  Re-shoot on the host (pnpm export:web && pnpm shots) before reading.\x1b[0m');
+  }
+}

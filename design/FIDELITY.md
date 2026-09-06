@@ -2443,3 +2443,79 @@ permission group; the usage string is an iOS plist key and no Android run can re
 `src/lib/appConfig.test.ts` is what guards that the two plugins writing it agree, and only a
 real iPhone confirms what it says. The screenshot in `design/device/` shows *Android's*
 sentence, not ours — reading it as our copy would be the error this paragraph exists to stop.
+
+## AS. The lane that silently did not run
+
+Lane D is defined as a **comparison** — read the render and the screenshot in the same
+message. A screen with nothing on the left-hand side does not fail it; it silently does not
+run it, and from the board an absent check and a passing check are the same green. That is
+the condition under which `CreateEventScreen` shipped with no `paddingHorizontal`, printing
+the recovery key — the one copy of a string `create_event` returns once and never again —
+flush against the bezel. A person found it. No lane could. Issue #35.
+
+`pnpm shots` now carries a pairing gate beside the colour, contrast and gutter ones.
+
+### The map was wrong in five places, not two
+
+#35 recorded two screens with no render. Measured against both directories, **8 of 11
+walked screens pair** and the five that did not were two different problems sharing one
+symptom:
+
+| screen | render | why |
+|---|---|---|
+| `00-create-event` | none | from `docs/design-host-accounts.md`, not the canvas |
+| `00-create-key` | none | same, and non-deterministic: the code and key are CSPRNG-minted |
+| `03-host-event` | none | the canvas host control has three segments; Event is a fourth |
+| `02-guest-music` | `02-guest-music-nowplaying` | a naming divergence, not a gap |
+| `02-guest-photos` | `02-guest-photos-album` | same |
+
+`03-host-event` was recorded **nowhere** — not in #35, not in CLAUDE.md — until the gate
+counted it. That is the argument against closing this with a paragraph: the paragraph that
+already existed was wrong, and nothing could tell.
+
+### The obvious variant guess is wrong, and a wrong pair is worse than no pair
+
+Both music renders draw the queue. Only `-nowplaying` draws the Now Playing card, and the
+walk's music tab has it; `-list` instead carries an amber *"your request is #4"* banner the
+walk's guest has not earned, because she has requested nothing. The name `-list` reads like
+the plain default and is not.
+
+A mapping to the wrong render is **an absent check replaced by a wrong one** — lane D would
+run, and report a difference that is a state mismatch rather than a defect, every time. So
+both mappings were read off the images rather than inferred from the filenames, and the
+manifest says which state the walk shoots.
+
+### Why it prints rather than fails on the three
+
+A gate that goes red the moment it lands is a gate that gets switched off inside a week;
+`audit-tier-claims.mjs` says so in its own failure text. So the three unrendered screens are
+declared with reasons and printed by name on every run. What FAILS is a screen in neither
+the manifest nor `renders/` — so adding a screen costs one line and a sentence — and the
+manifest must be a **bijection** with the walk, which makes a stale entry fail too. That
+bijection is the coverage floor; there is no separate number to keep in step.
+
+### Option 2 is refused, and here is why, so it is decided once
+
+#35 offered promoting the screenshots to renders. It is cheap and it is wrong:
+
+- **`design/screenshots/` is gitignored build output.** Promoting it moves untracked output
+  across the reference boundary in the one place the reference is supposed to be the spec.
+- **It would install issue #6 inside the reference.** The set is whichever machine ran
+  `pnpm shots` last. A container-shot promotion puts the only Liberation-font entry into an
+  otherwise DejaVu reference — the exact mismatch note 6 exists to prevent.
+- **`00-create-event` is shot with the form empty**, so `create-submit` is not rendered at
+  all. The committed reference would be a form with no Create button.
+- **`00-create-key` is not reproducible.** The code and key are CSPRNG-minted per run.
+- And most of all: the padding bug was on screen when those screenshots were taken. Promote
+  them and the defect becomes the reference.
+
+Authoring a real render for the create flow is still open, and it is a decision about what
+the spec IS for screens the canvas never drew — not a task.
+
+### The reader is now told when a read is invalid
+
+`.provenance.json` has recorded `environment` since note 6, and **nothing read it.** The
+gate does: on a container run it prints, in yellow, that these PNGs are container fonts and
+`design/renders/` is host DejaVu, so a lane D read against them would report a wrap
+difference as a regression. It prints rather than fails, because every container run is a
+container run.

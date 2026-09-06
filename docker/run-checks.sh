@@ -79,6 +79,9 @@ pnpm audit:tiers
 step "tests"
 pnpm test
 
+step "SQL declare audit  (lane E cannot compile with a duplicate, and skips silently)"
+pnpm audit:sql
+
 step "policy verification  (lane E -- skips LOUDLY without SUPABASE_DB_URL)"
 node tools/verify-policies.mjs
 

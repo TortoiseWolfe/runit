@@ -56,7 +56,10 @@ declare
   buid2 uuid := 'cccccccc-0000-0000-0000-000000000003';
   ce2 record; pin boolean; gcap uuid; filler uuid; i int; bc uuid;
   -- #37 fixtures: the second count, and the seat a guest is promoted into.
-  m int; hst uuid; pho uuid;
+  m int; hst uuid;
+  -- #40 retention fixture. ITS OWN NAME: `pho` above belongs to the moderation block, and
+  -- one DECLARE block cannot hold it twice -- 42601, which is what killed this whole lane.
+  spho uuid;
   out text[] := '{}';
   fails int := 0;
 
@@ -1319,11 +1322,11 @@ begin
   select gen_random_uuid(), ce2.event_id, e.active_folder_id, gcap, 'Ada', 'approved', 200,
          ce2.event_id || '/ret.jpg', ce2.event_id || '/ret_t.jpg'
     from public.events e where e.id = ce2.event_id
-  returning id into pho;
+  returning id into spho;
 
   update public.events set tier = 'house_party', starts_at = now() - interval '400 days'
    where id = ce2.event_id;
-  select count(*) into n from public.photos_past_retention(500) where id = pho;
+  select count(*) into n from public.photos_past_retention(500) where id = spho;
   out := out || format('%s an expired free-tier photo is selected (%s, want 1)',
                        case when n = 1 then 'PASS' else 'FAIL' end, n);
 
@@ -1331,7 +1334,7 @@ begin
   -- for N days after THE EVENT". Building it from the photo's own created_at would let a
   -- late upload outlive the party and quietly break a promise already on screen.
   update public.events set starts_at = now() where id = ce2.event_id;
-  select count(*) into n from public.photos_past_retention(500) where id = pho;
+  select count(*) into n from public.photos_past_retention(500) where id = spho;
   out := out || format('%s and not while the event is recent -- the clock is starts_at (%s, want 0)',
                        case when n = 0 then 'PASS' else 'FAIL' end, n);
 
@@ -1339,7 +1342,7 @@ begin
   -- column is nullable rather than defaulted.
   update public.events set tier = 'venue', starts_at = now() - interval '4000 days'
    where id = ce2.event_id;
-  select count(*) into n from public.photos_past_retention(500) where id = pho;
+  select count(*) into n from public.photos_past_retention(500) where id = spho;
   out := out || format('%s an unlimited tier is never swept, however old (%s, want 0)',
                        case when n = 0 then 'PASS' else 'FAIL' end, n);
 
@@ -1373,7 +1376,7 @@ begin
   execute 'reset role';
   out := out || format('%s a wrong sweep key is refused',
                        case when public.sweep_authorised('nope') = false then 'PASS' else 'FAIL' end);
-  delete from public.photos where id = pho;
+  delete from public.photos where id = spho;
   update public.events set tier = 'event', starts_at = now() + interval '1 day' where id = ce2.event_id;
 
   select count(*) into fails from unnest(out) x where x like 'FAIL%';

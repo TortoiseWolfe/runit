@@ -4,7 +4,7 @@
 
 ## Why it exists
 
-Every one of the 262 Playwright journeys boots `MemoryRepository`. They prove the
+Every one of the 270 Playwright journeys boots `MemoryRepository`. They prove the
 **screens**. They say nothing about `SupabaseRepository`, and that gap has a body count:
 a founder stranded in her own console (#37), "seen by 0" forever (#24), a role switch that
 could only ever refuse (#29). Each was found by holding a phone. Issue #20.
