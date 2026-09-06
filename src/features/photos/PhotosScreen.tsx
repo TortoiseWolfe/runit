@@ -154,8 +154,20 @@ export function PhotosScreen() {
                 { width: tileSize, height: tileSize, backgroundColor: albumTileColor(p.hue, isDark) },
               ]}
             >
-              {p.localUri ? (
-                <Image source={{ uri: p.localUri }} style={s.tileImage} resizeMode="cover" />
+              {/*
+                LOCAL BYTES FIRST, then the signed URL (#10). A guest who just took this
+                photo has it on disk and should not wait on a network round trip to see
+                her own picture; everyone else gets the 400px copy from the bucket. The
+                hue tile stays the layer underneath when there is neither -- a seeded row,
+                a pending photo somebody else uploaded, and a signature still in flight
+                all render identically, which is correct.
+              */}
+              {p.localUri ?? p.displayUrl ? (
+                <Image
+                  source={{ uri: (p.localUri ?? p.displayUrl)! }}
+                  style={s.tileImage}
+                  resizeMode="cover"
+                />
               ) : null}
               {p.status === 'uploading' ? (
                 <View style={[s.overlay, { backgroundColor: alpha(tokens.base100, 0.62) }]}>
@@ -203,8 +215,20 @@ export function PhotosScreen() {
                 { width: tileSize, height: tileSize, backgroundColor: albumTileColor(p.hue, isDark) },
               ]}
             >
-              {p.localUri ? (
-                <Image source={{ uri: p.localUri }} style={s.tileImage} resizeMode="cover" />
+              {/*
+                LOCAL BYTES FIRST, then the signed URL (#10). A guest who just took this
+                photo has it on disk and should not wait on a network round trip to see
+                her own picture; everyone else gets the 400px copy from the bucket. The
+                hue tile stays the layer underneath when there is neither -- a seeded row,
+                a pending photo somebody else uploaded, and a signature still in flight
+                all render identically, which is correct.
+              */}
+              {p.localUri ?? p.displayUrl ? (
+                <Image
+                  source={{ uri: (p.localUri ?? p.displayUrl)! }}
+                  style={s.tileImage}
+                  resizeMode="cover"
+                />
               ) : null}
               {/*
                 A VISIBLE control, not a long-press. Guideline 1.2 asks that reporting

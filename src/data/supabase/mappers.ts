@@ -196,6 +196,10 @@ export function toPhoto(r: Row<'photos'>): Photo {
     progress: null,
     failureReason: null,
     storagePath: r.storage_path,
+    thumbPath: r.thumb_path,
+    // Resolved later by the signing layer, never by the mapper: a mapper turns a ROW into
+    // a domain object, and a signed URL is a network round trip with an expiry.
+    displayUrl: null,
     createdAt: r.created_at,
   };
 }
@@ -299,6 +303,12 @@ export const photoCache = () =>
       a.uploadedByName === b.uploadedByName && a.status === b.status && a.hue === b.hue &&
       a.localUri === b.localUri && a.progress === b.progress &&
       a.failureReason === b.failureReason && a.storagePath === b.storagePath &&
+      a.thumbPath === b.thumbPath &&
+      // LISTED, and it has to be. Omit it and the first signed URL is reported as
+      // "unchanged": RowCache hands back the old object with displayUrl null, the signal
+      // never publishes, and the feature resolves every URL, pays the egress and renders
+      // nothing. The comparator's own docblock says a missing field means STALE DATA.
+      a.displayUrl === b.displayUrl &&
       a.createdAt === b.createdAt,
   );
 

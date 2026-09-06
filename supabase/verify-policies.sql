@@ -439,6 +439,73 @@ begin
   out := out || format('%s blocks are private to the blocker (got %s, want 0)',
                        case when n = 0 then 'PASS' else 'FAIL' end, n);
 
+  -- ==================================================================
+  -- STORAGE (#10) -- the three policies nothing had ever asserted
+  -- ==================================================================
+  --
+  -- `event_photos_select` has been correct since the migration landed and had NEVER been
+  -- exercised by anything. It is what keeps a photo awaiting approval unreadable to the
+  -- room, so the photo read-back rests entirely on it.
+  --
+  -- Objects are inserted directly as the OWNER here. Only `bucket_id` and `name` matter;
+  -- everything else on storage.objects is nullable or defaulted.
+  execute 'reset role';
+  insert into public.photos (id, event_id, folder_id, uploaded_by_guest_id, uploaded_by_name,
+                             status, hue, storage_path, thumb_path)
+  values (gen_random_uuid(), eid, fid, gb, 'Bo', 'approved', 11,
+          eid || '/appr.jpg', eid || '/appr_t.jpg'),
+         (gen_random_uuid(), eid, fid, g1, 'Renamed', 'pending', 12,
+          eid || '/pend.jpg', eid || '/pend_t.jpg');
+  insert into storage.objects (bucket_id, name) values
+    ('event-photos', eid || '/appr.jpg'), ('event-photos', eid || '/appr_t.jpg'),
+    ('event-photos', eid || '/pend.jpg'), ('event-photos', eid || '/pend_t.jpg');
+
+  -- The guest who UPLOADED the pending one (g1 is Renamed's seat).
+  perform set_config('request.jwt.claims', json_build_object('sub',guid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  select count(*) into n from storage.objects o where o.name = eid || '/appr.jpg';
+  out := out || format('%s a guest can read an APPROVED photo object (%s, want 1)',
+                       case when n = 1 then 'PASS' else 'FAIL' end, n);
+  -- THE THUMBNAIL, which only the widened policy admits. Before it, the 400px object
+  -- every screen actually renders was unreadable to everyone, including its uploader.
+  select count(*) into n from storage.objects o where o.name = eid || '/appr_t.jpg';
+  out := out || format('%s ...and its THUMBNAIL (%s, want 1)',
+                       case when n = 1 then 'PASS' else 'FAIL' end, n);
+  select count(*) into n from storage.objects o where o.name = eid || '/pend.jpg';
+  out := out || format('%s a guest can read their OWN pending photo (%s, want 1)',
+                       case when n = 1 then 'PASS' else 'FAIL' end, n);
+
+  -- A DIFFERENT guest. Approval is what admits the room, and it gates both objects.
+  execute 'reset role';
+  perform set_config('request.jwt.claims', json_build_object('sub',buid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  select count(*) into n from storage.objects o where o.name = eid || '/pend.jpg';
+  out := out || format('%s another guest CANNOT read a pending photo (%s, want 0)',
+                       case when n = 0 then 'PASS' else 'FAIL' end, n);
+  select count(*) into n from storage.objects o where o.name = eid || '/pend_t.jpg';
+  out := out || format('%s nor its thumbnail -- approval gates BOTH objects (%s, want 0)',
+                       case when n = 0 then 'PASS' else 'FAIL' end, n);
+
+  execute 'reset role';
+  perform set_config('request.jwt.claims', json_build_object('sub',huid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  select count(*) into n from storage.objects o where o.name like eid || '/%';
+  out := out || format('%s a host reads every object in her event (%s, want 4)',
+                       case when n = 4 then 'PASS' else 'FAIL' end, n);
+
+  -- DELETE IS BLOCKED FOR EVERYONE AT THE SQL LAYER, before RLS is consulted --
+  -- `storage.protect_delete()` raises 42501 on any direct delete. That is worth asserting
+  -- because it settles how the retention sweep must eventually be built: through the
+  -- Storage API with a service role, never with SQL.
+  begin
+    delete from storage.objects where name = eid || '/appr.jpg';
+    out := out || format('FAIL a direct SQL delete removed bytes');
+  exception when others then
+    out := out || format('%s not even a host deletes bytes in SQL -- storage.protect_delete (%s)',
+                         case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+  execute 'reset role';
+
   -- The host's queue, and the audit trail.
   execute 'reset role';
   perform set_config('request.jwt.claims', json_build_object('sub',huid,'role','authenticated')::text, true);

@@ -2,7 +2,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { Directory, File, Paths } from 'expo-file-system';
 
-import { MAX_EDGE, QUALITY } from './captureConstants';
+import { MAX_EDGE, MAX_THUMB, QUALITY } from './captureConstants';
 
 /**
  * Take a photo and hand back a local URI. Native implementation.
@@ -30,6 +30,14 @@ export interface CapturedPhoto {
   uri: string;
   width: number;
   height: number;
+  /**
+   * A 400px copy, and the ONLY size anything in the app renders (#10) -- the album grid is
+   * ~120pt tiles and the host queue is 64pt, with no full-size viewer anywhere.
+   *
+   * Null when the thumbnail could not be produced. Not fatal: the full-size object stands
+   * in, exactly as it does for photos uploaded before thumbnails existed.
+   */
+  thumbUri: string | null;
 }
 
 /**
@@ -113,5 +121,25 @@ export async function capturePhoto(): Promise<CapturedPhoto | null> {
           )
       : await probe.saveAsync({ compress: QUALITY, format: ImageManipulator.SaveFormat.JPEG });
 
-  return { uri: adopt(out.uri), width: out.width, height: out.height };
+  /*
+   * THE THUMBNAIL, from the same decoded bitmap. `probe` is already in memory, so this is
+   * one more render rather than a second decode of the file.
+   *
+   * ITS FAILURE IS NOT THE PHOTO'S FAILURE. A guest who just took a picture must not lose
+   * it because a derived copy could not be written -- the full-size object stands in and
+   * the row lands with `thumb_path` null, which is the same state every photo taken before
+   * this feature is in.
+   */
+  let thumbUri: string | null = null;
+  try {
+    const t = await ImageManipulator.ImageManipulator.manipulate(probe)
+      .resize(probe.width >= probe.height ? { width: MAX_THUMB } : { height: MAX_THUMB })
+      .renderAsync();
+    const saved = await t.saveAsync({ compress: QUALITY, format: ImageManipulator.SaveFormat.JPEG });
+    thumbUri = adopt(saved.uri);
+  } catch (e) {
+    console.warn('capture: could not make a thumbnail; the full-size will stand in', e);
+  }
+
+  return { uri: adopt(out.uri), width: out.width, height: out.height, thumbUri };
 }

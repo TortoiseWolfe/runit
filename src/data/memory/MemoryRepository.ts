@@ -985,6 +985,8 @@ export class MemoryRepository implements RunitRepository {
           failureReason: null,
           // Stays null until an adapter puts the bytes somewhere remote.
           storagePath: null,
+          thumbPath: null,
+          displayUrl: null,
           createdAt: this.now(),
         },
         ...this.photoList,

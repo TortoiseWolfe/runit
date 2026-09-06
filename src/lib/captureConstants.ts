@@ -22,3 +22,17 @@ export const MAX_EDGE = 1600;
  * a wedding album is the one thing that must not happen.
  */
 export const QUALITY = 0.8;
+
+/**
+ * Long edge of the thumbnail, in pixels (#10).
+ *
+ * The album grid renders ~120pt tiles and the host queue renders 64pt ones, so 400px
+ * covers both at 3x retina with room to spare. There is no full-size viewer anywhere in
+ * the app, so this is the ONLY size that is ever displayed -- the 1600px original is
+ * stored for the day there is one.
+ *
+ * It is a separate uploaded object rather than an on-the-fly transform because Supabase's
+ * image transformation is a paid add-on; generating it on the phone costs a little storage
+ * and nothing else. A tile downloads ~15KB instead of ~300KB.
+ */
+export const MAX_THUMB = 400;

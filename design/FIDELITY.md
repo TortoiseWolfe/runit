@@ -1528,3 +1528,81 @@ count and the trigger is the authority.
 
 Mutation-checked — removing the shift fails four of the six journeys, and the two it
 leaves green are the two that do not claim the number moves.
+
+## AF. The album stops being write-only
+A photo uploaded, the row came back with `storage_path`, and **nothing in the app had ever
+read it** — `createSignedUrl`, `getPublicUrl` and `.download(` appeared zero times in
+`src/`. A guest saw her own photo only off her own disk via the upload overlay; the moment
+that settled or the app restarted it became a coloured hue tile, and a second device never
+saw anything else. `PhotosScreen` describes the hue tile as *"the permanent rendering for
+the nine seeded rows"* — true for seeds, and silently true for every real photo since.
+
+**The read policy already existed and had never been exercised.** `event_photos_select` has
+mirrored `photos_read` since the first migration. Lane E had **zero** assertions against
+`storage.objects`, so the rule keeping a pending photo private to its uploader was
+unverified by anything. It is now: a guest reads an approved object and their own pending
+one, another guest reads neither, a host reads all four.
+
+### Thumbnails, and the policy that would have hidden every one of them
+
+There is **no full-size viewer** — tapping a tile opens the report sheet, the grid is ~120pt
+and the host queue 64pt — so a 400px copy is the *only* size anything renders. It is a
+second uploaded object rather than an on-the-fly transform because Supabase's image
+transformation is a paid add-on; generating it on the phone costs a little storage and a
+tile downloads ~15KB instead of ~300KB.
+
+**`event_photos_select` had to be widened to admit it.** The policy matches
+`storage.objects.name = p.storage_path`, so a thumbnail's name matched *no* row and was
+unreadable to everyone, its own uploader and the host included. Silent, total, and
+indistinguishable from "signing is broken". Mutation-proven: under the original policy the
+full-size object reads 1 and the thumbnail reads **0**.
+
+**A failed thumbnail is not a failed photo.** A guest who just took a picture must not lose
+it because a derived copy could not be written — the row lands with `thumb_path` null and
+the full-size stands in, which is also how every photo predating this renders. No backfill.
+
+### The field, and the comparator that would have swallowed it
+
+`displayUrl` is its own field. Folding it into `localUri` — device bytes, resolved by
+completely different machinery — is the collision `storagePath`'s docblock has warned about
+since before an adapter existed, and two tests assert that null.
+
+**It had to go in `photoCache`'s comparator**, and that is the longest-to-notice failure
+available here: omit it and `RowCache` hands back the old object with `displayUrl` null, the
+signal never publishes, and the feature resolves every URL, pays the egress and **renders
+nothing**. `mappers.test.ts` walks the type and forces every new field into the comparator,
+so the guard caught it before the reasoning did.
+
+### Signing
+
+`createSignedUrls` **plural** — the album is a grid and per-tile signing is one round trip
+per photo. Cached for **one hour** and re-signed only near expiry: guests never lose access
+because a stale URL is silently re-signed, so the number is really about how long a link
+that *escapes* the app keeps working for whoever holds it.
+
+**Never signed inside `recompute()`.** That fires on every realtime frame across eight
+tables, so signing there would re-sign the album every time anyone voted on a song.
+Resolution is a separate pass that returns early when nothing is new, which is what stops
+recompute → resolve → recompute from spinning.
+
+### Three things the adversarial pass caught in this code
+
+- **`void promise` does not catch.** The resolver is called from `recompute`, and `void`
+  turned every throw into an unhandled rejection — which fired immediately, because
+  `FakeClient` had no `createSignedUrls` and every existing adapter test reaches
+  `recompute()`. Predicted from the design and reproduced verbatim.
+- **A test that could not fail.** The fake returned signed URLs in request order, so keying
+  by array index and keying by the server's own `path` behaved identically — the assertion
+  named the right property and could not see it. The fake now returns them **reversed**,
+  because the API guarantees no correspondence and every entry carries its own `path`. With
+  that, index-keying fails two tests.
+- **`storage.protect_delete()` blocks every direct SQL delete**, before RLS is consulted.
+  That is asserted rather than worked around, because it settles how the retention sweep
+  must eventually be built: through the Storage API with a service role, never with SQL.
+
+### What no lane here proves
+
+That a photo appears on a screen. Lane B boots `MemoryRepository`, where `displayUrl` is
+null on every row, so it cannot see a signed URL at all — it proves the hue tile still
+renders and nothing regressed. Only Lane C can witness the image, by hand, and iOS remains
+unprovable in this environment.

@@ -145,17 +145,17 @@ export type Database = {
       photos: {
         Row: {
           id: string; event_id: string; folder_id: string; uploaded_by_guest_id: string | null;
-          uploaded_by_name: string; status: string; hue: number; storage_path: string | null;
+          uploaded_by_name: string; status: string; hue: number; storage_path: string | null; thumb_path: string | null;
           created_at: string;
         };
         Insert: {
           id?: string; event_id: string; folder_id: string; uploaded_by_guest_id?: string | null;
-          uploaded_by_name: string; status?: string; hue?: number; storage_path?: string | null;
+          uploaded_by_name: string; status?: string; hue?: number; storage_path?: string | null; thumb_path?: string | null;
           created_at?: string;
         };
         Update: {
           id?: string; event_id?: string; folder_id?: string; uploaded_by_guest_id?: string | null;
-          uploaded_by_name?: string; status?: string; hue?: number; storage_path?: string | null;
+          uploaded_by_name?: string; status?: string; hue?: number; storage_path?: string | null; thumb_path?: string | null;
           created_at?: string;
         };
         Relationships: [];

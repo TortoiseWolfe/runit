@@ -93,6 +93,8 @@ export class UploadOverlay {
         // No bytes are anywhere shared yet, by construction: the row is inserted
         // only once the upload succeeds.
         storagePath: null,
+        thumbPath: null,
+        displayUrl: null,
         createdAt: t.createdAt,
       }))
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));

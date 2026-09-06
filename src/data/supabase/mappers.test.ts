@@ -11,6 +11,7 @@ const photoRow = (over: Partial<Row<'photos'>> = {}): Row<'photos'> => ({
   status: 'pending',
   hue: 120,
   storage_path: 'e1/p1.jpg',
+  thumb_path: null,
   created_at: '2026-09-04T12:00:00Z',
   ...over,
 });
@@ -106,7 +107,8 @@ describe('photoCache comparator covers every field the UI can read', () => {
   const base: Photo = {
     id: 'p1', folderId: 'f1', uploadedByGuestId: 'g1', uploadedByName: 'Ada',
     status: 'pending', hue: 120, localUri: null, progress: null,
-    failureReason: null, storagePath: 'e1/p1.jpg', createdAt: '2026-09-04T12:00:00Z',
+    failureReason: null, storagePath: 'e1/p1.jpg', thumbPath: 'e1/p1_t.jpg',
+    displayUrl: null, createdAt: '2026-09-04T12:00:00Z',
   };
 
   // `id` is the cache KEY, not a compared field -- changing it makes a different
@@ -121,6 +123,11 @@ describe('photoCache comparator covers every field the UI can read', () => {
     progress: 0.5,
     failureReason: 'Network unavailable',
     storagePath: 'e1/p1-v2.jpg',
+    thumbPath: 'e1/p1-v2_t.jpg',
+    // The one that matters most (#10). Omitted from the comparator, the FIRST signed URL
+    // reads as "unchanged" -- the cache hands back the old object with displayUrl null and
+    // the image never appears, while every URL is still resolved and paid for.
+    displayUrl: 'https://example.test/signed?token=abc',
     createdAt: '2026-09-04T13:00:00Z',
   };
 

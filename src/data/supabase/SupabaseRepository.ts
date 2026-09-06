@@ -11,6 +11,7 @@ import {
 import { attachAppStateBridge } from './appStateBridge';
 import { RealtimeTable } from './RealtimeTable';
 import { Signal, setEqual, shallowArrayEqual } from './signal';
+import { SignedUrls } from './SignedUrls';
 import { UploadOverlay } from './UploadOverlay';
 import {
   EntitlementError, JoinError, ScheduleError,
@@ -176,6 +177,8 @@ export class SupabaseRepository implements RunitRepository {
    */
   private inviteeRows: Invitee[] = [];
   private readonly sigInvitees = new Signal<Invitee[]>([]);
+  /** Bucket keys -> signed URLs (#10). The mirror of UploadOverlay: remote state, not device state. */
+  private readonly signed: SignedUrls;
   private readonly sigEvent = new Signal<RunitEvent | null>(null, (a, b) =>
     a === b ||
     (a !== null && b !== null &&
@@ -221,6 +224,7 @@ export class SupabaseRepository implements RunitRepository {
 
   private constructor(db: RunitClient, private readonly now: () => string) {
     this.db = db;
+    this.signed = new SignedUrls(db);
     // THE ONE SIGNAL IN THIS FILE THAT HAD NO COMPARATOR, and computeEntitlements()
     // returns a fresh literal on every call -- so the default Object.is never matched
     // and recompute() re-rendered every useEntitlements() consumer on every realtime
@@ -360,7 +364,24 @@ export class SupabaseRepository implements RunitRepository {
         .sort((a, b) => a.position - b.position),
     );
 
-    const photos = this.cPhotos.reconcile((this.tPhotos?.all() ?? []).map(toPhoto));
+    /*
+     * SIGNED URLS ARE MERGED IN BEFORE reconcile(), from the CACHE ONLY (#10).
+     *
+     * Reading the cache here is free; SIGNING here would not be. recompute() fires on
+     * every realtime frame across eight tables, so a network call in this path would
+     * re-sign the whole album every time anyone voted on a song. `resolvePhotoUrls()`
+     * does the signing, once per batch of unseen keys, and calls recompute() after.
+     *
+     * Merged BEFORE reconcile so the comparator sees the URL: it is a compared field, and
+     * a value that arrives after reconcile would be reported as "unchanged" and never
+     * reach the screen.
+     */
+    const withUrls = (this.tPhotos?.all() ?? []).map(toPhoto).map((p) => {
+      const key = SignedUrls.keyFor(p);
+      const url = key === null ? null : this.signed.get(key);
+      return url === null ? p : { ...p, displayUrl: url };
+    });
+    const photos = this.cPhotos.reconcile(withUrls);
     // `pending` ONLY -- an in-flight photo has no bytes for a host to judge, and
     // including it would inflate the console badge with work nobody can do.
     this.sigPending.set(photos.filter((p) => p.status === 'pending').sort(byNewestFirst));
@@ -376,6 +397,16 @@ export class SupabaseRepository implements RunitRepository {
     // Entirely synthetic: an uploading or failed photo has no row (see the class
     // docblock, difference 2).
     this.sigMine.set(this.overlay.rows(this.myGuestId));
+
+    // Fire-and-forget: anything not yet signed is signed now, and recompute() runs again
+    // when it lands. Guarded inside resolve() so a batch with nothing new does no work
+    // and cannot loop.
+    // `.catch` IS REQUIRED, not defensive habit: `void` on an async call does not catch,
+    // so any throw in here becomes an unhandled rejection rather than the warning the
+    // resolver intends. Caught by an adversarial review of this very line.
+    void this.resolvePhotoUrls(photos).catch((e) =>
+      console.warn('photos: could not resolve signed urls', e),
+    );
 
     this.sigHosts.set(
       // roleLabel included: the console prints it, and stripping it here is why a seat
@@ -524,6 +555,23 @@ export class SupabaseRepository implements RunitRepository {
           `silently -- check the policy for this table and the role you are signed in as.`,
       );
     }
+  }
+
+  /**
+   * Sign whatever is not signed yet, then republish (#10).
+   *
+   * SEPARATE FROM recompute() ON PURPOSE. recompute is synchronous and runs on every
+   * realtime frame; this is a network round trip. Calling it FROM recompute is safe only
+   * because `resolve()` returns false when there is nothing new, which is what stops the
+   * recompute -> resolve -> recompute cycle from spinning.
+   */
+  private async resolvePhotoUrls(photos: readonly Photo[]): Promise<void> {
+    const keys = photos
+      .filter((p) => p.displayUrl === null && p.localUri === null)
+      .map((p) => SignedUrls.keyFor(p))
+      .filter((k): k is string => k !== null);
+    if (keys.length === 0) return;
+    if (await this.signed.resolve(keys)) this.recompute();
   }
 
   private async loadFetchOnce(): Promise<void> {
@@ -971,6 +1019,9 @@ export class SupabaseRepository implements RunitRepository {
       this.cHosts = hostCache();
       this.eventId = null;
       this.myGuestId = null;
+      // The signed keys named THAT event's objects, and a URL for an event you have left
+      // is both useless and worth not keeping.
+      this.signed.clear();
       // The seat belonged to THAT event. Carrying it across would draw a role switch on
       // the next event's guest screen for someone who holds nothing there.
       this.sigHoldsHostSeat.set(false);
@@ -1429,7 +1480,7 @@ export class SupabaseRepository implements RunitRepository {
     approved: undefined as unknown as Observable<Photo[]>,
     mine: undefined as unknown as Observable<Photo[]>,
 
-    upload: async ({ localUri }: { localUri: string }): Promise<UploadOutcome> => {
+    upload: async ({ localUri, thumbLocalUri }: { localUri: string; thumbLocalUri?: string | null }): Promise<UploadOutcome> => {
       const eventId = this.requireEvent();
       const guestId = this.requireGuest();
       const ent = this.sigEntitlements.get();
@@ -1459,7 +1510,9 @@ export class SupabaseRepository implements RunitRepository {
       });
       this.recompute();
 
-      const outcome = await this.runTransfer(id, path, localUri, folderId, eventId, guestId);
+      const outcome = await this.runTransfer(
+        id, path, localUri, folderId, eventId, guestId, thumbLocalUri ?? null,
+      );
       this.recompute();
       return outcome;
     },
@@ -1519,6 +1572,7 @@ export class SupabaseRepository implements RunitRepository {
   private async runTransfer(
     id: PhotoId, path: string, localUri: string,
     folderId: string, eventId: string, guestId: string,
+    thumbLocalUri: string | null = null,
   ): Promise<UploadOutcome> {
     const t = this.overlay.get(id);
     if (!t) return 'failed';
@@ -1535,6 +1589,32 @@ export class SupabaseRepository implements RunitRepository {
       });
       if (up.error) throw up.error;
 
+      /*
+       * THE THUMBNAIL, and its failure is NOT the photo's failure (#10). A guest who just
+       * took a picture must not lose it because a derived copy could not be written -- the
+       * row lands with `thumb_path` null and the full-size object is displayed instead,
+       * which is the same state every photo predating this feature is in.
+       *
+       * Uploaded BEFORE the row, like the full-size, for the same reason: `storage_path`
+       * and `thumb_path` are the only things that can ever name these objects, so a row
+       * that exists before its bytes can strand them.
+       */
+      let thumbPath: string | null = null;
+      if (thumbLocalUri) {
+        try {
+          const tRes = await fetch(thumbLocalUri);
+          const tBytes = await tRes.arrayBuffer();
+          const tPath = `${eventId}/${id}_t.jpg`;
+          const tUp = await this.db.storage.from('event-photos').upload(tPath, tBytes, {
+            contentType: 'image/jpeg',
+          });
+          if (!tUp.error) thumbPath = tPath;
+          else console.warn('photos: thumbnail upload refused; the full-size will stand in', tUp.error);
+        } catch (e) {
+          console.warn('photos: could not upload a thumbnail; the full-size will stand in', e);
+        }
+      }
+
       const ent = this.sigEntitlements.get();
       // Free tiers have no moderation queue, so a photo there is already in the
       // album. Mirrors MemoryRepository, and the two delivered outcomes are
@@ -1544,7 +1624,7 @@ export class SupabaseRepository implements RunitRepository {
       const ins = await this.db.from('photos').insert({
         id, event_id: eventId, folder_id: folderId,
         uploaded_by_guest_id: guestId, uploaded_by_name: t.uploadedByName,
-        status, hue: t.hue, storage_path: path,
+        status, hue: t.hue, storage_path: path, thumb_path: thumbPath,
       }).select('id');
       if (ins.error) throw ins.error;
 

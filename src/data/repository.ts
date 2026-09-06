@@ -471,7 +471,12 @@ export interface RunitRepository {
      * NOT here -- see src/lib/capture.ts for why a camera behind this interface
      * would make every future adapter carry one.
      */
-    upload(input: { localUri: string }): Promise<UploadOutcome>;
+    /**
+     * `thumbLocalUri` is the 400px copy (#10), and it is optional because it can fail
+     * without costing the photo -- the full-size object stands in, exactly as it does for
+     * every photo taken before thumbnails existed.
+     */
+    upload(input: { localUri: string; thumbLocalUri?: string | null }): Promise<UploadOutcome>;
     /**
      * Re-attempt a failed transfer. No-op unless the photo is `failed`, so a
      * double-tap cannot start two transfers for one photo.

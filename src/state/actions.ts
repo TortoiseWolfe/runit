@@ -206,7 +206,7 @@ export function usePhotoActions() {
         // simultaneously offering Retry. Found on a device, not in this lane.
         let outcome: UploadOutcome | undefined;
         const ok = await guarded(async () => {
-          outcome = await repo.photos.upload({ localUri: shot.uri });
+          outcome = await repo.photos.upload({ localUri: shot.uri, thumbLocalUri: shot.thumbUri });
         });
         if (!ok) return; // routed to the paywall
         if (outcome === 'failed') {
