@@ -17,6 +17,7 @@ import { useEvent, useLookUpInvite, usePreview } from "@/state/hooks";
 import { useJoinActions } from "@/state/actions";
 import { useToast } from "@/state/ToastProvider";
 import { icsFilename, icsFor } from "@/lib/invite";
+import { QrScanner } from "./QrScanner";
 import { formatEventDate } from "@/lib/format";
 import { shareIcs } from "@/lib/share";
 import {
@@ -102,6 +103,18 @@ export function JoinScreen() {
   const [nickname, setNickname] = useState("");
   const [hostKey, setHostKey] = useState("");
   const [joined, setJoined] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  /**
+   * What a SCAN put in the field, so the invitation is looked up for it (#28).
+   *
+   * `useLookUpInvite` is deliberately driven by `params.code` and not by `code`: typing
+   * must not fire a lookup per keystroke, which would be a request per character and an
+   * oracle handed out one letter at a time. A scan is neither -- it is one complete code,
+   * arriving once -- so it gets its own stable input, and the invitation appears the same
+   * way it does for someone who tapped a link.
+   */
+  const [scannedCode, setScannedCode] = useState<string | undefined>(undefined);
+  useLookUpInvite(scannedCode);
   const nicknameRef = useRef<TextInput>(null);
   const hostKeyRef = useRef<TextInput>(null);
 
@@ -270,11 +283,37 @@ export function JoinScreen() {
           </View>
 
           <View style={[s.card, { backgroundColor: tokens.base200 }]}>
-            <Text
-              style={[s.hint, { color: alpha(tokens.baseContent, fade.body) }]}
-            >
-              Scanned the QR? Your code is filled in. Otherwise type it.
-            </Text>
+            {/*
+              THE CANVAS COPY, AND THE CONTROL IT WAS STANDING IN FOR (#28).
+
+              "Scanned the QR? Your code is filled in" described a scanner that did not
+              exist -- the canvas pre-filled the field and called it a scan. The sentence
+              is unchanged, because it is still exactly right once the button beside it
+              works; what was missing was the button.
+
+              TYPING STAYS THE PRIMARY PATH. The scan control sits beside the hint rather
+              than above the field, and the field is never replaced or hidden -- the issue
+              asked for a manual fallback never more than one tap away, and a scanner that
+              takes the keyboard away when the camera is refused is exactly the dead end
+              this app keeps finding.
+            */}
+            <View style={s.hintRow}>
+              <Text
+                style={[s.hint, s.hintText, { color: alpha(tokens.baseContent, fade.body) }]}
+              >
+                Scanned the QR? Your code is filled in. Otherwise type it.
+              </Text>
+              <Pressable
+                onPress={() => setScanning(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Scan an invitation QR code"
+                testID="join-scan"
+                hitSlop={8}
+                style={[s.scanChip, { borderColor: tokens.base300 }]}
+              >
+                <Text style={[s.scanText, { color: tokens.accent }]}>Scan</Text>
+              </Pressable>
+            </View>
             <TextInput
               value={code}
               onChangeText={setCode}
@@ -400,6 +439,27 @@ export function JoinScreen() {
             offset measured from the screen floor, so inside a scroll container it
             would scroll away from the place it is aligned to. */}
         <Toast />
+
+        {/*
+          The sheet is mounted here rather than inside the ScrollView for the same reason
+          the Toast is: it covers the screen, and a full-screen Modal nested in a scroll
+          container inherits a scrolled coordinate space on web.
+
+          EVERYTHING IT CAN DO ENDS AT THE FIELD. A code closes the sheet, fills the field
+          and looks the invitation up -- the same landing a tapped link produces. A refusal
+          closes nothing and says what happened, and the way back to typing is always
+          drawn.
+        */}
+        <QrScanner
+          visible={scanning}
+          onClose={() => setScanning(false)}
+          onCode={(scanned) => {
+            setScanning(false);
+            setCode(scanned);
+            setScannedCode(scanned);
+            show(`Code ${scanned} scanned.`);
+          }}
+        />
       </Screen>
     </KeyboardAvoidingView>
   );
@@ -407,6 +467,20 @@ export function JoinScreen() {
 
 const s = StyleSheet.create({
   avoid: { flex: 1 },
+  hintRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  // The hint keeps the row; the chip keeps its own width. Without the flex the sentence
+  // pushes the control off the card on the narrowest phone.
+  hintText: { flex: 1 },
+  scanChip: {
+    borderWidth: border,
+    borderRadius: radius.pill,
+    paddingHorizontal: 14,
+    // 24pt is WCAG 2.2 SC 2.5.8 at Level AA, which is the bar this repo audits against;
+    // the 8pt hitSlop above carries it past it.
+    minHeight: 32,
+    justifyContent: "center",
+  },
+  scanText: { fontSize: 13 },
   // paddingHorizontal stays on <Screen> rather than moving to the content
   // container: it is the containing block <Toast>'s left/right:20 resolves
   // against, and moving it would widen the toast by 48pt.

@@ -2,7 +2,7 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 
 import {
-  INVITE_ORIGIN, appSchemeLink, icsFilename, icsFor, joinLink, shareMessage,
+  INVITE_ORIGIN, appSchemeLink, codeFromScan, icsFilename, icsFor, joinLink, shareMessage,
 } from './invite';
 
 /**
@@ -215,5 +215,53 @@ describe('the app and the association file describe the same app', () => {
     // out of the address bar before the page could read it.
     const redirects = readFileSync(join(REPO, 'web/_redirects'), 'utf8');
     expect(redirects).toMatch(/\/i\/\*\s+\/i\/index\.html\s+200/);
+  });
+});
+
+describe('reading a scanned code back (#28)', () => {
+  it('reads the code out of our own QR, which is the round trip that matters', () => {
+    // Not a hand-written string: the QR encodes exactly what joinLink() returns, so this
+    // is the only assertion that cannot drift from the thing being scanned.
+    expect(codeFromScan(joinLink('house7'))).toBe('HOUSE7');
+  });
+
+  it('takes the custom scheme too, since it is still registered', () => {
+    expect(codeFromScan(appSchemeLink('house7'))).toBe('HOUSE7');
+  });
+
+  it('takes a bare code off a printed card', () => {
+    expect(codeFromScan('  house7 ')).toBe('HOUSE7');
+  });
+
+  it('survives a trailing slash, and a link someone typed in lower case', () => {
+    expect(codeFromScan(`${INVITE_ORIGIN}/i/HOUSE7/`)).toBe('HOUSE7');
+    // The round-trip test above cannot see this: `joinLink` uppercases on the way out, so
+    // scanning its own output never exercises the way back. A link that was typed, or
+    // built by anything other than joinLink, can carry any case -- and `join_event`
+    // compares `upper(code) = upper(btrim(p_code))`, so what goes in the field must be
+    // what a host would read off her own console.
+    expect(codeFromScan(`${INVITE_ORIGIN}/i/house7`)).toBe('HOUSE7');
+  });
+
+  it('REFUSES an /i/ link on somebody else host', () => {
+    // The half worth having. A sticker on a lamppost could otherwise put a code into the
+    // field of an app that is about to send a nickname somewhere -- and INVITE_ORIGIN
+    // pointed at a stranger's site for one commit, so this is not hypothetical.
+    expect(codeFromScan('https://evil.example/i/HOUSE7')).toBeNull();
+    expect(codeFromScan(INVITE_ORIGIN.replace('https:', 'http:') + '/i/HOUSE7')).toBeNull();
+  });
+
+  it('refuses a QR that is simply not ours', () => {
+    expect(codeFromScan('https://example.com/some/page')).toBeNull();
+    expect(codeFromScan('WIFI:S=Barn;T=WPA;P=hunter2;;')).toBeNull();
+    expect(codeFromScan('')).toBeNull();
+    expect(codeFromScan('   ')).toBeNull();
+  });
+
+  it('refuses a code that is not the shape of a code', () => {
+    expect(codeFromScan('AB')).toBeNull();
+    expect(codeFromScan('THISISWAYTOOLONGFORACODE')).toBeNull();
+    expect(codeFromScan(`${INVITE_ORIGIN}/i/`)).toBeNull();
+    expect(codeFromScan(`${INVITE_ORIGIN}/i/HOUSE7/extra`)).toBeNull();
   });
 });

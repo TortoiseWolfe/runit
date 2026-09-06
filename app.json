@@ -40,8 +40,16 @@
         "expo-image-picker",
         {
           "photosPermission": "Runit lets you add a photo you already have to this event's shared album.",
-          "cameraPermission": "Runit uses the camera so you can add a photo to this event's shared album.",
+          "cameraPermission": "Runit uses the camera so you can scan an invitation QR and add photos to this event's shared album.",
           "microphonePermission": false
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Runit uses the camera so you can scan an invitation QR and add photos to this event's shared album.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
         }
       ],
       [
