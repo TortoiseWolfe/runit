@@ -16,7 +16,7 @@
  * web client cannot route around them.
  */
 import type {
-  BlockedGuest, Broadcast, Folder, FolderId, GuestId, HostRole, Instant, NowPlaying, Photo, PhotoId,
+  BlockedGuest, Broadcast, BroadcastId, Folder, FolderId, GuestId, HostRole, Instant, NowPlaying, Photo, PhotoId,
   Host, HostId, Report, ReportId, ReportReason, ReportResolution, ReportSubject,
   RunitEvent, ScheduleItem, ScheduleItemId, Session, SongRequest, SongRequestId,
 } from './types';
@@ -312,6 +312,25 @@ export interface RunitRepository {
     /** Pinned first, then oldest-to-newest, matching the canvas's feed order. */
     feed: Observable<Broadcast[]>;
     send(input: { body: string; pinned: boolean; push: boolean }): Promise<void>;
+    /**
+     * Move an announcement's prominence after the fact -- #26. Until this existed a pin
+     * was permanent: `broadcasts` carried a SELECT policy and an INSERT policy and
+     * nothing else, so a notice that stopped being true two hours in sat above the feed
+     * for the rest of the night.
+     *
+     * ONLY `pinned` moves. The body is not editable, deliberately: an announcement is a
+     * thing that was said, and guests have already read it. The column grant on
+     * `public.broadcasts` enforces that server-side, so this is a shape the seam and the
+     * database agree on rather than a client convention.
+     *
+     * THE ENTITLEMENT IS ASYMMETRIC, and that asymmetry is the whole subtlety. Pinning
+     * is gated on `pinnedAnnouncements`; UN-pinning never is. A tier can be downgraded
+     * (`event.setTier`), and a symmetric gate would then refuse to take down a pin that
+     * is already up -- re-creating the exact dead end this method exists to remove, in
+     * its own implementation. `fold_pin_to_plan` has the same shape server-side: it acts
+     * only `if new.pinned`.
+     */
+    setPinned(id: BroadcastId, pinned: boolean): Promise<void>;
   };
 
   schedule: {

@@ -371,6 +371,48 @@ describe('chat', () => {
     expect(posted?.pinned).toBe(false);
   });
 
+  it('un-pins an announcement that has stopped being true', async () => {
+    const r = make();
+    await r.chat.send({ body: 'Cake in ten', pinned: true, push: true });
+    const b = r.chat.feed.get().find((x) => x.body === 'Cake in ten')!;
+    expect(b.pinned).toBe(true);
+
+    await r.chat.setPinned(b.id, false);
+    expect(r.chat.feed.get().find((x) => x.id === b.id)?.pinned).toBe(false);
+  });
+
+  it('still gates PINNING on the plan', async () => {
+    const r = make();
+    await r.chat.send({ body: 'Cake in ten', pinned: false, push: true });
+    const b = r.chat.feed.get().find((x) => x.body === 'Cake in ten')!;
+    await r.event.setTier('house_party');
+
+    await expect(r.chat.setPinned(b.id, true)).rejects.toBeInstanceOf(EntitlementError);
+    expect(r.chat.feed.get().find((x) => x.id === b.id)?.pinned).toBe(false);
+  });
+
+  /**
+   * THE ASYMMETRY, and it is the whole subtlety of #26.
+   *
+   * Gating BOTH directions on `pinnedAnnouncements` reads as consistent and re-creates
+   * the exact dead end this method exists to remove: a host who pins on a paid tier and
+   * then downgrades is left with a notice nothing can take down. `setTier` makes that
+   * reachable in one line here, and a real plan change makes it reachable in production.
+   *
+   * The server has the same shape -- `fold_pin_to_plan` acts only `if new.pinned` -- so
+   * a symmetric client gate would also put the adapter out of step with Postgres.
+   */
+  it('never refuses UN-pinning, even on a tier that could not have pinned', async () => {
+    const r = make();
+    await r.chat.send({ body: 'Cake in ten', pinned: true, push: true });
+    const b = r.chat.feed.get().find((x) => x.body === 'Cake in ten')!;
+    expect(b.pinned).toBe(true);
+
+    await r.event.setTier('house_party'); // the downgrade
+    await expect(r.chat.setPinned(b.id, false)).resolves.toBeUndefined();
+    expect(r.chat.feed.get().find((x) => x.id === b.id)?.pinned).toBe(false);
+  });
+
   it('ignores an empty draft', async () => {
     const r = make();
     await r.chat.send({ body: '   ', pinned: false, push: false });

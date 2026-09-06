@@ -129,7 +129,7 @@ if (Number(m[1]) > 0) {
  * A gate that passes having measured less than it did last time is the exact bug #31 was
  * filed for. Raise this number when you add assertions; that is the intended friction.
  */
-const EXPECTED_ASSERTIONS = 79;
+const EXPECTED_ASSERTIONS = 83;
 // The FIRST assertion shares its line with the "0 FAILURE(S)." preamble -- `format()`
 // joins the array after it -- so an anchored line match silently undercounts by one.
 const counted = report

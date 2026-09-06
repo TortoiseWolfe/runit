@@ -19,7 +19,8 @@ export function BroadcastPanel() {
   const feed = useFeed();
   const schedule = useSchedule();
   const { nowIndex } = useNowNext();
-  const { send, startScheduleItem, restartScheduleItem, addScheduleItem } = useHostActions();
+  const { send, setBroadcastPinned, startScheduleItem, restartScheduleItem, addScheduleItem } =
+    useHostActions();
   const [draft, setDraft] = useState('');
   const [pinned, setPinned] = useState(false);
   const [showQr, setShowQr] = useState(false);
@@ -234,12 +235,41 @@ export function BroadcastPanel() {
       {[...feed].reverse().map((b) => (
         <View
           key={b.id}
+          testID={`sent-${b.id}`}
           style={[s.sentCard, { backgroundColor: tokens.base200, borderColor: tokens.base300 }]}
         >
           <Text style={[s.sentText, { color: tokens.baseContent }]}>{b.body}</Text>
-          <Text style={[s.sentMeta, { color: alpha(tokens.baseContent, fade.soft) }]}>
-            {b.authorName} · {formatClock(b.createdAt, event?.timezone ?? 'UTC')} · seen by {b.seenCount}
-          </Text>
+          <View style={s.sentFooter}>
+            <Text style={[s.sentMeta, { color: alpha(tokens.baseContent, fade.soft) }]}>
+              {b.authorName} · {formatClock(b.createdAt, event?.timezone ?? 'UTC')} · seen by{' '}
+              {b.seenCount}
+            </Text>
+            {/*
+              #26. Until this existed a pin was permanent: `broadcasts` had no UPDATE
+              policy, so a notice that stopped being true two hours in sat above the feed
+              for the rest of the night with nothing anywhere that could move it.
+
+              NOT `disabled` on a free tier -- the house rule. The repository throws
+              `EntitlementError`, `useGuardedAction` catches it and the toast names the
+              limit; a greyed control explains nothing. Un-pinning is never refused.
+
+              hitSlop because the label is ~13pt, well under SC 2.5.8's 24x24 AA floor,
+              and `pnpm audit:targets` is the only lane that can see it -- react-native-web
+              drops hitSlop, so lane B would keep reporting failure after a correct fix.
+            */}
+            <Pressable
+              onPress={() => void setBroadcastPinned(b.id, !b.pinned)}
+              accessibilityRole="button"
+              accessibilityLabel={b.pinned ? 'Un-pin this announcement' : 'Pin this announcement'}
+              accessibilityState={{ selected: b.pinned }}
+              testID={`sent-pin-${b.id}`}
+              hitSlop={12}
+            >
+              <Text style={[s.sentPin, { color: b.pinned ? tokens.primary : alpha(tokens.baseContent, fade.soft) }]}>
+                {b.pinned ? 'Pinned · tap to un-pin' : 'Pin to top'}
+              </Text>
+            </Pressable>
+          </View>
         </View>
       ))}
     </ScrollView>
@@ -256,6 +286,11 @@ const s = StyleSheet.create({
   qrHolder: { alignItems: 'center', paddingVertical: 8 },
   scroll: { flex: 1 },
   content: { paddingVertical: 16, paddingHorizontal: 20, gap: 14 },
+  sentFooter: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    gap: 10, marginTop: 2,
+  },
+  sentPin: { fontSize: 13, fontWeight: weight.semibold },
   textarea: {
     minHeight: 110, borderRadius: radius.selector, borderWidth: border,
     padding: 14, fontSize: 16, lineHeight: 22, textAlignVertical: 'top',

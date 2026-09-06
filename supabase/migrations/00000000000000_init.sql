@@ -517,6 +517,20 @@ create policy broadcasts_read on public.broadcasts for select
 create policy broadcasts_write on public.broadcasts for insert
   with check (public.is_host(event_id));
 
+-- #26. A host could pin and never un-pin: `broadcasts` carried a SELECT policy and an
+-- INSERT policy and nothing else, so a notice that stopped being true two hours in sat
+-- above the feed for the rest of the night with no control anywhere that could move it.
+create policy broadcasts_pin on public.broadcasts for update
+  using (public.is_host(event_id)) with check (public.is_host(event_id));
+
+-- ...BUT ONLY `pinned`. A policy says WHO may write, not WHICH COLUMNS -- the same gap
+-- `events`, `reports` and `hosts` already close. Without this, the un-pin control also
+-- hands every host the power to silently rewrite the BODY of an announcement guests have
+-- already read, and to re-attribute it by editing author_name. An announcement is a thing
+-- that was said; only its prominence is still editable afterwards.
+revoke update on public.broadcasts from authenticated, anon;
+grant  update (pinned) on public.broadcasts to authenticated;
+
 create policy reads_own on public.broadcast_reads for all
   using (guest_id = public.my_guest_id(
            (select event_id from public.broadcasts where id = broadcast_id)))
@@ -963,8 +977,14 @@ end $$;
 
 revoke execute on function public.fold_pin_to_plan() from public, anon, authenticated;
 
+-- INSERT **OR UPDATE**, and the OR UPDATE is load-bearing. #26 adds an UPDATE policy so
+-- a host can un-pin; an insert-only trigger would then leave a free-tier host one UPDATE
+-- away from the pin #21 just took off her: send the announcement (folded to false), then
+-- set pinned = true, with nothing in the path to fold it a second time. The cap would
+-- have been undone by the feature that came after it, silently, and every gate would
+-- still have been green.
 create trigger broadcasts_pin_to_plan
-  before insert on public.broadcasts
+  before insert or update on public.broadcasts
   for each row execute function public.fold_pin_to_plan();
 
 -- ========================================================================

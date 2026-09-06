@@ -54,7 +54,7 @@ declare
   -- cap fixtures: a fresh event, the guest who holds a seat, and the one who arrives late.
   auid  uuid := 'cccccccc-0000-0000-0000-000000000002';
   buid2 uuid := 'cccccccc-0000-0000-0000-000000000003';
-  ce2 record; pin boolean; gcap uuid; filler uuid; i int;
+  ce2 record; pin boolean; gcap uuid; filler uuid; i int; bc uuid;
   out text[] := '{}';
   fails int := 0;
 
@@ -665,9 +665,46 @@ begin
   execute 'set local role authenticated';
   insert into public.broadcasts (event_id, author_host_id, author_name, author_role_label, kind, body, pinned)
   values (ce2.event_id, ce2.host_id, 'Ruth', 'Host', 'announcement', 'paid tier pins', true)
-  returning pinned into pin;
+  returning id, pinned into bc, pin;
   out := out || format('%s an event-tier pin sticks (pinned=%s, want true)',
                        case when pin = true then 'PASS' else 'FAIL' end, pin);
+
+  -- #26. Un-pinning. `broadcasts` carried a SELECT policy and an INSERT policy and
+  -- nothing else, so a notice that stopped being true two hours in sat above the feed
+  -- for the rest of the night and no control anywhere could move it.
+  update public.broadcasts set pinned = false where id = bc;
+  get diagnostics n = row_count;
+  select b.pinned into pin from public.broadcasts b where b.id = bc;
+  out := out || format('%s a host can UN-PIN (%s row, pinned=%s; want 1, false)',
+                       case when n = 1 and pin = false then 'PASS' else 'FAIL' end, n, pin);
+
+  -- ...and only `pinned`. An announcement is a thing that was SAID; a host who can edit
+  -- the body of one guests have already read can rewrite history silently.
+  begin
+    update public.broadcasts set body = 'rewritten' where id = bc;
+    out := out || format('FAIL a host rewrote the body of a sent announcement');
+  exception when others then
+    out := out || format('%s a host cannot rewrite a sent announcement, column grant holds (%s)',
+                         case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  -- THE TRAP #26 WOULD HAVE SET FOR #21. With an insert-only fold trigger, the UPDATE
+  -- policy added just above would leave a free-tier host one statement away from the pin
+  -- she was refused: insert (folded to false), then set pinned = true with nothing in the
+  -- path to fold it again. The cap would have been undone by the feature that came after
+  -- it, silently, with every gate still green. The trigger is `before insert OR UPDATE`.
+  execute 'reset role';
+  update public.events set tier = 'house_party' where id = ce2.event_id;
+  perform set_config('request.jwt.claims', json_build_object('sub',cuid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  update public.broadcasts set pinned = true where id = bc;
+  select b.pinned into pin from public.broadcasts b where b.id = bc;
+  out := out || format('%s a free-tier host cannot pin via UPDATE either (pinned=%s, want false)',
+                       case when pin = false then 'PASS' else 'FAIL' end, pin);
+  execute 'reset role';
+  update public.events set tier = 'event' where id = ce2.event_id;
+  perform set_config('request.jwt.claims', json_build_object('sub',cuid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
 
   -- #34. A guest needs a host's NAME, ROLE and LABEL. auth_user_id is not theirs to see,
   -- and `toHost` dropping it client-side was never the control -- PostgREST answers
@@ -679,6 +716,16 @@ begin
   select h.display_name into lbl from public.hosts h where h.event_id = ce2.event_id limit 1;
   out := out || format('%s a guest still reads a host name (%s)',
                        case when lbl = 'Ruth' then 'PASS' else 'FAIL' end, coalesce(lbl,'null'));
+
+  -- #26's other half, and the one no amount of reading the policy would settle: a guest's
+  -- UPDATE returns ZERO ROWS AND RAISES NOTHING. That silent shape is exactly what
+  -- `SupabaseRepository.assertWrote()` exists to catch, and the un-pin control is the
+  -- newest caller of it.
+  update public.broadcasts set pinned = true where id = bc;
+  get diagnostics n = row_count;
+  select b.pinned into pin from public.broadcasts b where b.id = bc;
+  out := out || format('%s a guest pinning affects %s rows and raises nothing, pinned=%s (want 0, false)',
+                       case when n = 0 and pin = false then 'PASS' else 'FAIL' end, n, pin);
   begin
     perform h.auth_user_id from public.hosts h where h.event_id = ce2.event_id limit 1;
     out := out || format('FAIL a guest read auth_user_id off hosts');

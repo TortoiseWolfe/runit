@@ -18,7 +18,7 @@ import {
   type Observable, type RunitRepository, type UploadOutcome,
 } from '../repository';
 import type {
-  BlockedGuest, Broadcast, Folder, FolderId, GuestId, Host, NowPlaying, Photo,
+  BlockedGuest, Broadcast, BroadcastId, Folder, FolderId, GuestId, Host, NowPlaying, Photo,
   PhotoId, Report, ReportId, ReportReason, ReportResolution, ReportSubject, RunitEvent,
   ScheduleItem, ScheduleItemId, Session, SongRequest, SongRequestId,
 } from '../types';
@@ -1120,12 +1120,37 @@ export class SupabaseRepository implements RunitRepository {
         author_role_label: s.roleLabel,
         kind: 'announcement',
         body,
-        // Pinning works only at INSERT. `broadcasts` has no UPDATE policy, so
-        // nothing can ever un-pin -- worth knowing before a host tries.
+        // A pin the tier does not carry is FOLDED to false by `fold_pin_to_plan`
+        // rather than refused: the announcement is what she came to send, and losing
+        // it over a formatting privilege she did not know she lacked would be hostile.
         pinned,
       }).select('id');
       if (error) throw error;
       SupabaseRepository.assertWrote(data, 'chat.send');
+    },
+
+    setPinned: async (id: BroadcastId, pinned: boolean) => {
+      const s = this.sigSession.get();
+      if (s.kind !== 'host') throw new Error('Only a host can pin an announcement.');
+
+      // NO CLIENT-SIDE ENTITLEMENT CHECK HERE, and that is not an oversight. The server
+      // folds a pin the tier cannot carry (`fold_pin_to_plan`, on INSERT **or UPDATE**),
+      // so a free-tier host's `true` comes back as `false` through realtime rather than
+      // being refused -- the same degrade-not-reject shape as `send`. A check here would
+      // also have to be asymmetric to avoid stranding a pin after a downgrade, and a
+      // rule stated twice is a rule that drifts.
+      //
+      // `.select('id')` + assertWrote is the load-bearing part. A guest's UPDATE here
+      // returns ZERO ROWS AND RAISES NOTHING -- Lane E asserts exactly that -- so
+      // without it a refusal would read as success and the pin would silently spring
+      // back on the next realtime frame.
+      const { data, error } = await this.db
+        .from('broadcasts')
+        .update({ pinned })
+        .eq('id', id)
+        .select('id');
+      if (error) throw error;
+      SupabaseRepository.assertWrote(data, 'chat.setPinned');
     },
   };
 
