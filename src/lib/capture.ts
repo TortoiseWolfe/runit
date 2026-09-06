@@ -2,6 +2,8 @@ import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { Directory, File, Paths } from 'expo-file-system';
 
+import { MAX_EDGE, QUALITY } from './captureConstants';
+
 /**
  * Take a photo and hand back a local URI. Native implementation.
  *
@@ -21,13 +23,7 @@ import { Directory, File, Paths } from 'expo-file-system';
  * reported as one.
  */
 
-/** Long edge, in pixels. A 12MP phone photo is ~4000px and ~5MB; unresized bytes
- *  are what turn "it works on my emulator" into an OOM after six shots. */
-const MAX_EDGE = 1600;
 
-/** JPEG quality. 0.8 is the usual knee -- below it artefacts show on skin tones,
- *  which for a wedding album is the one thing that must not happen. */
-const QUALITY = 0.8;
 
 export interface CapturedPhoto {
   /** A `file://` URI inside the app's cache directory. */
@@ -70,18 +66,52 @@ export async function capturePhoto(): Promise<CapturedPhoto | null> {
   if (shot.canceled || !shot.assets?.[0]) return null;
 
   const asset = shot.assets[0];
-  const longEdge = Math.max(asset.width, asset.height);
-  const scale = longEdge > MAX_EDGE ? MAX_EDGE / longEdge : 1;
 
-  const context = ImageManipulator.ImageManipulator.manipulate(asset.uri);
-  if (scale < 1) {
-    context.resize({ width: Math.round(asset.width * scale) });
+  /*
+   * THE PICKER'S DIMENSIONS ARE NOT TRUSTED, and this is not defensive habit --
+   * `expo-image-picker`'s own types say so:
+   *
+   *     Width of the image or video. Can be `0` if the system did not provide the width.
+   *
+   * They are declared `number`, not `number | undefined`, so TYPESCRIPT CANNOT CATCH IT
+   * and never will. The previous version read them straight into the scale arithmetic and
+   * had three separate failure modes, all silent, all shipping a full-resolution frame:
+   *
+   *   - both undefined -> Math.max is NaN -> `NaN > 1600` is false -> resize skipped
+   *   - both zero      -> longEdge 0      -> `0 > 1600` is false   -> resize skipped
+   *   - ONE zero       -> worse than a skip: longEdge is real so scale is ~0.4, and
+   *                       `resize({ width: Math.round(0 * 0.4) })` asked for width ZERO
+   *
+   * Rendering first gives an `ImageRef` whose width/height come from the DECODED bitmap
+   * rather than from picker metadata, so there is no unvalidated input left to defend.
+   */
+  const probe = await ImageManipulator.ImageManipulator.manipulate(asset.uri).renderAsync();
+  const longEdge = Math.max(probe.width, probe.height);
+
+  // A tripwire, not a guard against the picker any more: this now says "the native
+  // decoder returned nonsense", which is a different and much less likely claim. Loud,
+  // because silently uploading a full frame is what this whole function exists to stop.
+  if (!Number.isFinite(longEdge) || longEdge <= 0) {
+    throw new Error(`capture: the decoded image reported no size (${probe.width}x${probe.height})`);
   }
-  const rendered = await context.renderAsync();
-  const out = await rendered.saveAsync({
-    compress: QUALITY,
-    format: ImageManipulator.SaveFormat.JPEG,
-  });
+
+  /*
+   * CLAMP THE LONG EDGE; let the library derive the other one. `resize` documents it:
+   * "If you specify only one value, the other will be calculated automatically to
+   * preserve image ratio." That deletes the multiplication entirely -- and the
+   * multiplication was the bug. The old code only ever passed `width`, which was correct
+   * for portrait BY ARITHMETIC ACCIDENT and stops being correct once the edge is clamped
+   * directly, so the orientation branch is load-bearing rather than tidy.
+   */
+  const out =
+    longEdge > MAX_EDGE
+      ? await ImageManipulator.ImageManipulator.manipulate(probe)
+          .resize(probe.width >= probe.height ? { width: MAX_EDGE } : { height: MAX_EDGE })
+          .renderAsync()
+          .then((r) =>
+            r.saveAsync({ compress: QUALITY, format: ImageManipulator.SaveFormat.JPEG }),
+          )
+      : await probe.saveAsync({ compress: QUALITY, format: ImageManipulator.SaveFormat.JPEG });
 
   return { uri: adopt(out.uri), width: out.width, height: out.height };
 }

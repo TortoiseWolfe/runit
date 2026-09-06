@@ -28,6 +28,9 @@ let s: Store;
 function load(): Store {
   let mod!: { secureSessionStorage: Store };
   jest.isolateModules(() => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- `jest.isolateModules`
+    // needs a SYNCHRONOUS load inside its callback; a dynamic import() resolves after it
+    // returns, which defeats the isolation this whole helper exists for.
     mod = require('./secureSessionStorage.web') as { secureSessionStorage: Store };
   });
   return mod.secureSessionStorage;
