@@ -1,6 +1,9 @@
 node_modules/
 .expo/
 dist/
+# The Supabase-backed export (pnpm export:web:live). Same reason as dist/: build output,
+# and this one has the project URL and publishable key inlined into the bundle.
+dist-live/
 web-build/
 *.log
 .DS_Store

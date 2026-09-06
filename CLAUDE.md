@@ -105,6 +105,8 @@ pnpm audit:keyboard             # Lane A3: keyboard strategy + return-key contra
 pnpm export:web && pnpm shots   # Lane B: screenshots at 402x874 + colour gate
 pnpm test:e2e                   # Lane B: 206 Playwright journeys, dark + light
 pnpm verify:links               # Lane G: is the invitation host OURS, and does it serve JSON
+pnpm export:web:live            # Lane H: build the export against SUPABASE, not the fixture
+pnpm smoke:live                 # Lane H: drive the SHIPPING adapter against the live project
 pnpm feedback:sync              # TestFlight tester feedback -> GitHub issues
 pnpm render:canvas              # regenerate design/renders/ from the canvas
 ```
@@ -285,6 +287,31 @@ takes the guest nowhere. Chromium's `BarcodeDetector` is unavailable on this pla
 (checked), so decoding is the only route. It also fails when the code is merely
 undecodable, which is the contrast/quiet-zone/resolution class a camera in a dim room
 would hit.
+
+**H — the adapter that ships, against the database that ships** (`pnpm export:web:live &&
+pnpm smoke:live`). Nine checks driving `SupabaseRepository` through a real browser against
+the live project: `create_event`, the founding host seat, a broadcast round-tripping through
+realtime, a founder taking a guest seat (#37), her seat NOT counted in the room, and
+`request_song` both inserting and merging (#44).
+
+**It is the only lane that can see four things.** RPC ARGUMENT NAMES — PostgREST resolves
+overloads by name, so `p_titel` is a runtime 404 against a function that exists, and
+`database.types.ts` is hand-written. COLUMN NAMES AND FILTERS — `FakeClient` records what
+was sent and never evaluates it. RLS ADMITTING what the app needs — Lane E proves refusals
+by forging claims, which bypasses GoTrue entirely. And ANONYMOUS SIGN-IN, a dashboard toggle
+no token can flip, which was off while build #3 shipped.
+
+**It runs against the LIVE project, deliberately.** The org is on the free plan, which counts
+PAUSED projects toward its limit of two, so a dedicated test project costs $0 and is
+unavailable; branching is Pro-only. So the suite is non-destructive by construction: it
+creates its own event, works only inside it, never touches a row it did not create, and
+prints the code it leaves behind. Each run costs one anonymous `auth.users` row that
+Supabase never collects, plus one event. `docs/smoke-live.md` has the sweep.
+
+**NOT in `run-checks.sh`, on purpose.** Checks run many times an hour; each lane-H run
+writes to production. It is a deliberate command with the standing of `pnpm android` — a
+measurement with a cost, run before a build rather than on every save. It skips loudly
+without credentials, in the same shape as lane E.
 
 **E — policy verification** (`pnpm verify:policies`). The only lane that can
 see row-level security behave. It runs `supabase/verify-policies.sql`, which seeds an
