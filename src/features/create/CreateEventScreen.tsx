@@ -318,7 +318,14 @@ export function CreateEventScreen() {
 }
 
 const s = StyleSheet.create({
-  content: { paddingVertical: 16, gap: 10 },
+  // paddingHorizontal 20, the same gutter every other scrolling screen sets --
+  // ChatScreen, MusicScreen, BroadcastPanel, DjQueuePanel, PhotoApprovalsPanel and
+  // EventDetailsPanel, which this screen was derived from. <Screen> deliberately sets
+  // VERTICAL insets only (its docblock says so: the artboards' 66/70/28 are top and
+  // bottom), so a content container that omits this renders flush against x=0 -- labels
+  // at the bezel and field borders clipped off both edges. That shipped, on the one
+  // screen with no canvas render to compare against.
+  content: { paddingVertical: 16, paddingHorizontal: 20, gap: 10 },
   eyebrow: { ...eyebrow.section, fontSize: 12 },
   title: { fontSize: 30, fontWeight: weight.semibold, marginBottom: 6 },
   label: { fontSize: 11, letterSpacing: 0.6, marginTop: 6 },

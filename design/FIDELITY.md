@@ -1039,3 +1039,62 @@ the block was unblocked. `tools/verify-policies.mjs` now carries that number as 
 **coverage floor**, the same doctrine lanes A and A2 already use: an abort cannot hide
 (it never reaches the closing RAISE, so there is no report to parse), but a file that
 *shrinks* would report "0 FAILURE(S)" in the same words over half the coverage.
+
+## X. The gutter that was never declared, on the screen no lane could see
+`CreateEventScreen`'s content container set `paddingVertical` and no
+`paddingHorizontal`, so both of its screens rendered flush at **x = 0**: labels against
+the bezel, text-field borders clipped off both edges, and — on the second screen — the
+recovery key itself, which `create_event` returns exactly once and never again.
+
+**`<Screen>` sets vertical insets ONLY, and that is deliberate.** Its docblock is the
+place this is stated: the artboards' 66 / 70 / 28 are the canvas's fake status bar and
+home indicator, and they become `paddingTop` / `paddingBottom` derived from
+`useSafeAreaInsets`. The horizontal gutter is each screen's own to declare, and every
+other scrolling screen declares it — `ChatScreen`, `MusicScreen`, `BroadcastPanel`,
+`DjQueuePanel`, `PhotoApprovalsPanel` and `EventDetailsPanel` all use 20;
+`JoinScreen` uses 24 and puts it on `<Screen>` itself with a comment saying why. This
+screen was derived from `EventDetailsPanel` and lost the line in transit.
+
+### Why nothing caught it, which is the part worth keeping
+
+**Lane D is a COMPARISON lane.** It reads `design/renders/<screen>.png` and
+`design/screenshots/<screen>.png` in the same message and walks the regions. The create
+screens came from `docs/design-host-accounts.md`, not from `Runit.dc.html`, so they have
+no render — and with nothing to compare against, the one lane that could have seen this
+cannot run on them at all. Everything else was blind for its own reason: the colour gate
+reads a single pixel, the contrast gate reads colour pairs, and no static audit measures
+geometry.
+
+### The gutter gate, and why it belongs in lane B rather than in a static audit
+
+Lanes A2 and A3 are static audits **because react-native-web is structurally blind** to
+what they check: it drops `hitSlop`, renders `KeyboardAvoidingView` as a plain `View`
+with `behavior` stripped, and filters `keyboardShouldPersistTaps` out before it reaches
+the DOM. An assertion there would pass identically on a correct fix and on no fix at all.
+
+**Padding is not in that category.** `paddingHorizontal` becomes real CSS padding on a
+real element and `getBoundingClientRect()` returns where the pixels actually are — the
+same footing as contrast, which the shots gate already measures honestly for exactly
+this reason. So the gate lives beside it in `tools/shoot-app.mjs`.
+
+**What it claims is deliberately narrow: nothing readable or tappable within 8px of
+either edge.** Not "every gutter is 20" — that would fail the tab bar (12) and the join
+screen (24), and a gate that reports two dozen false failures gets switched off. That
+lesson is already written down one note over: an audit run at the wrong level is how
+44×44 nearly killed the touch-target lane. Flush-to-zero is the bug class; 8 catches it
+with room, and it reported **zero** false positives across all 22 screens.
+
+Mutation-checked, which is the only thing that makes a passing gate mean anything:
+reverting the one-line fix fails it with 18 named elements, all on `00-create-event`
+and none anywhere else.
+
+### The walk now includes the key panel
+
+`00-create-key` was added to `tools/shoot-app.mjs`. It is the screen in this app where a
+layout defect costs the most — only a bcrypt hash is stored, so a screen that clips or
+hides that string has destroyed it — and it had never been shot, which meant nothing in
+any lane had ever looked at it. **A gate can only see the screens the walk visits**, so
+adding the check and adding the screen are one change, not two.
+
+What is still missing is a render to compare either screen against; lane D remains unable
+to run on them. Filed rather than left in this paragraph.
