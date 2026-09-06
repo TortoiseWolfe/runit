@@ -471,7 +471,24 @@ export interface RunitRepository {
     nowPlaying: Observable<NowPlaying | null>;
     /** Ids the CURRENT guest has voted for. Server-side per guest, not global. */
     myVotes: Observable<ReadonlySet<SongRequestId>>;
-    request(input: { title: string; artist: string }): Promise<void>;
+    /**
+     * Ask for a song -- or vote for it, if the room already has (#44).
+     *
+     * THIS USED TO INSERT UNCONDITIONALLY, and the queue is ranked by votes. So two people
+     * wanting the same song produced two rows with one vote each, and the most-wanted song
+     * of the night could sit under songs one person asked for. Three spellings fragmented
+     * it three ways.
+     *
+     * The DATABASE decides two requests are the same song -- `public.song_key()` under a
+     * unique index -- because a client-side check is bypassed by the second client, and
+     * because a normalisation implemented twice drifts. `merged` says which branch ran, so
+     * the screen can tell someone their vote landed on a row that was already there rather
+     * than claiming to have added something that did not appear.
+     *
+     * The index is PARTIAL, over `pending` and `accepted` only: a song that has been played
+     * can be asked for again later, which is what a six-hour party does.
+     */
+    request(input: { title: string; artist: string }): Promise<{ merged: boolean }>;
     setVote(id: SongRequestId, on: boolean): Promise<void>;
     accept(id: SongRequestId): Promise<void>;
     decline(id: SongRequestId): Promise<void>;

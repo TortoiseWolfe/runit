@@ -129,15 +129,15 @@ if (Number(m[1]) > 0) {
  * A gate that passes having measured less than it did last time is the exact bug #31 was
  * filed for. Raise this number when you add assertions; that is the intended friction.
  *
- * IT IS A FLOOR, SO ONLY AN UNDERCOUNT FAILS. 128 = 101 measured in a whole-file run, plus
- * four sets measured in equivalent in-context runs: 7 storage (#10), 7 headcount (#37),
- * 4 seen-by (#24) and 9 nickname (#43/#36). The file is now large enough that pasting it
- * whole into an MCP call hits an output limit, which is one more reason #31's "nothing
- * re-runs it in CI" is the thing worth closing. If a real run ever reports fewer, this
- * fails loudly and the number gets corrected, which is the gate doing its job rather than
- * a reason to lower it.
+ * IT IS A FLOOR, SO ONLY AN UNDERCOUNT FAILS. 136 = 101 measured in a whole-file run, plus
+ * five sets measured in equivalent in-context runs: 7 storage (#10), 7 headcount (#37),
+ * 4 seen-by (#24), 9 nickname (#43/#36) and 8 song-merge (#44). The file is now large
+ * enough that pasting it whole into an MCP call hits an output limit, which is one more
+ * reason #31's "nothing re-runs it in CI" is the thing worth closing. If a real run ever
+ * reports fewer, this fails loudly and the number gets corrected, which is the gate doing
+ * its job rather than a reason to lower it.
  */
-const EXPECTED_ASSERTIONS = 128;
+const EXPECTED_ASSERTIONS = 136;
 // The FIRST assertion shares its line with the "0 FAILURE(S)." preamble -- `format()`
 // joins the array after it -- so an anchored line match silently undercounts by one.
 const counted = report

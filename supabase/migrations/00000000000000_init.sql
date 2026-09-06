@@ -158,6 +158,35 @@ create table public.song_requests (
   created_at             timestamptz not null default now()
 );
 
+-- ONE SONG, ONE ROW (#44). `music.request` inserted unconditionally, so two people asking
+-- for the same song produced two rows with one vote each -- and the queue is ranked by
+-- votes, so the most-wanted song of the night could sit under songs one person asked for.
+-- Three spellings fragmented it three ways.
+--
+-- THE KEY IS THE ENFORCEMENT, not a check in the client. A normalising expression plus a
+-- unique index means the DATABASE decides two requests are the same song, and the second
+-- client cannot disagree -- the same reasoning that put the guest cap in `join_event`.
+--
+-- IMMUTABLE, because an index expression must be. That rules out `unaccent`, which depends
+-- on a dictionary and is only STABLE: "Beyonce" and "Beyoncé" stay two songs, and that is a
+-- limit rather than a decision. Case, punctuation and spacing are what actually differ when
+-- two people type the same title.
+create or replace function public.song_key(p_title text, p_artist text)
+returns text
+language sql immutable set search_path = public as $$
+  select regexp_replace(lower(btrim(coalesce(p_title, ''))),  '[^a-z0-9]+', '', 'g')
+      || '|'
+      || regexp_replace(lower(btrim(coalesce(p_artist, ''))), '[^a-z0-9]+', '', 'g');
+$$;
+
+-- PARTIAL, over the queue only. A song that has been PLAYED can be asked for again later --
+-- a party runs six hours and a good song comes round twice -- and a DECLINED one is a
+-- host's decision that a re-request should be able to revisit. Unique forever would make
+-- both impossible, quietly, hours after the row that caused it.
+create unique index song_requests_one_per_song
+  on public.song_requests (event_id, public.song_key(title, artist))
+  where status in ('pending', 'accepted');
+
 create table public.song_votes (
   request_id uuid not null references public.song_requests(id) on delete cascade,
   guest_id   uuid not null references public.guests(id) on delete cascade,
@@ -588,6 +617,73 @@ end $$;
 
 revoke execute on function public.set_nickname(uuid, text) from public, anon;
 grant  execute on function public.set_nickname(uuid, text) to authenticated;
+
+-- ------------------------------------------------------------------------
+-- ONE SONG, ONE ROW (#44)
+-- ------------------------------------------------------------------------
+--
+-- Insert the request, or vote for the one that is already in the queue -- in ONE statement,
+-- so two guests asking in the same second cannot both insert.
+--
+-- WHY AN RPC RATHER THAN AN INSERT PLUS A CATCH IN THE CLIENT. The client would have to
+-- find the existing row to vote for it, which means normalising the title itself -- a second
+-- implementation of "the same song" that can drift from the index. Here there is one
+-- definition and both callers use it.
+--
+-- IT VOTES FOR YOU EITHER WAY, which is what makes a merge feel like a request rather than
+-- a refusal: your vote lands on the row that already exists, and the tally goes up. The
+-- insert path relies on `song_votes_fold`, exactly as a normal vote does.
+--
+-- SECURITY DEFINER, so `requests_insert` is not consulted -- and the guest id is taken from
+-- `my_guest_id()` rather than from the caller, which is what that policy was enforcing.
+-- A caller who is not a guest of this event gets 42501 and nothing else happens.
+create or replace function public.request_song(p_event uuid, p_title text, p_artist text)
+returns table (request_id uuid, merged boolean)
+language plpgsql security definer set search_path = public as $$
+declare
+  v_guest uuid;
+  v_name  text;
+  v_req   uuid;
+  v_new   boolean;
+  v_title text := btrim(coalesce(p_title, ''));
+  v_art   text := btrim(coalesce(p_artist, ''));
+begin
+  v_guest := public.my_guest_id(p_event);
+  if v_guest is null then
+    raise exception 'not a guest of this event' using errcode = '42501';
+  end if;
+  if v_title = '' then
+    raise exception 'empty_title' using errcode = '22023';
+  end if;
+
+  select nickname into v_name from public.guests where id = v_guest;
+
+  -- `do update` rather than `do nothing`: DO NOTHING returns no row, so there would be
+  -- nothing to vote for and the merge would silently become a no-op. Setting the title to
+  -- its own current value is a no-op write that makes RETURNING fire.
+  insert into public.song_requests (event_id, title, artist, requested_by_guest_id, requested_by_name)
+       values (p_event, v_title, v_art, v_guest, coalesce(v_name, 'Guest'))
+  on conflict (event_id, public.song_key(title, artist)) where status in ('pending','accepted')
+    do update set title = song_requests.title
+    -- `xmax = 0` IS THE ONLY WAY TO KNOW WHICH BRANCH RAN. An upsert returns a row either
+    -- way; the system column is zero on a fresh tuple and non-zero on one that was updated.
+    -- Without it the caller cannot tell "added to the queue" from "your vote is on the one
+    -- already there", and a guest whose request merged would be told it was new while
+    -- nothing new appeared.
+    returning id, (xmax = 0) into v_req, v_new;
+
+  -- The vote is the point of the merge. 23505 is the composite key doing its job: asking
+  -- twice for a song you already voted for is the desired state arriving twice.
+  insert into public.song_votes (request_id, guest_id) values (v_req, v_guest)
+  on conflict do nothing;
+
+  request_id := v_req;
+  merged := not v_new;
+  return next;
+end $$;
+
+revoke execute on function public.request_song(uuid, text, text) from public, anon;
+grant  execute on function public.request_song(uuid, text, text) to authenticated;
 
 
 -- ------------------------------------------------------------------------

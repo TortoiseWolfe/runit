@@ -1224,6 +1224,88 @@ begin
   update public.guests set nickname = 'Ada' where id = gcap;
   delete from public.song_requests where id = bc;
 
+  -- ==================================================================
+  -- ONE SONG, ONE ROW (#44)
+  -- ==================================================================
+  -- `music.request` inserted unconditionally, and the queue is ranked by votes -- so two
+  -- people asking for the same song produced two rows with one vote each, and the
+  -- most-wanted song of the night could sit under songs one person asked for. The unique
+  -- index is what decides two requests are the same song, which is the only place a second
+  -- client cannot disagree with.
+  execute 'reset role';
+  perform set_config('request.jwt.claims', json_build_object('sub',auid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  select r.request_id into g1 from public.request_song(ce2.event_id, 'Dancing Queen', 'ABBA') r;
+
+  execute 'reset role';
+  perform set_config('request.jwt.claims', json_build_object('sub',buid2,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  -- Typed the way somebody else types it.
+  select r.request_id, r.merged into g2, pin from public.request_song(ce2.event_id, '  dancing  queen! ', 'abba') r;
+
+  execute 'reset role';
+  out := out || format('%s two spellings resolve to ONE row',
+                       case when g1 = g2 then 'PASS' else 'FAIL' end);
+  out := out || format('%s and the caller is TOLD it merged, so the screen can say so',
+                       case when pin then 'PASS' else 'FAIL' end);
+
+  select count(*) into n from public.song_requests where event_id = ce2.event_id;
+  select vote_count into m from public.song_requests where id = g1;
+  out := out || format('%s one row carrying both votes (%s row(s), %s votes -- want 1 and 2)',
+                       case when n = 1 and m = 2 then 'PASS' else 'FAIL' end, n, m);
+
+  -- Asking again for something you already voted for is the desired state arriving twice.
+  perform set_config('request.jwt.claims', json_build_object('sub',buid2,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  perform public.request_song(ce2.event_id, 'DANCING QUEEN', 'ABBA');
+  execute 'reset role';
+  select vote_count into m from public.song_requests where id = g1;
+  out := out || format('%s asking twice does not vote twice (%s, want 2)',
+                       case when m = 2 then 'PASS' else 'FAIL' end, m);
+
+  -- THE PARTIAL INDEX. A song that has been played can come round again; unique forever
+  -- would make that impossible, quietly, hours after the row that caused it.
+  update public.song_requests set status = 'played' where id = g1;
+  perform set_config('request.jwt.claims', json_build_object('sub',auid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  select r.request_id into g2 from public.request_song(ce2.event_id, 'Dancing Queen', 'ABBA') r;
+  execute 'reset role';
+  out := out || format('%s a played song can be requested again',
+                       case when g2 <> g1 then 'PASS' else 'FAIL' end);
+
+  -- The same title by a different artist is a different song: the key is both fields.
+  perform set_config('request.jwt.claims', json_build_object('sub',auid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  select r.request_id into g1 from public.request_song(ce2.event_id, 'Alive', 'Pearl Jam') r;
+  select r.request_id into g2 from public.request_song(ce2.event_id, 'Alive', 'Sia') r;
+  out := out || format('%s the same title by another artist is another song',
+                       case when g1 <> g2 then 'PASS' else 'FAIL' end);
+
+  begin
+    perform public.request_song(ce2.event_id, '   ', 'ABBA');
+    out := out || format('%s an empty title was stored', 'FAIL');
+  exception when others then
+    out := out || format('%s an empty title is refused (%s)',
+                         case when sqlstate = '22023' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  -- A stranger to this event. `my_guest_id` is null for them, so there is nothing to
+  -- attribute a request to -- which is what `requests_insert` enforced before this
+  -- function existed, and why the function takes the guest id from the session rather
+  -- than from its caller.
+  execute 'reset role';
+  perform set_config('request.jwt.claims', json_build_object('sub',nuid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  begin
+    perform public.request_song(ce2.event_id, 'Anything', '');
+    out := out || format('%s a non-member requested a song', 'FAIL');
+  exception when others then
+    out := out || format('%s a non-member cannot request a song (%s)',
+                         case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+  execute 'reset role';
+  delete from public.song_requests where event_id = ce2.event_id;
+
   select count(*) into fails from unnest(out) x where x like 'FAIL%';
   raise exception using message =
     format('%s FAILURE(S). %s', fails, array_to_string(out, E'\n  '));
