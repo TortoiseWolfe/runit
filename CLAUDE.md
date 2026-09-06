@@ -260,16 +260,26 @@ would hit.
 see row-level security behave. It runs `supabase/verify-policies.sql`, which seeds an
 event, a guest and a host inside a `DO` block, switches
 role with `set local role authenticated` and a forged `request.jwt.claims`, asserts
-**seventy-two** behaviours, and RAISES at the end so nothing commits -- the "error" it
+**seventy-nine** behaviours, and RAISES at the end so nothing commits -- the "error" it
 prints IS the report.
 
 **It did not run at all until 2026-09-05, and nothing said so.** A setup line inserted
 a photo as the host with no `uploaded_by_guest_id`; `photos_insert` refused it with
 42501 outside any exception handler, which aborted the whole `DO` block -- so every
 moderation and invitee assertion below it had never executed, and one held a stale
-expected value that proved it. `verify-policies.mjs` still cannot tell "the SQL
-aborted" from "the SQL ran and reported failures". Issue #31. Anything added here must
-be RUN, not merely written.
+expected value that proved it. Issue #31. **Anything added here must be RUN, not merely
+written** -- that rule earned itself again the same week, twice in one sitting: two new
+assertions looked a host row up by `where auth_user_id = ...` while standing in
+`authenticated`, which #34 had just revoked, and each aborted the block exactly as the
+photo insert had.
+
+`verify-policies.mjs` now has two teeth it lacked. An **abort cannot pass**: the closing
+RAISE never runs, so there is no report to parse, and the unparseable case is a red gate
+that says so. And a **coverage floor** (`EXPECTED_ASSERTIONS`, the same doctrine as lanes
+A and A2) fails a run that measures less than the last one -- because "0 FAILURE(S)" over
+forty assertions and over seventy-nine are the same sentence. Raise the number when you
+add assertions; that friction is the feature. What is still open in #31 is that **nothing
+re-runs it in CI** -- there is no secret store for the URL, so the lane skips there.
 
 **It skips LOUDLY without `SUPABASE_DB_URL`**, and that is deliberate. Running it
 needs a database password, and CI here is one public-repo job with no secret store; a
@@ -502,13 +512,22 @@ day #18 ships).
 **Closed:** #15 (`event_preview`) · #14 (event details at `/host/event`) · #13
 (`create_event`) · #32 (the recovery key) · #16 (`invite_host` -- a co-host gets a seat
 and a key, never an account) · #33 (the QR encodes a universal link, so a scan works for
-someone without the app). FIDELITY notes S, T, U and V.
+someone without the app) · #22 (`join_event` counts against `tier_limits.max_guests` and
+raises 54023) · #34 (`auth_user_id` revoked from every client role). FIDELITY notes S, T,
+U, V and W.
 
-**Advertised and unenforced.** #21 (three of four granted features are enforced only in
-`MemoryRepository`, so a free-tier host can pin against Supabase) · #22 (`maxGuests` in
-no shipping adapter and no policy) · #23 (`eventTtlHours`, `albumRetentionDays`: zero
-readers) · #30 (every paid tier is unreachable — the pricing screen is cut and no
-purchase path exists).
+**Advertised and unenforced.** #21 is down to **one** of four: `pnpm audit:tiers` reports
+`photoModeration`, `hostRoles` and `pinnedAnnouncements` enforced in the shipping adapter
+or in SQL, and `pushNotifications` alone still in `MemoryRepository`. That last one cannot
+be closed here — you cannot gate a feature that is not built, so it is really #27 wearing
+#21's number. Also open: #23 (`eventTtlHours`, `albumRetentionDays`: zero readers) · #30
+(every paid tier is unreachable — the pricing screen is cut and no purchase path exists).
+
+**The caps are a table.** `public.tier_limits` holds the numbers; `create_event`,
+`invite_host` and `join_event` read them and no client can write them. A cap that lives
+only in `src/domain/tiers.ts` is enforced by whichever client happens to be asking, and
+`src/domain/tiers.test.ts` re-parses the migration's seed to fail on drift between the two
+— the same shape as `tokens.test.ts` re-parsing `theme.css`.
 
 **Dead ends a host reaches by using the app as designed.** #24 (`seen by 0` forever) ·
 #25 (`invitees` is unreachable from the app, and "Send to N guests" names a number

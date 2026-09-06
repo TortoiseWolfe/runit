@@ -89,6 +89,22 @@ describe('joining', () => {
     ).rejects.toMatchObject({ reason: 'unknown_code', message: "That code doesn't match an event." });
   });
 
+  it('turns 54023 into event_full, the reason that had no producer until #22', async () => {
+    const c = new FakeClient();
+    c.on((op) => (op.kind === 'rpc' && op.table === 'join_event' ? pgError('54023', 'event_full') : undefined));
+    const repo = build(c);
+
+    // `event_full` sat in JoinReason for months as copy MemoryRepository alone could
+    // reach: `join_event` counted nothing, so against Supabase an eleventh guest simply
+    // walked in past a cap the pricing page advertised. #22 gave the function the count;
+    // this is the other half -- the SQLSTATE arriving as the sentence a guest reads.
+    // Lane E proves Postgres raises 54023 (`verify-policies.sql`, "the 11th guest is
+    // refused"); nothing between there and the screen was pinned until now.
+    await expect(
+      repo.session.joinAsGuest({ code: 'FULL01', nickname: 'Bo' }),
+    ).rejects.toMatchObject({ reason: 'event_full', message: 'This event is full.' });
+  });
+
   /**
    * THE REGRESSION THESE EXIST FOR.
    *

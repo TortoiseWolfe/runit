@@ -37,7 +37,7 @@ declare
   eid  uuid := '22222222-2222-2222-2222-222222222222';
   fid  uuid := '33333333-3333-3333-3333-333333333333';
   f2   uuid := '55555555-5555-5555-5555-555555555555';
-  n int; g1 uuid; g2 uuid;
+  n int; g1 uuid; g2 uuid; hid uuid;
   -- moderation fixtures
   buid uuid := '66666666-6666-6666-6666-666666666666';
   eid2 uuid := '77777777-7777-7777-7777-777777777777';
@@ -51,6 +51,10 @@ declare
   -- invite_host fixtures: the DJ who gets a seat but never an account.
   muid uuid := 'aaaaaaaa-0000-0000-0000-000000000003';
   iv record;
+  -- cap fixtures: a fresh event, the guest who holds a seat, and the one who arrives late.
+  auid  uuid := 'cccccccc-0000-0000-0000-000000000002';
+  buid2 uuid := 'cccccccc-0000-0000-0000-000000000003';
+  ce2 record; pin boolean; gcap uuid; filler uuid; i int;
   out text[] := '{}';
   fails int := 0;
 
@@ -64,7 +68,13 @@ begin
   values (eid,'TEST01','Verify','Barn',now(),'America/New_York','event',10);
   insert into public.folders (id,event_id,name,position) values (fid,eid,'Main',0),(f2,eid,'Second',1);
   insert into public.hosts (event_id, auth_user_id, display_name, role, role_label)
-  values (eid, huid, 'Riley', 'host', 'Bride');
+  values (eid, huid, 'Riley', 'host', 'Bride')
+  -- CAPTURED HERE, as the owner, because #34 revoked `auth_user_id` from every client
+  -- role. The assertion further down used to look this id up by `where auth_user_id =
+  -- huid` while standing in `authenticated`, and after #34 that raises 42501 -- aborting
+  -- the whole block, which is the exact failure mode this file's header warns about.
+  -- The schema was right and the test was wrong.
+  returning id into hid;
 
   -- A second guest, and a SECOND EVENT with its own photo. The second event is not
   -- decoration: it is the only way to test that a report cannot reach across events,
@@ -74,7 +84,9 @@ begin
   insert into auth.users (id, instance_id, aud, role, email, is_anonymous, created_at, updated_at)
   values (cuid,'00000000-0000-0000-0000-000000000000','authenticated','authenticated',null,true,now(),now()),
          (nuid,'00000000-0000-0000-0000-000000000000','authenticated','authenticated',null,true,now(),now()),
-         (muid,'00000000-0000-0000-0000-000000000000','authenticated','authenticated',null,true,now(),now());
+         (muid,'00000000-0000-0000-0000-000000000000','authenticated','authenticated',null,true,now(),now()),
+         (auid,'00000000-0000-0000-0000-000000000000','authenticated','authenticated',null,true,now(),now()),
+         (buid2,'00000000-0000-0000-0000-000000000000','authenticated','authenticated',null,true,now(),now());
   insert into public.events (id, code, name, venue, starts_at, timezone, tier, invited_count)
   values (eid2,'TEST02','Other','Hall',now(),'America/New_York','event',10);
   insert into public.folders (id,event_id,name,position) values (fid2,eid2,'Main',0);
@@ -404,8 +416,8 @@ begin
   update public.reports set resolved_at = now(), resolution = 'removed' where id = rep1;
   select resolved_by_host_id into who from public.reports where id = rep1;
   out := out || format('%s resolving stamps the acting host from auth.uid() (got %s)',
-                       case when who = (select id from public.hosts where auth_user_id = huid)
-                            then 'PASS' else 'FAIL' end, coalesce(who::text,'null'));
+                       case when who = hid then 'PASS' else 'FAIL' end,
+                       coalesce(who::text,'null'));
 
   -- And the guest still cannot close their own complaint.
   execute 'reset role';
@@ -558,10 +570,18 @@ begin
 
   -- NOBODY HOLDS THE SEAT YET. auth_user_id stays null until the key is presented, which
   -- is what makes an invitation an invitation rather than an assignment.
+  --
+  -- READ AS THE OWNER, because #34 revoked `auth_user_id` from `authenticated` and that
+  -- includes hosts. This is a claim about the ROW, not about what a client may see -- the
+  -- permission itself is asserted further down, from both a guest and a host. Leaving it
+  -- under `set local role authenticated` raised 42501 and aborted the block.
+  execute 'reset role';
   select count(*) into n from public.hosts h
    where h.id = iv.host_id and h.auth_user_id is null;
   out := out || format('%s the seat is unclaimed until someone presents the key (%s, want 1)',
                        case when n = 1 then 'PASS' else 'FAIL' end, n);
+  perform set_config('request.jwt.claims', json_build_object('sub',nuid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
 
   select count(*) into n from public.host_claims hc
    where hc.host_id = iv.host_id and hc.secret_hash = upper(replace(iv.host_key,'-',''));
@@ -617,6 +637,105 @@ begin
   exception when others then
     out := out || format('%s nobody rewrites the caps from a client (%s)',
                          case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  ------------------------------------- CAPS AND FLAGS THE SERVER ENFORCES (#22, #21, #34)
+  -- A fresh event of its own, so nothing above is entangled with what follows.
+  execute 'reset role';
+  perform set_config('request.jwt.claims', json_build_object('sub',cuid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  select * into ce2 from public.create_event('Capped', now() + interval '1 day', 'UTC', 'The flat', '', 'Ruth');
+
+  -- #21. PINNING DEGRADES, IT DOES NOT REFUSE. MemoryRepository has always said why:
+  -- "Refusing to post an announcement because the plan cannot PIN it would be hostile."
+  -- The server now agrees, via a BEFORE INSERT trigger rather than a policy -- a policy
+  -- can only permit or deny a whole row, and denying the row loses the announcement.
+  insert into public.broadcasts (event_id, author_host_id, author_name, author_role_label, kind, body, pinned)
+  values (ce2.event_id, ce2.host_id, 'Ruth', 'Host', 'announcement', 'free tier tries to pin', true)
+  returning pinned into pin;
+  out := out || format('%s a house_party pin is degraded, not refused (pinned=%s, want false)',
+                       case when pin = false then 'PASS' else 'FAIL' end, pin);
+  select count(*) into n from public.broadcasts where event_id = ce2.event_id;
+  out := out || format('%s and the announcement still went out (%s, want 1)',
+                       case when n = 1 then 'PASS' else 'FAIL' end, n);
+
+  execute 'reset role';
+  update public.events set tier = 'event' where id = ce2.event_id;
+  perform set_config('request.jwt.claims', json_build_object('sub',cuid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  insert into public.broadcasts (event_id, author_host_id, author_name, author_role_label, kind, body, pinned)
+  values (ce2.event_id, ce2.host_id, 'Ruth', 'Host', 'announcement', 'paid tier pins', true)
+  returning pinned into pin;
+  out := out || format('%s an event-tier pin sticks (pinned=%s, want true)',
+                       case when pin = true then 'PASS' else 'FAIL' end, pin);
+
+  -- #34. A guest needs a host's NAME, ROLE and LABEL. auth_user_id is not theirs to see,
+  -- and `toHost` dropping it client-side was never the control -- PostgREST answers
+  -- whatever the grant allows.
+  execute 'reset role';
+  perform set_config('request.jwt.claims', json_build_object('sub',auid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  gcap := public.join_event(ce2.code, 'Ada');
+  select h.display_name into lbl from public.hosts h where h.event_id = ce2.event_id limit 1;
+  out := out || format('%s a guest still reads a host name (%s)',
+                       case when lbl = 'Ruth' then 'PASS' else 'FAIL' end, coalesce(lbl,'null'));
+  begin
+    perform h.auth_user_id from public.hosts h where h.event_id = ce2.event_id limit 1;
+    out := out || format('FAIL a guest read auth_user_id off hosts');
+  exception when others then
+    out := out || format('%s a guest cannot read auth_user_id (%s)',
+                         case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  -- AND NEITHER CAN A HOST, because the revoke names the ROLE `authenticated` and a host
+  -- is one. That is stronger than the issue asked for, and it is deliberate: nothing on
+  -- the client has ever needed the column (`SupabaseRepository.ts:526` selects named
+  -- columns; `toHost` discards it), so leaving it readable to hosts would grant a
+  -- capability with no caller. This assertion is here because the property SURPRISED this
+  -- file -- an earlier line looked the founding host up by `where auth_user_id = huid`
+  -- while standing in `authenticated`, and the 42501 aborted the whole block.
+  execute 'reset role';
+  perform set_config('request.jwt.claims', json_build_object('sub',cuid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  begin
+    perform h.auth_user_id from public.hosts h where h.event_id = ce2.event_id limit 1;
+    out := out || format('FAIL a HOST read auth_user_id off hosts');
+  exception when others then
+    out := out || format('%s not even a host reads auth_user_id (%s)',
+                         case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  -- #22. The cap join_event never had. Fill the room as service role; Ada holds one seat.
+  execute 'reset role';
+  update public.events set tier = 'house_party' where id = ce2.event_id;
+  for i in 1..9 loop
+    filler := gen_random_uuid();
+    insert into auth.users (id, instance_id, aud, role, email, is_anonymous, created_at, updated_at)
+    values (filler,'00000000-0000-0000-0000-000000000000','authenticated','authenticated',null,true,now(),now());
+    insert into public.guests (event_id, auth_user_id, nickname) values (ce2.event_id, filler, 'Filler ' || i);
+  end loop;
+
+  perform set_config('request.jwt.claims', json_build_object('sub',buid2,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  begin
+    perform public.join_event(ce2.code, 'Bo');
+    out := out || format('FAIL an 11th guest joined a 10-guest event');
+  exception when others then
+    out := out || format('%s the 11th guest is refused with %s, which the adapter maps to event_full',
+                         case when sqlstate = '54023' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  -- THE ONE THAT MATTERS MORE. join_event is idempotent on (event_id, auth_user_id) and
+  -- that is why the session is persisted: a reinstall must land on the same row. A cap
+  -- that refused a REJOIN would lock out the people already in the room.
+  execute 'reset role';
+  perform set_config('request.jwt.claims', json_build_object('sub',auid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  begin
+    out := out || format('%s a guest already seated can rejoin a FULL event',
+                         case when public.join_event(ce2.code, 'Ada') = gcap then 'PASS' else 'FAIL' end);
+  exception when others then
+    out := out || format('FAIL a rejoin at a full event was refused (%s) -- a reinstall locks them out', sqlstate);
   end;
 
   select count(*) into fails from unnest(out) x where x like 'FAIL%';

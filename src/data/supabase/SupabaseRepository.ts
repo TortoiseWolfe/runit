@@ -523,7 +523,14 @@ export class SupabaseRepository implements RunitRepository {
     // half simply had no caller to force it.
     const guestId = this.myGuestId;
     const [hosts, votes] = await Promise.all([
-      this.db.from('hosts').select('*').eq('event_id', eventId),
+      // NAMED COLUMNS, NOT `*`. `auth_user_id` is revoked from every client role (#34),
+      // and PostgREST expands `*` to every column -- which now fails outright rather than
+      // quietly omitting the one it cannot read. Listing them is also the honest statement
+      // of what a guest is allowed to know about a host.
+      this.db
+        .from('hosts')
+        .select('id, event_id, display_name, role, role_label, created_at')
+        .eq('event_id', eventId),
       guestId === null
         ? Promise.resolve({ data: [] as { request_id: string }[], error: null })
         : this.db.from('song_votes').select('request_id').eq('guest_id', guestId),
@@ -729,6 +736,12 @@ export class SupabaseRepository implements RunitRepository {
         // wording ever changes.
         if (isPgError(error) && error.code === 'P0002') {
           throw new JoinError('unknown_code');
+        }
+        // 54023 is join_event's own cap refusal, and until #22 this branch could not
+        // exist: the function checked no cap at all, so `event_full` was a JoinReason
+        // only the in-memory adapter could produce. The copy was written and unreachable.
+        if (isPgError(error) && error.code === '54023') {
+          throw new JoinError('event_full');
         }
         // 28000 is the function's own `not authenticated`, raised when auth.uid()
         // is null. We established a session moments ago, so reaching this means
