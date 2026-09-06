@@ -212,6 +212,15 @@ export:web` sets it). It injects the iPhone safe-area insets a browser reports
 as zero, and renders the `scheme-probe` element every test waits on. Export
 without it and the whole suite times out without naming the reason.
 
+**`initialMetrics` ALONE DID NOT DO THAT, AND THIS FILE SAID OTHERWISE FOR MONTHS.**
+`react-native-safe-area-context`'s web provider measures `env(safe-area-inset-*)` on mount
+and reports zero, overwriting whatever was injected — so every screenshot was taken with
+the insets collapsed while `design/renders/` was drawn from artboards that pad 66/70/28
+*because* of the device frame. Lane D was comparing a ~70pt offset and reading it as close
+enough. The metrics now go straight into `SafeAreaInsetsContext` and `SafeAreaFrameContext`
+inside the provider, and a hidden `inset-probe` renders what `useSafeAreaInsets()` actually
+returns so `pnpm shots` fails loudly if it is ever discarded again. #7, FIDELITY note AN.
+
 **C — Android emulator** (`pnpm android`). Wired up and **load-bearing**. It has
 now also witnessed a real camera capture end to end — permission prompt, system
 camera, resized JPEG written to the app's own cache, and the image rendering in

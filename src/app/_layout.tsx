@@ -1,7 +1,13 @@
 import { useMemo, useSyncExternalStore } from 'react';
 import { Text } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
+import {
+  SafeAreaFrameContext,
+  SafeAreaInsetsContext,
+  SafeAreaProvider,
+  useSafeAreaInsets,
+  type Metrics,
+} from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { Stack } from 'expo-router';
 
@@ -27,6 +33,26 @@ import { ThemeProvider, useTheme } from '@/theme';
  * Under EXPO_PUBLIC_FIDELITY=1 we inject real iPhone 16 Pro geometry so the web
  * export is measurable against the canvas. 62/34 are measured from
  * design/ios-frame.jsx, not guessed.
+ *
+ * `initialMetrics` ALONE DID NOT DO THIS, AND SAID NOTHING (#7). Read the package:
+ * `NativeSafeAreaProvider.web.js` appends a fixed element padded with
+ * `env(safe-area-inset-*)`, reads it back on mount and calls `onInsetsChange` --
+ * and in a browser those values are ZERO. So the injected metrics were the
+ * initial state of a `useState` that was overwritten a tick later, every time.
+ * Measured from the pixels before it was measured from the source: the 402x874
+ * and 414x896 presets, which inject 62 and 44, both produced a first non-background
+ * row at 5pt, and the first container computed `padding-top: 0px`.
+ *
+ * WHAT THAT COST is the reason this is a note and not a one-liner. Lane D compares
+ * `design/renders/` -- drawn from the canvas, whose artboards pad 66/70/28 BECAUSE
+ * of the device frame -- against `design/screenshots/`, shot with those insets
+ * absent. Every Lane D judgement made before this rested on two images with a
+ * systematic ~60pt vertical offset, read as close enough.
+ *
+ * So the metrics are ALSO pushed straight into the two contexts `useSafeAreaInsets`
+ * and `useSafeAreaFrame` actually read, inside the provider, where nothing
+ * overwrites them. `initialMetrics` stays because it is correct on native and it is
+ * what the first paint uses before the web provider clobbers it.
  */
 /** Never fires: the value is constant, we only need the server/client split. */
 const subscribeNever = () => () => {};
@@ -53,6 +79,10 @@ const FIDELITY_METRICS: Metrics = {
 
 function Chrome() {
   const { isDark, tokens, scheme } = useTheme();
+  // Read through the hook every screen reads, not from the constant: this is the value
+  // that was silently zero for months (#7), and a probe echoing FIDELITY_METRICS would
+  // have agreed with itself the whole time.
+  const insets = useSafeAreaInsets();
   // Client-only render. The server must emit nothing here: writing the scheme
   // into the static HTML says "light", the client then says "dark", and that is
   // a hydration text mismatch (React #418) -- a warning of our own making, in
@@ -65,7 +95,19 @@ function Chrome() {
   return (
     <>
       {mounted && process.env.EXPO_PUBLIC_FIDELITY === '1' && (
-        <Text testID="scheme-probe" style={{ position: 'absolute', opacity: 0 }}>{scheme}</Text>
+        <>
+          <Text testID="scheme-probe" style={{ position: 'absolute', opacity: 0 }}>{scheme}</Text>
+          {/*
+            THE GATE FOR #7. `initialMetrics` was discarded by the web provider and nothing
+            said so, so the harness spent months comparing screenshots taken with no insets
+            against renders drawn with them. `pnpm shots` reads this back and fails if it
+            does not match the frame the export was built with -- a red gate rather than a
+            drift nobody can see.
+          */}
+          <Text testID="inset-probe" style={{ position: 'absolute', opacity: 0 }}>
+            {`${insets.top}x${insets.bottom}`}
+          </Text>
+        </>
       )}
       <StatusBar style={isDark ? 'light' : 'dark'} />
       <Stack
@@ -171,16 +213,36 @@ export default function RootLayout() {
     [flaky, emptyWorld, invitedWorld],
   );
 
+  const app = (
+    <ThemeProvider>
+      <RepositoryProvider repository={repository}>
+        <ToastProvider>
+          <Chrome />
+        </ToastProvider>
+      </RepositoryProvider>
+    </ThemeProvider>
+  );
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider {...(fidelity ? { initialMetrics: FIDELITY_METRICS } : {})}>
-        <ThemeProvider>
-          <RepositoryProvider repository={repository}>
-            <ToastProvider>
-              <Chrome />
-            </ToastProvider>
-          </RepositoryProvider>
-        </ThemeProvider>
+        {/*
+          INSIDE the provider, not instead of it: the provider still measures, still
+          works on a device, and these two contexts are simply the last word under the
+          harness. Anything else -- a CSS variable, a fidelity-only wrapper View --
+          would inset the pixels while `useSafeAreaInsets()` kept returning zeros, and
+          every screen that adds an inset to its own padding would then be measuring
+          the wrong number. See the note above.
+        */}
+        {fidelity ? (
+          <SafeAreaFrameContext.Provider value={FIDELITY_METRICS.frame}>
+            <SafeAreaInsetsContext.Provider value={FIDELITY_METRICS.insets}>
+              {app}
+            </SafeAreaInsetsContext.Provider>
+          </SafeAreaFrameContext.Provider>
+        ) : (
+          app
+        )}
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

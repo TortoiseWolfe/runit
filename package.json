@@ -22,6 +22,7 @@
     "render:canvas": "node tools/render-canvas.mjs",
     "serve:dist": "node tools/serve-dist.mjs",
     "shots": "node tools/shoot-app.mjs",
+    "shots:appstore": "EXPO_PUBLIC_FIDELITY=1 EXPO_PUBLIC_FIDELITY_FRAME=414x896x44x34 expo export --platform web --output-dir dist --clear && SHOT_PRESET=appstore node tools/shoot-app.mjs",
     "start": "expo start",
     "start:go": "expo start --go",
     "test": "jest",
