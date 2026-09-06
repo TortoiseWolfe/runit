@@ -960,3 +960,24 @@ in this environment and Apple caches for days. Lane F proves the QR encodes the 
 jest proves the config agrees; a phone proves the rest and nothing else does. Until one
 has, the universal link is **unverified** — check it with Settings → Developer → Universal
 Links → Diagnostics.
+
+**Postscript to V: the host was somebody else's.** `INVITE_ORIGIN` shipped for one commit
+as `runit.pages.dev`. That name is taken — by an unrelated project serving an OAuth
+callback page that answers **200 on every path**. So for one commit every QR this app
+generates pointed at a stranger's website, and `associatedDomains` declared a relationship
+with a domain we do not control.
+
+The unit tests passed the whole time, and they were correct to. They assert that
+`INVITE_ORIGIN`, `app.json` and the association file **agree** — and they did agree,
+perfectly, about the wrong host. **Agreement is not ownership.** Nor is a status code: a
+`200` check would have passed against that catch-all too.
+
+`tools/verify-links.mjs` is the lane that can tell the difference, and the only thing that
+distinguishes our host from anyone's is what comes back in the **body** — an association
+file naming our team and bundle id, and a page carrying our App Store id. Pointed at the
+stranger's host it reports four specific failures; pointed at an undeployed name it skips
+loudly, because Cloudflare Pages must be connected by a human in a browser and a gate
+nobody can satisfy gets deleted.
+
+`pages.dev` names are global and first-come. Probe before choosing one: an unclaimed
+`<name>.pages.dev` does not resolve at all, while a taken one answers.

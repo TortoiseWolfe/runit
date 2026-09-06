@@ -5,7 +5,7 @@ No build step, no framework, no backend.
 
 | File | What it is |
 |---|---|
-| `.well-known/apple-app-site-association` | Tells iOS that `runit.pages.dev/i/*` belongs to this app, so the link opens it. |
+| `.well-known/apple-app-site-association` | Tells iOS that `runit-app.pages.dev/i/*` belongs to this app, so the link opens it. |
 | `_headers` | Forces `Content-Type: application/json` on that file. **This is why the site is here.** |
 | `_redirects` | Rewrites `/i/ANYCODE` to the one page, without changing the URL. |
 | `i/index.html` | The page a stranger sees. Shows the code big enough to type, links to the App Store. |
@@ -26,17 +26,20 @@ One-time, in the Cloudflare dashboard:
 
 1. **Workers & Pages → Create → Pages → Connect to Git**, and pick `TortoiseWolfe/runit`.
 2. Framework preset **None**, build command **empty**, **build output directory `web`**.
-3. Name the project **`runit`** so the host is `runit.pages.dev`.
+3. Name the project **`runit-app`** so the host is `runit-app.pages.dev`.
+   **Not `runit`** — that name is already taken by an unrelated project, which is how
+   this was found. Probe a name before choosing it: an unclaimed `<name>.pages.dev`
+   does not resolve at all, while a taken one answers.
 
 **If that name is taken, the host changes and three files must follow it** — `INVITE_ORIGIN` in `src/lib/invite.ts`, `associatedDomains` in `app.json`, and this README. `src/lib/invite.test.ts` fails if they disagree, which is the point.
 
 Then check it:
 
 ```bash
-curl -sI https://runit.pages.dev/.well-known/apple-app-site-association | grep -i content-type
+curl -sI https://runit-app.pages.dev/.well-known/apple-app-site-association | grep -i content-type
 #   want: content-type: application/json
 
-curl -s https://runit.pages.dev/i/HOUSE7 | grep -o 'id="code"'
+curl -s https://runit-app.pages.dev/i/HOUSE7 | grep -o 'id="code"'
 #   want: one match — the page renders and fills the code from the path
 ```
 

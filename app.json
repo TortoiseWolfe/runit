@@ -14,7 +14,7 @@
         "ITSAppUsesNonExemptEncryption": false
       },
       "associatedDomains": [
-        "applinks:runit.pages.dev"
+        "applinks:runit-app.pages.dev"
       ]
     },
     "android": {

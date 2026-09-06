@@ -104,6 +104,7 @@ pnpm audit:targets              # Lane A2: touch targets, WCAG 2.2 SC 2.5.8 (AA)
 pnpm audit:keyboard             # Lane A3: keyboard strategy + return-key contract
 pnpm export:web && pnpm shots   # Lane B: screenshots at 402x874 + colour gate
 pnpm test:e2e                   # Lane B: 206 Playwright journeys, dark + light
+pnpm verify:links               # Lane G: is the invitation host OURS, and does it serve JSON
 pnpm feedback:sync              # TestFlight tester feedback -> GitHub issues
 pnpm render:canvas              # regenerate design/renders/ from the canvas
 ```
@@ -414,6 +415,13 @@ that lives in a button handler is bypassed by the second caller.
   `auth_user_id` NULL; `claim_host` binds it when they present the key. `claim_host` also
   refuses a second seat to someone who already holds one at that event -- not an
   escalation, but it would strand the seat it was minted for.
+- **A 200 IS NOT OWNERSHIP.** `INVITE_ORIGIN` was `runit.pages.dev` for one commit; that
+  name belongs to a stranger whose project answers 200 on EVERY path. Every QR pointed at
+  their site. The unit tests passed and were right to -- they assert `INVITE_ORIGIN`,
+  `app.json` and the association file AGREE, and they did. Agreement is not ownership.
+  `pnpm verify:links` (lane G) is the one that can tell, because it reads the BODY back and
+  looks for our own appID and App Store id in it. `pages.dev` names are global and
+  first-come; an unclaimed one does not resolve at all, so probe before choosing.
 - **THE UNIVERSAL LINK IS UNVERIFIED, and no lane here can change that.** A misconfigured
   one fails SILENTLY -- it opens Safari instead of the app, forever. `src/lib/invite.test.ts`
   proves `INVITE_ORIGIN`, `app.json`'s `associatedDomains`, `web/.well-known/apple-app-site-association`

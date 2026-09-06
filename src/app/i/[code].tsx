@@ -3,7 +3,7 @@ import { Redirect, useLocalSearchParams } from 'expo-router';
 /**
  * Where a universal link lands.
  *
- * `https://runit.pages.dev/i/HOUSE7` is what the QR encodes and what a guest taps in a
+ * `https://runit-app.pages.dev/i/HOUSE7` is what the QR encodes and what a guest taps in a
  * message. With the association file in place iOS opens the app on THIS path rather than
  * the browser, so the route has to exist -- without it expo-router falls through to
  * `+not-found` and an invitation would open the app on an error screen, which is worse

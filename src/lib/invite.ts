@@ -23,8 +23,18 @@ import type { RunitEvent } from '@/data/types';
  * apex `tortoisewolfe.github.io` 404s and no user-site repo exists. Pages also cannot set
  * a Content-Type -- it returns `application/octet-stream` for an extensionless file,
  * measured against `runit-legal/.nojekyll`, where Apple documents `application/json`.
+ *
+ * NOT `runit.pages.dev`, AND THIS IS THE INTERESTING PART. That name is taken -- by a
+ * stranger, serving an OAuth callback page that answers 200 on EVERY path. It was in this
+ * constant for one commit, which pointed every QR we generate at somebody else's website.
+ * `pages.dev` names are global and first-come.
+ *
+ * The unit tests did not catch it and could not: they assert that this constant, app.json
+ * and the association file AGREE, which they did. Agreement is not ownership, and a 200 is
+ * not ownership either. `pnpm verify:links` is the check that can tell the difference,
+ * because it reads the BODY back and looks for our own appID in it.
  */
-export const INVITE_ORIGIN = 'https://runit.pages.dev';
+export const INVITE_ORIGIN = 'https://runit-app.pages.dev';
 
 /**
  * The invitation link, and the string the QR encodes.
