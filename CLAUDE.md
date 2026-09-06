@@ -289,10 +289,26 @@ undecodable, which is the contrast/quiet-zone/resolution class a camera in a dim
 would hit.
 
 **H — the adapter that ships, against the database that ships** (`pnpm export:web:live &&
-pnpm smoke:live`). Nine checks driving `SupabaseRepository` through a real browser against
+pnpm smoke:live`). Fifteen checks driving `SupabaseRepository` through a real browser against
 the live project: `create_event`, the founding host seat, a broadcast round-tripping through
-realtime, a founder taking a guest seat (#37), her seat NOT counted in the room, and
-`request_song` both inserting and merging (#44).
+realtime, a founder taking a guest seat (#37), her seat NOT counted in the room,
+`request_song` both inserting and merging (#44), and **the whole photo chain** — two objects
+uploaded, the album rendering a SIGNED THUMBNAIL that has actually decoded, and the viewer
+signing the full-size object by a different path.
+
+**The photo assertions have three clauses and all three are load-bearing.** An `<img>` whose
+src 403s renders nothing while every DOM assertion still passes; and decoding alone is
+satisfied by the `data:` URI of the guest's own bytes, which would prove only that
+`capture.web.ts` works. So: decoded, AND a signed storage URL, AND naming `_t.jpg`.
+Mutation-checked by deleting `displayUrl` from `photoCache`'s comparator — the exact failure
+its own comment warns about — which turns the album red and leaves the viewer green, because
+the viewer resolves on demand rather than through the comparator.
+
+**It sweeps its own bytes, and the ORDER is the lesson.** `event_photos_delete` requires the
+EVENT to still exist (`is_host(foldername(name)[1])`), so deleting rows first strands the
+objects where nothing but a service role can reach them — `storage.protect_delete()` refuses
+direct SQL. `init.sql` has said "BYTES FIRST, ROW SECOND" since the first migration and it
+was still got wrong here, stranding 840 bytes. `docs/smoke-live.md`.
 
 **It is the only lane that can see four things.** RPC ARGUMENT NAMES — PostgREST resolves
 overloads by name, so `p_titel` is a runtime 404 against a function that exists, and
