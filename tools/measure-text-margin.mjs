@@ -24,33 +24,18 @@
  *
  * Requires a built dist/ (`pnpm export:web`).
  */
-import { createServer } from 'node:http';
-import { readFile } from 'node:fs/promises';
-import { extname, join, resolve } from 'node:path';
-import { createRequire } from 'node:module';
-const require = createRequire(import.meta.url);
-const { chromium } = require('@playwright/test');
+import { join, resolve } from 'node:path';
+import { chromium } from '@playwright/test';
+
+import { serveDir } from './lib/serve.mjs';
 const ROOT = resolve(import.meta.dirname, '..');
 const DIST = join(ROOT, 'dist');
-const TYPES = { '.html':'text/html', '.js':'text/javascript', '.css':'text/css',
-  '.json':'application/json', '.png':'image/png', '.svg':'image/svg+xml', '.ttf':'font/ttf' };
-const server = createServer(async (req, res) => {
-  const url = (req.url ?? '/').split('?')[0];
-  for (const p of [join(DIST, url), join(DIST, url, 'index.html'), join(DIST, 'index.html')]) {
-    try {
-      const body = await readFile(p);
-      res.writeHead(200, { 'Content-Type': TYPES[extname(p)] ?? 'application/octet-stream' });
-      return res.end(body);
-    } catch {}
-  }
-  res.writeHead(404).end();
-});
-await new Promise((r) => server.listen(4199, r));
+const server = await serveDir(DIST);
 
 const browser = await chromium.launch();
 const ctx = await browser.newContext({ colorScheme: 'dark', viewport: { width: 402, height: 874 } });
 const page = await ctx.newPage();
-await page.goto('http://127.0.0.1:4199/join', { waitUntil: 'networkidle' });
+await page.goto(`${server.url}/join`, { waitUntil: 'networkidle' });
 await page.waitForSelector('[data-testid="scheme-probe"]');
 await page.fill('[data-testid="join-nickname"]', 'Ada');
 await page.click('[data-testid="join-submit"]');

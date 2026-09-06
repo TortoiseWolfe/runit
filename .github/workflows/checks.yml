@@ -44,3 +44,24 @@ jobs:
           name: screenshots
           path: design/screenshots/
           if-no-files-found: ignore
+
+      # THE BEST DIAGNOSTIC THIS REPO PRODUCES WAS BEING THROWN AWAY. `playwright.config.ts`
+      # already sets `trace: 'retain-on-failure'` and `screenshot: 'only-on-failure'`, and
+      # compose.yaml sets CI=1 so an HTML report is written too -- all of it inside the
+      # container, and all of it discarded when the container was removed. A failed journey
+      # produces a time-travelling DOM recording; without this it never left the machine.
+      #
+      # `playwright-report/` is self-contained: the html reporter copies attachments into
+      # data/ and bundles the trace viewer, so it opens a failed journey on its own. The
+      # standalone lanes write siblings under test-results/ (lane-b, lane-h) -- which is why
+      # the journeys were given their own subtree, since `playwright test` wipes its
+      # outputDir at the start of every run.
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failure-artifacts
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore

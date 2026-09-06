@@ -10,36 +10,21 @@
  *
  * Usage: node tools/render-canvas.mjs
  */
-import { createServer } from 'node:http';
-import { readFile } from 'node:fs/promises';
-import { existsSync, mkdirSync } from 'node:fs';
-import { extname, join, resolve } from 'node:path';
-import { createRequire } from 'node:module';
+import { mkdirSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { chromium } from '@playwright/test';
 
-const require = createRequire(import.meta.url);
-let chromium;
-for (const spec of ['playwright', '@playwright/test']) {
-  try { ({ chromium } = require(spec)); break; } catch {}
-}
-if (!chromium) { console.error('No playwright available. Run: pnpm install'); process.exit(1); }
+import { serveDir } from './lib/serve.mjs';
 
 const ROOT = resolve(import.meta.dirname, '..');
 const DESIGN = join(ROOT, 'design');
 const OUT = join(DESIGN, 'renders');
 mkdirSync(OUT, { recursive: true });
 
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
-  '.jsx': 'text/jsx; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png' };
-
-const server = createServer(async (req, res) => {
-  const path = decodeURIComponent(req.url.split('?')[0]);
-  const file = join(DESIGN, path === '/' ? 'Runit.dc.html' : path);
-  if (!file.startsWith(DESIGN) || !existsSync(file)) { res.writeHead(404).end('not found'); return; }
-  res.writeHead(200, { 'content-type': MIME[extname(file)] ?? 'application/octet-stream' });
-  res.end(await readFile(file));
-});
-await new Promise(r => server.listen(0, '127.0.0.1', r));
-const url = `http://127.0.0.1:${server.address().port}/Runit.dc.html`;
+// `spa: false` and a custom index: this serves the CANVAS, a directory of real files, so a
+// missing one must 404 rather than fall back to an SPA shell that does not exist here.
+const server = await serveDir(DESIGN, { spa: false, index: 'Runit.dc.html' });
+const url = `${server.url}/Runit.dc.html`;
 console.log('serving', url);
 
 const browser = await chromium.launch();

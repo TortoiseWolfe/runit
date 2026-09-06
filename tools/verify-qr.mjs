@@ -14,12 +14,13 @@
  * decodes the pixels. Exits non-zero if the payload is not the join link for the seeded
  * event.
  */
-import { spawn } from 'node:child_process';
 import { readFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium } from '@playwright/test';
 import jsQR from 'jsqr';
 import { PNG } from 'pngjs';
+
+import { serveDir } from './lib/serve.mjs';
 
 const ROOT = join(import.meta.dirname, '..');
 const SHOT = join(ROOT, '.qr-verify.png');
@@ -42,15 +43,13 @@ if (!INVITE_ORIGIN) {
 }
 const EXPECTED = `${INVITE_ORIGIN}/i/SR1017`;
 
-const server = spawn('node', [join(ROOT, 'tools/serve-dist.mjs')], {
-  stdio: ['ignore', 'pipe', 'inherit'],
-});
-const base = await new Promise((resolve) => {
-  server.stdout.on('data', (d) => {
-    const m = /http:\/\/\S+/.exec(String(d));
-    if (m) resolve(m[0].trim());
-  });
-});
+// IMPORTED, NOT SPAWNED. This used to start `serve-dist.mjs` as a child and scrape its URL
+// off stdout -- and that server writes its `No dist/` guard to STDERR before exiting 1, so
+// the promise never settled and this lane HUNG instead of failing. Importing also drops the
+// fixed port 4173, which `playwright.config.ts` uses too: an open `test:e2e:ui` session
+// collided with this.
+const server = await serveDir(join(ROOT, 'dist'));
+const base = server.url;
 
 const browser = await chromium.launch();
 try {
@@ -87,7 +86,7 @@ try {
   console.log(`\x1b[32mok: the QR decodes to ${found.data}\x1b[0m`);
 } finally {
   await browser.close();
-  server.kill();
+  server.close();
   try {
     unlinkSync(SHOT);
   } catch {

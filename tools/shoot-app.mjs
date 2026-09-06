@@ -8,19 +8,13 @@
  * This validates layout, colour, copy and the state machine. It does NOT
  * validate native rendering -- see design/FIDELITY.md.
  */
-import { createServer } from 'node:http';
-import { readFile } from 'node:fs/promises';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { extname, join, resolve } from 'node:path';
-import { createRequire } from 'node:module';
-import { pixelAt } from './px.mjs';
+import { join, resolve } from 'node:path';
+import { chromium } from '@playwright/test';
 
-const require = createRequire(import.meta.url);
-let chromium;
-for (const spec of ['playwright', '@playwright/test']) {
-  try { ({ chromium } = require(spec)); break; } catch {}
-}
-if (!chromium) { console.error('pnpm add -D @playwright/test'); process.exit(1); }
+import { pixelAt } from './px.mjs';
+import { serveDir } from './lib/serve.mjs';
+import { capture, laneDir, writeReport } from './lib/artifacts.mjs';
 
 const ROOT = resolve(import.meta.dirname, '..');
 const DIST = join(ROOT, 'dist');
@@ -48,26 +42,8 @@ const OUT = join(ROOT, 'design', STORE ? 'appstore' : 'screenshots');
 if (!existsSync(DIST)) { console.error('No dist/. Run: pnpm export:web'); process.exit(1); }
 mkdirSync(OUT, { recursive: true });
 
-const MIME = {
-  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8', '.json': 'application/json',
-  '.png': 'image/png', '.svg': 'image/svg+xml', '.ttf': 'font/ttf', '.woff2': 'font/woff2',
-};
-
-const server = createServer(async (req, res) => {
-  const path = decodeURIComponent(req.url.split('?')[0]);
-  const candidates = [join(DIST, path), join(DIST, `${path}.html`), join(DIST, path, 'index.html')];
-  // SPA fallback: web.output is "single", so every route is served by the one
-  // index.html and resolved client-side. See design/FIDELITY.md note F for why
-  // this is not "static".
-  const file = candidates.find((f) => f.startsWith(DIST) && existsSync(f) && extname(f))
-    ?? join(DIST, 'index.html');
-  if (!existsSync(file)) { res.writeHead(404).end('not found'); return; }
-  res.writeHead(200, { 'content-type': MIME[extname(file)] ?? 'application/octet-stream' });
-  res.end(await readFile(file));
-});
-await new Promise((r) => server.listen(0, '127.0.0.1', r));
-const base = `http://127.0.0.1:${server.address().port}`;
+const server = await serveDir(DIST);
+const base = server.url;
 console.log('serving', base);
 
 /**
@@ -241,14 +217,29 @@ const browser = await chromium.launch();
 let wrote = 0;
 const shots = [];
 
-for (const scheme of ['dark', 'light']) {
-  const ctx = await browser.newContext({
+/**
+ * THE WALK HAD NO try/catch AT ALL. A `waitForSelector` that missed anywhere in it was a raw
+ * unhandled rejection: a Node stack, no page, no URL, no screenshot of the moment, and the
+ * three gates below silently never ran. What follows preserves the gates exactly -- they stay
+ * OUTSIDE this try so their own `process.exit(1)` cannot be swallowed -- and adds the state a
+ * reader needs to know what the app was doing when it stopped.
+ */
+let walkError = null;
+let scheme = '';
+let ctx = null;
+let page = null;
+let errors = [];
+let lastShot = 'none';
+
+try {
+for (scheme of ['dark', 'light']) {
+  ctx = await browser.newContext({
     colorScheme: scheme,
     viewport: VIEWPORT,
     deviceScaleFactor: 3,
   });
-  const page = await ctx.newPage();
-  const errors = [];
+  page = await ctx.newPage();
+  errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 
@@ -293,9 +284,10 @@ for (const scheme of ['dark', 'light']) {
       console.error('  The fidelity metrics are not reaching the screens, so every');
       console.error('  screenshot below would be taken with the insets collapsed and');
       console.error('  lane D would compare it against a render that has them. See #7.');
-      await browser.close();
-      server.close();
-      process.exit(1);
+      // A THROW rather than an inline exit, so provenance is still stamped (`complete:
+      // false`) and the artifacts are captured. The four lines above are unchanged, so
+      // anyone grepping the message still finds it.
+      throw new Error('fidelity insets did not reach the screens');
     }
   };
 
@@ -308,7 +300,8 @@ for (const scheme of ['dark', 'light']) {
     shots.push({ file, scheme, name });
     contrast.push(...(await auditContrast(page)).map((f) => ({ ...f, scheme, name })));
     gutter.push(...(await auditGutter(page, VIEWPORT.width)).map((f) => ({ ...f, scheme, name })));
-    wrote++; console.log('  wrote', `${name}.${scheme}`);
+    wrote++; lastShot = `${name}.${scheme}`;
+    console.log('  wrote', `${name}.${scheme}`);
   };
 
   // 01 Join
@@ -386,10 +379,22 @@ for (const scheme of ['dark', 'light']) {
     for (const e of [...new Set(errors)].slice(0, 5)) console.log('    ', e.slice(0, 200));
   }
   await ctx.close();
+  ctx = null;
 }
-
-await browser.close();
-server.close();
+} catch (e) {
+  walkError = e;
+  const dir = laneDir(STORE ? 'lane-b-appstore' : 'lane-b');
+  const url = await capture(page, dir, `failure-${scheme}`);
+  writeReport(dir, {
+    url,
+    error: e,
+    console: errors,
+    extra: { scheme, screenshotsTaken: shots.length, lastCompleted: lastShot },
+  });
+} finally {
+  await browser.close().catch(() => {});
+  server.close();
+}
 console.log(
   `\n${wrote} screenshots -> design/${STORE ? 'appstore' : 'screenshots'}/` +
     ` at ${VIEWPORT.width * 3}x${VIEWPORT.height * 3}, insets ${FIDELITY_FRAME}`,
@@ -413,12 +418,34 @@ writeFileSync(
         : 'Host fonts (DejaVu). Matches design/renders/, so Lane D comparisons are valid.',
       node: process.versions.node,
       shots: shots.length,
+      /**
+       * WHETHER THE WALK FINISHED. `design/screenshots/` is never cleared, so a run that
+       * aborted halfway leaves a mix of this run's PNGs and the previous run's -- and a
+       * Lane D reader has no way to tell by looking. This is what stops them trusting it.
+       */
+      complete: walkError === null,
     },
     null,
     2,
   ) + '\n',
 );
 console.log(`provenance: rendered on the ${inContainer ? 'container' : 'host'}`);
+
+/**
+ * THE GATES DO NOT RUN ON A PARTIAL WALK, and that is the point of exiting here.
+ *
+ * `shots` accumulates as the walk goes, so running the colour gate over 4 of 22 entries
+ * would print "all 4 screenshots painted the expected base-100" -- a green line measuring
+ * almost nothing, which is the exact failure the coverage floors in lanes A, A2 and E exist
+ * to prevent. Provenance is written above either way, stamped `complete: false`.
+ */
+if (walkError) {
+  console.error(`\n${String(walkError)}`);
+  console.error(`\n\x1b[31mFAIL: the walk aborted after ${shots.length} screenshot(s).\x1b[0m`);
+  console.error(`  gates NOT RUN: colour, contrast and gutter all need the full set.`);
+  console.error(`  artifacts: test-results/${STORE ? 'lane-b-appstore' : 'lane-b'}/`);
+  process.exit(1);
+}
 
 /**
  * COLOUR GATE.
