@@ -10,13 +10,14 @@ import { useRouter } from 'expo-router';
 import { denialMessage } from '@/domain/denials';
 import {
   EntitlementError, JoinError, ScheduleError,
-  type CreatedEvent, type EventDetails, type NewEvent, type UploadOutcome,
+  type CreatedEvent, type EventDetails, type InvitedHost, type NewEvent, type NewHost,
+  type UploadOutcome,
 } from '@/data/repository';
 import { capturePhoto } from '@/lib/capture';
 import { checkLimit } from '@/domain/entitlements';
 import { useEntitlements } from './hooks';
 import type {
-  FolderId, GuestId, HostRole, PhotoId, ReportId, ReportReason, ReportResolution,
+  FolderId, GuestId, PhotoId, ReportId, ReportReason, ReportResolution,
   ReportSubject, ScheduleItemId, SongRequestId,
 } from '@/data/types';
 import { useRepository } from './RepositoryProvider';
@@ -292,8 +293,29 @@ export function useHostActions() {
       },
       addScheduleItem: () =>
         repo.schedule.add({ title: 'New item', timeLabel: null, place: '' }),
-      invite: (displayName: string, role: HostRole) =>
-        guarded(() => repo.hosts.invite({ displayName, role })),
+      /**
+       * Mint a co-host seat and hand back the key that redeems it, once.
+       *
+       * `guarded` returns false on an EntitlementError after toasting the limit, so the
+       * caller distinguishes "denied" from "here is the key" by the null. The key is NOT
+       * toasted: a toast is gone in four seconds and this string exists nowhere else.
+       */
+      invite: async (input: NewHost): Promise<InvitedHost | null> => {
+        let minted: InvitedHost | null = null;
+        try {
+          const ok = await guarded(async () => {
+            minted = await repo.hosts.invite(input);
+          });
+          if (!ok) return null;
+        } catch (e) {
+          // `guarded` handles EntitlementError and RE-THROWS everything else, so the
+          // adapter's own refusals -- not a host, no name, a schema mismatch -- would
+          // otherwise surface as an unhandled rejection with the sheet still open.
+          show(e instanceof Error ? e.message : 'Could not add that co-host.');
+          return null;
+        }
+        return minted;
+      },
       /**
        * Correct the event's name, date, venue or doors line.
        *

@@ -54,7 +54,7 @@ const MIN_AA = 24;
  * with this gate still reporting success, and a floor that loose measures nothing.
  * A real reduction should fail here and be lowered on purpose; that is the point.
  */
-const COVERAGE_FLOOR = 49;
+const COVERAGE_FLOOR = 51;
 
 /** Opens an interactive element. Pressable covers this repo; Touchable* is here
  *  so the check keeps working if someone reaches for the older API. */

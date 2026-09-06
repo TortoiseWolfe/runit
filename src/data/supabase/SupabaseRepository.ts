@@ -14,16 +14,18 @@ import { Signal, setEqual, shallowArrayEqual } from './signal';
 import { UploadOverlay } from './UploadOverlay';
 import {
   EntitlementError, JoinError, ScheduleError,
-  type EventDetails, type EventPreview, type JoinReason, type NewEvent,
+  type EventDetails, type EventPreview, type JoinReason, type NewEvent, type NewHost,
   type Observable, type RunitRepository, type UploadOutcome,
 } from '../repository';
 import type {
-  BlockedGuest, Broadcast, Folder, FolderId, GuestId, Host, HostRole, NowPlaying, Photo,
+  BlockedGuest, Broadcast, Folder, FolderId, GuestId, Host, NowPlaying, Photo,
   PhotoId, Report, ReportId, ReportReason, ReportResolution, ReportSubject, RunitEvent,
   ScheduleItem, ScheduleItemId, Session, SongRequest, SongRequestId,
 } from '../types';
 import { subjectKey } from '../types';
-import { checkFeature, checkLimit, type Entitlements } from '@/domain/entitlements';
+import {
+  checkFeature, checkLimit, firstTierWith, nextTierFor, type Entitlements,
+} from '@/domain/entitlements';
 import { TIERS } from '@/domain/tiers';
 
 /**
@@ -193,7 +195,7 @@ export class SupabaseRepository implements RunitRepository {
   private readonly sigPending = new Signal<Photo[]>([], shallowArrayEqual);
   private readonly sigApproved = new Signal<Photo[]>([], shallowArrayEqual);
   private readonly sigMine = new Signal<Photo[]>([], shallowArrayEqual);
-  private readonly sigHosts = new Signal<{ id: string; displayName: string; role: HostRole }[]>(
+  private readonly sigHosts = new Signal<Host[]>(
     [], shallowArrayEqual,
   );
   private readonly sigBlocked = new Signal<BlockedGuest[]>([], shallowArrayEqual);
@@ -356,9 +358,9 @@ export class SupabaseRepository implements RunitRepository {
     this.sigMine.set(this.overlay.rows(this.myGuestId));
 
     this.sigHosts.set(
-      this.cHosts
-        .reconcile(this.hostRows)
-        .map(({ id, displayName, role }) => ({ id, displayName, role })),
+      // roleLabel included: the console prints it, and stripping it here is why a seat
+      // list could not show "Riley · Bride" without going through the Session.
+      this.cHosts.reconcile(this.hostRows).map((h) => ({ ...h })),
     );
 
     this.sigBlocked.set([...this.blockRows].sort(byBlockedNewestFirst));
@@ -1373,15 +1375,72 @@ export class SupabaseRepository implements RunitRepository {
   /* ------------------------------------------------------------------- hosts */
 
   hosts = {
-    all: undefined as unknown as Observable<{ id: string; displayName: string; role: HostRole }[]>,
-    invite: async (_input: { displayName: string; role: HostRole }) => {
-      // Refused, loudly. `hosts` has no INSERT policy at all, so this would raise
-      // 42501 anyway -- saying so here names the actual reason rather than leaving
-      // a caller to read a Postgres error.
-      throw new Error(
-        'hosts.invite is not available against Supabase: public.hosts has no INSERT ' +
-          'policy. Add a host with a service-role insert.',
-      );
+    all: undefined as unknown as Observable<Host[]>,
+    invite: async (input: NewHost) => {
+      const eventId = this.requireEvent();
+      // `hosts` STILL has no INSERT policy, and that has not changed. A co-host is not a
+      // row a client composes: it is a seat plus a credential, and the two arrive together
+      // or the seat is unreachable. invite_host is the only route, same as create_event.
+      const { data, error } = await this.db.rpc('invite_host', {
+        p_event: eventId,
+        p_display_name: input.displayName,
+        p_role: input.role,
+        p_role_label: input.roleLabel ?? '',
+      });
+      if (error) {
+        // 54023 is the function's own cap refusal -- either the tier's host limit or a
+        // role on a plan without hostRoles. Both are entitlement denials, so they surface
+        // as EntitlementError and useGuardedAction toasts the limit, exactly as the
+        // in-memory adapter has always done.
+        if (isPgError(error) && error.code === '54023') {
+          // POSTGRES IS AUTHORITATIVE, and the denial is built from the domain rather
+          // than read back from the client's own gate. Asking `checkLimit` here would be
+          // asking the stale party whether the authoritative one was right: this adapter
+          // holds a cached `hosts` count and a cached tier, and a co-host added on
+          // another device moves neither. Every path out of this branch is a denial,
+          // because the server already refused.
+          const tierId = this.sigEntitlements.get().tier.id;
+          const max = TIERS[tierId].limits.maxHosts;
+          throw new EntitlementError(
+            input.role === 'host'
+              ? {
+                  kind: 'limit',
+                  limit: 'hosts',
+                  current: max,
+                  max,
+                  tierId,
+                  upgradeTo: nextTierFor('hosts', max + 1),
+                }
+              : {
+                  kind: 'feature',
+                  feature: 'hostRoles',
+                  tierId,
+                  upgradeTo: firstTierWith('hostRoles'),
+                },
+          );
+        }
+        if (isPgError(error) && error.code === '42501') {
+          throw new Error('Only a host of this event can invite another.');
+        }
+        if (isPgError(error) && error.code === '22023') {
+          throw new Error('A co-host needs a name and a role.');
+        }
+        throw error;
+      }
+
+      const row = data?.[0];
+      if (!row) {
+        throw new Error(
+          'invite_host returned no row. It returns exactly one on success, so this is a ' +
+            'schema mismatch rather than a refusal -- check the function signature.',
+        );
+      }
+
+      // The new seat is unclaimed and `hosts` is not in the realtime publication, so
+      // nothing would show it until the next fetch-once. Re-read now.
+      await this.loadFetchOnce();
+      this.recompute();
+      return { hostId: row.host_id, hostKey: row.host_key };
     },
   };
 }

@@ -48,6 +48,9 @@ declare
   cuid uuid := 'aaaaaaaa-0000-0000-0000-000000000001';
   nuid uuid := 'aaaaaaaa-0000-0000-0000-000000000002';
   ce record; kold text; knew text;
+  -- invite_host fixtures: the DJ who gets a seat but never an account.
+  muid uuid := 'aaaaaaaa-0000-0000-0000-000000000003';
+  iv record;
   out text[] := '{}';
   fails int := 0;
 
@@ -70,7 +73,8 @@ begin
   values (buid,'00000000-0000-0000-0000-000000000000','authenticated','authenticated',null,true,now(),now());
   insert into auth.users (id, instance_id, aud, role, email, is_anonymous, created_at, updated_at)
   values (cuid,'00000000-0000-0000-0000-000000000000','authenticated','authenticated',null,true,now(),now()),
-         (nuid,'00000000-0000-0000-0000-000000000000','authenticated','authenticated',null,true,now(),now());
+         (nuid,'00000000-0000-0000-0000-000000000000','authenticated','authenticated',null,true,now(),now()),
+         (muid,'00000000-0000-0000-0000-000000000000','authenticated','authenticated',null,true,now(),now());
   insert into public.events (id, code, name, venue, starts_at, timezone, tier, invited_count)
   values (eid2,'TEST02','Other','Hall',now(),'America/New_York','event',10);
   insert into public.folders (id,event_id,name,position) values (fid2,eid2,'Main',0);
@@ -511,6 +515,107 @@ begin
     out := out || format('FAIL a stranger rotated somebody else''s host key');
   exception when others then
     out := out || format('%s only a host of that event can rotate its key (%s)',
+                         case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  ------------------------------------------------ INVITING A CO-HOST (#16)
+  -- SHE IS ON THE NEW PHONE NOW. The recovery assertions above rebound her seat to
+  -- `nuid`, which is the whole point of them -- so `cuid` is a stranger to this event
+  -- from here on, and using it would test the wrong person. The event is still
+  -- house_party, which create_event made it.
+  execute 'reset role';
+  perform set_config('request.jwt.claims', json_build_object('sub',nuid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+
+  -- THE FREE TIER INCLUDES ONE HOST, and its own featureLines say so. She is that host,
+  -- so there is no room -- which is a coherent ladder, not a bug, and the point of
+  -- asserting it is that the cap is enforced by POSTGRES rather than by the client that
+  -- would otherwise be trusted to count its own seats.
+  begin
+    perform public.invite_host(ce.event_id, 'DJ Marco', 'dj', 'DJ');
+    out := out || format('FAIL a house_party host minted a second seat');
+  exception when others then
+    out := out || format('%s the free tier stops at one host (%s)',
+                         case when sqlstate = '54023' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  -- Move to the tier whose headline is "5 hosts with roles". Service role, because
+  -- `tier` is outside the column grant -- which is exactly what a purchase path would
+  -- have to do, and why #30 blocks the paid tiers being reachable at all.
+  execute 'reset role';
+  update public.events set tier = 'event' where id = ce.event_id;
+  perform set_config('request.jwt.claims', json_build_object('sub',nuid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+
+  select * into iv from public.invite_host(ce.event_id, '  DJ Marco  ', 'dj', '');
+  out := out || format('%s invite_host returns a key off the safe alphabet (%s)',
+                       case when iv.host_key ~ '^[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$'
+                            then 'PASS' else 'FAIL' end, iv.host_key);
+
+  select h.role_label into lbl from public.hosts h where h.id = iv.host_id;
+  out := out || format('%s an empty role_label falls back to the role name (%s)',
+                       case when lbl = 'DJ' then 'PASS' else 'FAIL' end, lbl);
+
+  -- NOBODY HOLDS THE SEAT YET. auth_user_id stays null until the key is presented, which
+  -- is what makes an invitation an invitation rather than an assignment.
+  select count(*) into n from public.hosts h
+   where h.id = iv.host_id and h.auth_user_id is null;
+  out := out || format('%s the seat is unclaimed until someone presents the key (%s, want 1)',
+                       case when n = 1 then 'PASS' else 'FAIL' end, n);
+
+  select count(*) into n from public.host_claims hc
+   where hc.host_id = iv.host_id and hc.secret_hash = upper(replace(iv.host_key,'-',''));
+  out := out || format('%s only the hash is stored for a co-host too (%s, want 0)',
+                       case when n = 0 then 'PASS' else 'FAIL' end, n);
+
+  -- ONE SEAT PER PERSON. The founder holding the DJ's key must not be able to take his
+  -- seat as well: it would strand the seat, and nothing on screen would say why.
+  begin
+    perform public.claim_host(ce.code, iv.host_key);
+    out := out || format('FAIL the founder collected the co-host seat, stranding it');
+  exception when others then
+    out := out || format('%s one seat per person per event (%s)',
+                         case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  -- THE DJ REDEEMS IT, with no account and a key typed off a note.
+  execute 'reset role';
+  perform set_config('request.jwt.claims', json_build_object('sub',muid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  out := out || format('%s a person holding no key is not a host',
+                       case when public.is_host(ce.event_id) = false then 'PASS' else 'FAIL' end);
+  who := public.claim_host(ce.code, lower(replace(iv.host_key,'-',' ')));
+  out := out || format('%s the DJ redeems his key with no account (%s)',
+                       case when who = iv.host_id then 'PASS' else 'FAIL' end, coalesce(who::text,'null'));
+  out := out || format('%s and is a host of the event afterwards',
+                       case when public.is_host(ce.event_id) then 'PASS' else 'FAIL' end);
+
+  -- ONLY A HOST INVITES. Not a guest, not a stranger holding the event code.
+  execute 'reset role';
+  perform set_config('request.jwt.claims', json_build_object('sub',guid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  begin
+    perform public.invite_host(ce.event_id, 'Gatecrasher', 'host', '');
+    out := out || format('FAIL a non-host minted a seat');
+  exception when others then
+    out := out || format('%s only a host of that event can invite (%s)',
+                         case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  -- THE CAPS ARE A TABLE, READABLE AND NOT WRITABLE. They are duplicated in
+  -- src/domain/tiers.ts because two consumers need them and no literal crosses that
+  -- boundary; src/domain/tiers.test.ts re-parses this migration and fails on drift.
+  execute 'reset role';
+  perform set_config('request.jwt.claims', json_build_object('sub',nuid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  select count(*) into n from public.tier_limits;
+  out := out || format('%s tier_limits is readable by a client (%s, want 4)',
+                       case when n = 4 then 'PASS' else 'FAIL' end, n);
+  begin
+    update public.tier_limits set max_hosts = 99 where tier = 'house_party';
+    out := out || format('FAIL a client rewrote the pricing caps');
+  exception when others then
+    out := out || format('%s nobody rewrites the caps from a client (%s)',
                          case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
   end;
 

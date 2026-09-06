@@ -17,7 +17,7 @@
  */
 import type {
   BlockedGuest, Broadcast, Folder, FolderId, GuestId, HostRole, Instant, NowPlaying, Photo, PhotoId,
-  Report, ReportId, ReportReason, ReportResolution, ReportSubject,
+  Host, HostId, Report, ReportId, ReportReason, ReportResolution, ReportSubject,
   RunitEvent, ScheduleItem, ScheduleItemId, Session, SongRequest, SongRequestId,
 } from './types';
 import type { EntitlementDenial, Entitlements } from '@/domain/entitlements';
@@ -131,6 +131,24 @@ export interface NewEvent extends EventDetails {
 export interface CreatedEvent {
   code: string;
   /** Grouped for reading off a note -- XV24-HJ78-DBAB. The dashes are presentation. */
+  hostKey: string;
+}
+
+/** A seat to mint. `roleLabel` is free text; empty falls back to the role's own name. */
+export interface NewHost {
+  displayName: string;
+  role: HostRole;
+  roleLabel?: string;
+}
+
+/**
+ * What minting a seat hands back, once.
+ *
+ * `hostKey` exists here and nowhere else -- only its bcrypt hash is stored, so there is no
+ * route that recovers it afterwards. Same contract as `CreatedEvent`, for the same reason.
+ */
+export interface InvitedHost {
+  hostId: HostId;
   hostKey: string;
 }
 
@@ -373,8 +391,30 @@ export interface RunitRepository {
   };
 
   hosts: {
-    all: Observable<{ id: string; displayName: string; role: HostRole }[]>;
-    invite(input: { displayName: string; role: HostRole }): Promise<void>;
+    /**
+     * Every seat at this event, including unclaimed ones.
+     *
+     * Carries `roleLabel` now, because that is what the console PRINTS -- "Riley · Bride"
+     * -- and a seat list that could not render it was showing the permission grade to a
+     * person who only cares about the human label.
+     */
+    all: Observable<Host[]>;
+    /**
+     * Mint a seat for a co-host and return the key that redeems it, ONCE.
+     *
+     * The invitee needs no account: they type the key on the join screen and `claimHost`
+     * binds the seat to whatever anonymous session they are holding. That is the whole
+     * point of the key mechanism -- the DJ and the floor staff should not need accounts.
+     *
+     * Returns the plaintext because only its bcrypt hash is stored. A caller that drops
+     * this value has destroyed the seat's only credential, exactly as with `create`.
+     *
+     * Rejects with `EntitlementError` at the tier's host cap, and when a role other than
+     * 'host' is asked for on a tier without `hostRoles`. Both are enforced in Postgres
+     * against `tier_limits`, not here -- a check in the client is bypassed by the second
+     * client.
+     */
+    invite(input: NewHost): Promise<InvitedHost>;
   };
 
   /**

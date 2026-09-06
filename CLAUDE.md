@@ -103,7 +103,7 @@ pnpm audit:styles               # Lane A: the RN colour-parser gate
 pnpm audit:targets              # Lane A2: touch targets, WCAG 2.2 SC 2.5.8 (AA)
 pnpm audit:keyboard             # Lane A3: keyboard strategy + return-key contract
 pnpm export:web && pnpm shots   # Lane B: screenshots at 402x874 + colour gate
-pnpm test:e2e                   # Lane B: 186 Playwright journeys, dark + light
+pnpm test:e2e                   # Lane B: 198 Playwright journeys, dark + light
 pnpm feedback:sync              # TestFlight tester feedback -> GitHub issues
 pnpm render:canvas              # regenerate design/renders/ from the canvas
 ```
@@ -182,7 +182,7 @@ gate** that composites every rendered text colour over its painted backdrop and
 fails below WCAG AA. Contrast, unlike `hitSlop`, is honestly measurable in this
 lane: `alpha()` emits a real `rgba()` over real DOM backgrounds.
 
-`pnpm test:e2e` runs 186 journey tests (`tests/e2e/`) across both colour
+`pnpm test:e2e` runs 198 journey tests (`tests/e2e/`) across both colour
 schemes: join and its rejection path, the three guest tabs, the host console,
 the pricing ladder and every denial it can render, and the painted theme
 tokens. Each spec was written against the canvas and then attacked by a critic
@@ -259,7 +259,7 @@ would hit.
 see row-level security behave. It runs `supabase/verify-policies.sql`, which seeds an
 event, a guest and a host inside a `DO` block, switches
 role with `set local role authenticated` and a forged `request.jwt.claims`, asserts
-**fifty-nine** behaviours, and RAISES at the end so nothing commits -- the "error" it
+**seventy-two** behaviours, and RAISES at the end so nothing commits -- the "error" it
 prints IS the report.
 
 **It did not run at all until 2026-09-05, and nothing said so.** A setup line inserted
@@ -403,6 +403,17 @@ that lives in a button handler is bypassed by the second caller.
   will throw: `loadFetchOnce` did, and only creating an event exposed it. `loadBlocks` is
   the pattern to copy -- a null guest id is a real state with an empty answer, not a
   fallback.
+- **THE TIER CAPS LIVE IN TWO PLACES ON PURPOSE**, and `src/domain/tiers.test.ts` is what
+  makes that safe. `public.tier_limits` is what `invite_host` enforces against, because a
+  check in a client is bypassed by the second client; `src/domain/tiers.ts` is what the
+  pricing copy renders. No literal crosses that boundary, so the test re-parses the
+  migration's own seed and fails on drift -- same shape as `tokens.test.ts` re-parsing
+  `theme.css`. NULL in SQL and `Infinity` in TypeScript both mean unlimited; `0` would
+  mean the opposite and read as plausible.
+- **A co-host has no `guests` row AND no account.** `invite_host` mints a seat with
+  `auth_user_id` NULL; `claim_host` binds it when they present the key. `claim_host` also
+  refuses a second seat to someone who already holds one at that event -- not an
+  escalation, but it would strand the seat it was minted for.
 - **Credentials are minted by `mint_token`, never by `random()`.** Postgres's `random()`
   is a per-session PRNG and explicitly not cryptographic, and `create_event` is callable
   by anyone who can sign in anonymously -- so minting keys with it hands an attacker an
@@ -467,15 +478,14 @@ file:line evidence in it, because a roadmap living in prose is how six missing
 capabilities came to hide inside one line. `gh issue list --repo TortoiseWolfe/runit`
 is the scope; issue #1 is the ordering.
 
-**A host can now make her own event** (`/create`, reached from a quiet link on the join
-screen). What is still missing: #16 (`invite_host` -- nothing can mint a seat for a DJ or
-a planner) · #17 (multi-event) · #18 (host sign-in + custom SMTP) · #19 (account
-deletion, mandatory the day #18 ships).
+**A host can now make her own event and staff it.** What is still missing: #17
+(multi-event) · #18 (host sign-in + custom SMTP) · #19 (account deletion, mandatory the
+day #18 ships) · **#33 (the QR encodes `runit://`, a dead string to anyone without the
+app -- `runit-legal` already exists to serve an apple-app-site-association)**.
 
-**Closed:** #15 (`event_preview`) · #14 (a host edits name/date/venue/timezone/doors at
-`/host/event`) · #13 (`create_event` -- one transaction: the event, a folder, an
-`active_folder_id`, the founding host seat and a recovery key) · #32 (that key, shown
-once, and rotatable). FIDELITY notes S and T.
+**Closed:** #15 (`event_preview`) · #14 (event details at `/host/event`) · #13
+(`create_event`) · #32 (the recovery key) · #16 (`invite_host` -- a co-host gets a seat
+and a key, never an account). FIDELITY notes S, T and U.
 
 **Advertised and unenforced.** #21 (three of four granted features are enforced only in
 `MemoryRepository`, so a free-tier host can pin against Supabase) · #22 (`maxGuests` in
