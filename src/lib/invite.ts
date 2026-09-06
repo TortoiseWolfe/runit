@@ -12,15 +12,51 @@ import type { RunitEvent } from '@/data/types';
  */
 
 /**
- * The deep link. `src/app/join.tsx` reads `code` from the query string.
+ * WHERE INVITATIONS LIVE. One constant, because four things must agree about it: this
+ * link, `app.json`'s `associatedDomains`, the association file under `web/.well-known/`,
+ * and the host actually serving them. `src/lib/invite.test.ts` asserts the first three;
+ * only a device can check the fourth.
  *
- * A CUSTOM SCHEME, WITH A KNOWN LIMIT: it only resolves on a phone that already has Runit
- * installed. To anyone else it is a dead string, which is why every share below leads with
- * the CODE and treats the link as a convenience rather than the payload. A universal
- * https link needs an apple-app-site-association file, and `runit-legal` is already
- * positioned to serve one -- that is the upgrade, not a rewrite of this.
+ * A Cloudflare Pages subdomain rather than the GitHub Pages site the legal pages use, and
+ * the reason is narrow: Apple serves the association file from the DOMAIN ROOT, and
+ * `runit-legal` is a project site that can only ever answer under `/runit-legal/`. The
+ * apex `tortoisewolfe.github.io` 404s and no user-site repo exists. Pages also cannot set
+ * a Content-Type -- it returns `application/octet-stream` for an extensionless file,
+ * measured against `runit-legal/.nojekyll`, where Apple documents `application/json`.
+ */
+export const INVITE_ORIGIN = 'https://runit.pages.dev';
+
+/**
+ * The invitation link, and the string the QR encodes.
+ *
+ * IT USED TO BE `runit://join?code=…`, and this docblock used to explain that it "only
+ * resolves on a phone that already has Runit installed. To anyone else it is a dead
+ * string." That was true, and it made a printed QR useless to exactly the person a
+ * printed card is for -- a stranger at the door who does not have the app.
+ *
+ * An https link fixes both ends. With the association file in place iOS hands it straight
+ * to the app, code and all, and it survives the trip through the App Store on a fresh
+ * install. Without it -- and it is UNVERIFIED here, since checking needs a real iPhone --
+ * the link still opens a page that shows the code big enough to type. That is the point
+ * worth keeping: this change is an improvement even if the association never validates,
+ * because the failure mode went from silence to a readable page.
+ *
+ * `/i/` rather than `/join?code=`: it is shorter on a printed card, it makes a smaller
+ * QR, and it keeps the association file's path matching to one unambiguous prefix.
  */
 export function joinLink(code: string): string {
+  return `${INVITE_ORIGIN}/i/${encodeURIComponent(code.trim().toUpperCase())}`;
+}
+
+/**
+ * The custom scheme, kept and no longer the payload.
+ *
+ * Still registered and still instant when the app IS installed, so the web fallback page
+ * offers it as a manual escape hatch for the case iOS did not hand the link over -- most
+ * often a fresh install that has not yet fetched the association file. Nothing shared
+ * with a guest uses it, because to anyone without the app it remains a dead string.
+ */
+export function appSchemeLink(code: string): string {
   return `runit://join?code=${encodeURIComponent(code.trim().toUpperCase())}`;
 }
 

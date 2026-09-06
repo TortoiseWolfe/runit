@@ -1,0 +1,6 @@
+# /i/HOUSE7 is a path, not a file. One page reads the code out of the URL, so there is
+# nothing to generate per event and nothing to rebuild when an event is created.
+#
+# 200, not 301: a redirect would change the URL in the address bar and, more importantly,
+# Apple's universal-link matching runs against the URL as SENT. Rewriting keeps /i/CODE.
+/i/*  /i/index.html  200

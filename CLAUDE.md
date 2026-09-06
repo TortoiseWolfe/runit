@@ -103,7 +103,7 @@ pnpm audit:styles               # Lane A: the RN colour-parser gate
 pnpm audit:targets              # Lane A2: touch targets, WCAG 2.2 SC 2.5.8 (AA)
 pnpm audit:keyboard             # Lane A3: keyboard strategy + return-key contract
 pnpm export:web && pnpm shots   # Lane B: screenshots at 402x874 + colour gate
-pnpm test:e2e                   # Lane B: 198 Playwright journeys, dark + light
+pnpm test:e2e                   # Lane B: 206 Playwright journeys, dark + light
 pnpm feedback:sync              # TestFlight tester feedback -> GitHub issues
 pnpm render:canvas              # regenerate design/renders/ from the canvas
 ```
@@ -182,7 +182,7 @@ gate** that composites every rendered text colour over its painted backdrop and
 fails below WCAG AA. Contrast, unlike `hitSlop`, is honestly measurable in this
 lane: `alpha()` emits a real `rgba()` over real DOM backgrounds.
 
-`pnpm test:e2e` runs 198 journey tests (`tests/e2e/`) across both colour
+`pnpm test:e2e` runs 206 journey tests (`tests/e2e/`) across both colour
 schemes: join and its rejection path, the three guest tabs, the host console,
 the pricing ladder and every denial it can render, and the painted theme
 tokens. Each spec was written against the canvas and then attacked by a critic
@@ -414,6 +414,15 @@ that lives in a button handler is bypassed by the second caller.
   `auth_user_id` NULL; `claim_host` binds it when they present the key. `claim_host` also
   refuses a second seat to someone who already holds one at that event -- not an
   escalation, but it would strand the seat it was minted for.
+- **THE UNIVERSAL LINK IS UNVERIFIED, and no lane here can change that.** A misconfigured
+  one fails SILENTLY -- it opens Safari instead of the app, forever. `src/lib/invite.test.ts`
+  proves `INVITE_ORIGIN`, `app.json`'s `associatedDomains`, `web/.well-known/apple-app-site-association`
+  and `web/_headers` describe the same app at the same address; Lane F proves the QR
+  encodes it. Only an iPhone proves iOS accepts it -- Settings -> Developer -> Universal
+  Links -> Diagnostics. `web/README.md` has the deploy steps and what to curl.
+- **The host lives in ONE constant**, `INVITE_ORIGIN` in `src/lib/invite.ts`. If the
+  Cloudflare project name changes, that plus `app.json` plus `web/README.md` move together
+  or the test fails.
 - **Credentials are minted by `mint_token`, never by `random()`.** Postgres's `random()`
   is a per-session PRNG and explicitly not cryptographic, and `create_event` is callable
   by anyone who can sign in anonymously -- so minting keys with it hands an attacker an
@@ -480,12 +489,12 @@ is the scope; issue #1 is the ordering.
 
 **A host can now make her own event and staff it.** What is still missing: #17
 (multi-event) · #18 (host sign-in + custom SMTP) · #19 (account deletion, mandatory the
-day #18 ships) · **#33 (the QR encodes `runit://`, a dead string to anyone without the
-app -- `runit-legal` already exists to serve an apple-app-site-association)**.
+day #18 ships).
 
 **Closed:** #15 (`event_preview`) · #14 (event details at `/host/event`) · #13
 (`create_event`) · #32 (the recovery key) · #16 (`invite_host` -- a co-host gets a seat
-and a key, never an account). FIDELITY notes S, T and U.
+and a key, never an account) · #33 (the QR encodes a universal link, so a scan works for
+someone without the app). FIDELITY notes S, T, U and V.
 
 **Advertised and unenforced.** #21 (three of four granted features are enforced only in
 `MemoryRepository`, so a free-tier host can pin against Supabase) · #22 (`maxGuests` in

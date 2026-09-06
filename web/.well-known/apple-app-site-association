@@ -1,0 +1,15 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["Y774K5FF67.com.turtlewolfe.runit"],
+        "components": [
+          {
+            "/": "/i/*",
+            "comment": "An invitation. Opens the app straight to the join screen with the code filled in."
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -54,9 +54,10 @@ export function JoinScreen() {
    * the canvas's promise, broken by the backend that makes the app real.
    *
    * A link carrying the code is what restores it, which is why this is the param
-   * rather than the seed that wins. `runit://join?code=HOUSE7` and `/join?code=HOUSE7`
-   * both land here; before this the route read no params at all and dropped the code
-   * on the floor.
+   * rather than the seed that wins. Three shapes land here: `https://<origin>/i/HOUSE7`
+   * via `src/app/i/[code].tsx`, the `runit://join?code=HOUSE7` scheme, and a plain
+   * `/join?code=HOUSE7`. Before any of it the route read no params at all and dropped the
+   * code on the floor.
    */
   const params = useLocalSearchParams<{ code?: string }>();
   const [code, setCode] = useState(
