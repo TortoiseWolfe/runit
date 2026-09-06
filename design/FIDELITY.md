@@ -1459,3 +1459,72 @@ She **is** the host; the message is about the other direction.
 
 Hiding the console's copy would have stranded her completely. Two opposite failures of one
 control want two fixes, so that one is **#37** rather than a second half of this note.
+
+## AE. The guest list, so that "Send to 180 guests" names something
+The composer has always read **"Send to 180 guests"**, and until now nothing in the app
+could set that number. `invitees` has existed since the first migration with four host-only
+policies, a unique index and a count-folding trigger. There was simply no screen.
+
+**The near-miss is the point of this note.** The cheap fix looked like deleting the copy —
+and it would have deleted a **tested distinction**, not a fiction. `invitedCount` and
+`guestCount` are two deliberately different facts, recorded in four places:
+
+- `types.ts` — *"the canvas hardcodes 180 into 'Send to 180 guests' while its guestCount
+  pill says 172, so these are two genuinely different numbers."*
+- the schema — `invited_count` is *"what a host ADDRESSES, which is a different number
+  from who is present."*
+- the fold — counting rows is deliberate: *"someone imported but not yet emailed is still
+  someone you are expecting."*
+- a Playwright test named **"the composer addresses all 180 invited, not the 173 standing
+  in the room"**, with a belt-and-braces assertion that survives a rewording.
+
+The number was right. The gap was that no screen could set it. **When a promise and the
+code disagree, build the code.**
+
+### Nothing sends, and that is a fence rather than an omission
+
+There is no send control anywhere, and **`invited_at` is written by no code path** — not
+by the client (the new column grant makes it unwritable), not by the server. The schema
+already separates *on the list* from *was emailed*, and the app now respects that boundary.
+
+Whether Runit emails people who have not heard of it is a product and legal decision —
+CAN-SPAM sender identity, a GDPR lawful basis for a third-party address the subject never
+gave *us*, PECR soft-opt-in that Runit cannot claim, an unsubscribe list that no table
+could hold. `init.sql` frames the stakes at the top of the table: *"a HOST uploading OTHER
+PEOPLE'S email addresses, before those people have consented to anything or heard of
+Runit."* Adding a name to a list one host can read is not that decision, and the six open
+questions are in the issue rather than answered here.
+
+### The column grant this table never had
+
+`invitees` was the one write-target with an UPDATE policy and no column grant, so a host
+could rewrite `email` — re-pointing an invitation at a different person — or
+`joined_guest_id`, claiming an arrival that never happened. Now `(email, display_name)`
+only. Same shape `events`, `broadcasts`, `reports` and `hosts` already use.
+
+### Half a trigger had never fired
+
+`invitees_fold` is `after insert **or delete**`, and only the insert arm had ever executed.
+Lane E now exercises the delete: a host removes someone and the count folds back **down**.
+Three more assertions land with it — the grant refusing `invited_at` and `joined_guest_id`,
+and cross-event isolation, which nothing had ever tested. **101 assertions, 0 failures.**
+
+### The seed had a fuse in it
+
+`seed-events.sql` wrote `invited_count` **by hand**. The trigger recomputes the column from
+the table, so a hand-written 10 would survive exactly until the first real invitee — at
+which point *"Send to 10 guests"* becomes *"Send to 1 guest"*. Correct arithmetic, and it
+would read as a regression to whoever met it first. The column is no longer written there
+at all; ten real rows are, and the trigger fills it in.
+
+### Memory shifts by a delta; Postgres recomputes
+
+A deliberate divergence. The fixtures carry a seeded `invitedCount` of 180 with no rows
+behind it, because writing 180 fixture invitees to make one number true would be absurd.
+Recomputing in the adapter would collapse 180 to 1 the moment a host added anybody. The
+property every journey actually needs is that the number **moves**, and a delta gives that
+on top of a seeded baseline. Against Supabase there is no baseline: the count *is* the row
+count and the trigger is the authority.
+
+Mutation-checked — removing the shift fails four of the six journeys, and the two it
+leaves green are the two that do not claim the number moves.

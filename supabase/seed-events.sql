@@ -37,12 +37,12 @@
 -- event in the past. `date_trunc` + the day arithmetic keeps it a real wall-clock 7pm
 -- across DST rather than a fixed UTC offset that drifts by an hour twice a year.
 
-insert into public.events (code, name, venue, starts_at, timezone, doors_label, tier, invited_count)
+insert into public.events (code, name, venue, starts_at, timezone, doors_label, tier)
 values ('HOUSE7', 'House Party', 'The living room',
         ((date_trunc('day', (now() at time zone 'America/New_York'))
           + ((((5 - extract(isodow from (now() at time zone 'America/New_York'))::int + 6) % 7) + 1) * interval '1 day')
           + interval '19 hours') at time zone 'America/New_York'),
-        'America/New_York', 'Doors 7:00 PM', 'event', 10)
+        'America/New_York', 'Doors 7:00 PM', 'event')
 on conflict (code) do nothing;
 
 -- ========================================================================
@@ -54,15 +54,50 @@ on conflict (code) do nothing;
 -- eventTtlHours 48, which would end a demo mid-review and show a reviewer exactly what
 -- a broken app looks like.
 
-insert into public.events (code, name, venue, starts_at, timezone, doors_label, tier, invited_count)
+insert into public.events (code, name, venue, starts_at, timezone, doors_label, tier)
 -- The demo stays in the PAST -- a reviewer should land mid-event, with a run of show
 -- already under way -- but at a believable 6:30 PM rather than two hours ago whenever
 -- the file ran. Yesterday evening, in the venue's zone.
 values ('DEMO42', 'Demo Event', 'Riverside Hall',
         ((date_trunc('day', (now() at time zone 'America/New_York'))
           - interval '1 day' + interval '18 hours 30 minutes') at time zone 'America/New_York'),
-        'America/New_York', 'Doors 6:30 PM', 'event', 40)
+        'America/New_York', 'Doors 6:30 PM', 'event')
 on conflict (code) do nothing;
+
+-- ========================================================================
+-- THE GUEST LIST -- real rows, because the count is folded from them
+-- ========================================================================
+--
+-- `invited_count` USED TO BE WRITTEN BY HAND HERE, and that was a trap with a fuse on it.
+-- `fold_invited_count()` recomputes the column from `public.invitees` on every insert and
+-- delete, so a hand-written 10 survived only until the first real invitee -- at which
+-- point "Send to 10 guests" would become "Send to 1 guest". Correct arithmetic, and it
+-- would read as a regression to whoever saw it first.
+--
+-- So the column is not written here at all. It defaults to 0 and the trigger fills it in
+-- from the rows below, which is the only version of the number that stays true. #25.
+--
+-- These are `example.test` addresses -- a reserved TLD that can never resolve or receive
+-- mail. Nothing sends anything (`invited_at` stays null), but a seed file is exactly where
+-- a real address would rot unnoticed.
+
+insert into public.invitees (event_id, email, display_name)
+select e.id, a.email, a.display_name
+  from public.events e
+  cross join (values
+    ('ada@example.test',    'Ada'),
+    ('bo@example.test',     'Bo'),
+    ('cleo@example.test',   'Cleo'),
+    ('devon@example.test',  'Devon'),
+    ('esme@example.test',   'Esme'),
+    ('finn@example.test',   'Finn'),
+    ('gwen@example.test',   'Gwen'),
+    ('hugo@example.test',   'Hugo'),
+    ('iris@example.test',   'Iris'),
+    ('jonah@example.test',  'Jonah')
+  ) as a(email, display_name)
+ where e.code = 'HOUSE7'
+on conflict do nothing;
 
 -- ========================================================================
 -- FOLDERS -- an event with none refuses every upload

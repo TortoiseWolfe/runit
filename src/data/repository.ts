@@ -16,7 +16,8 @@
  * web client cannot route around them.
  */
 import type {
-  BlockedGuest, Broadcast, BroadcastId, Folder, FolderId, GuestId, HostRole, Instant, NowPlaying, Photo, PhotoId,
+  BlockedGuest, Broadcast, BroadcastId, Folder, FolderId, GuestId, HostRole, Instant,
+  Invitee, InviteeId, NowPlaying, Photo, PhotoId,
   Host, HostId, Report, ReportId, ReportReason, ReportResolution, ReportSubject,
   RunitEvent, ScheduleItem, ScheduleItemId, Session, SongRequest, SongRequestId,
 } from './types';
@@ -285,6 +286,34 @@ export interface RunitRepository {
      * DRAWN, and a screen cannot await an answer during render.
      */
     holdsHostSeat: Observable<boolean>;
+  };
+
+  /**
+   * The guest list (#25) -- who the host is ADDRESSING, which is not who has arrived.
+   *
+   * `event.invitedCount` drives "Send to N guests" in the composer and until now nothing
+   * in the app could set N. The table has existed since the first migration with four
+   * host-only policies and a count-folding trigger; there was simply no screen.
+   *
+   * NOTHING HERE SENDS ANYTHING. There is no `send()` and `invitedAt` is written by no
+   * code path, deliberately: whether Runit emails people who have not heard of it is a
+   * product and legal decision, not an implementation detail. Adding a name to a list a
+   * single host can read is not that.
+   */
+  invitees: {
+    /** Host-only by policy. A guest observes an empty list rather than an error. */
+    all: Observable<Invitee[]>;
+    /**
+     * Rejects a duplicate address case-insensitively, because `Sam@x.com` and `sam@x.com`
+     * are one person and double-mailing them is the fastest way to look broken. The
+     * server holds the same rule as a unique index; this is not the only guard.
+     */
+    add(input: { email: string; displayName?: string }): Promise<void>;
+    /**
+     * Removing someone strands nothing -- unlike a folder or a photo, no bytes hang off
+     * an invitee -- which is why the schema grants DELETE here and nowhere else.
+     */
+    remove(id: InviteeId): Promise<void>;
   };
 
   event: {

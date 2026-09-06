@@ -11,7 +11,8 @@
 import * as Crypto from 'expo-crypto';
 
 import type {
-  BlockedGuest, Broadcast, BroadcastId, Folder, FolderId, GuestId, Host, HostRole, NowPlaying, Photo, PhotoId,
+  BlockedGuest, Broadcast, BroadcastId, Folder, FolderId, GuestId, Host, HostRole,
+  Invitee, InviteeId, NowPlaying, Photo, PhotoId,
   Report, ReportId, ReportReason, ReportResolution, ReportSubject,
   RunitEvent, ScheduleItem, ScheduleItemId, Session, SongRequest, SongRequestId, TierId,
 } from '../types';
@@ -57,6 +58,8 @@ export interface Seed {
    */
   preview: EventPreview | null;
   hosts: Host[];
+  /** Optional so existing fixtures need no edit; an absent list is an empty one. */
+  invitees?: Invitee[];
   broadcasts: Broadcast[];
   schedule: ScheduleItem[];
   requests: SongRequest[];
@@ -204,6 +207,8 @@ export class MemoryRepository implements RunitRepository {
     return this.ev;
   }
   private hostList: Host[];
+  private inviteeList: Invitee[];
+  private sigInvitees: Signal<Invitee[]>;
   private broadcastList: Broadcast[];
   /**
    * The last push token handed to `session.setPushToken` (#27). It is stored rather than
@@ -302,6 +307,8 @@ export class MemoryRepository implements RunitRepository {
 
     this.sigSession = new Signal<Session>({ kind: 'anonymous' });
     this.sigHoldsHostSeat = new Signal<boolean>(true);
+    this.inviteeList = [...(seed.invitees ?? [])];
+    this.sigInvitees = new Signal<Invitee[]>(this.inviteeList);
     this.sigEvent = new Signal<RunitEvent | null>(this.ev);
     // Starts null, like the adapter it stands in for. A preview is something a code
     // produced, never something the world arrived holding.
@@ -405,6 +412,7 @@ export class MemoryRepository implements RunitRepository {
     // a tier or a usage count the write methods have already moved past.
     this.sigEntitlements.set(this.computeEntitlements());
     this.sigEvent.set(this.ev ? { ...this.ev } : null);
+    this.sigInvitees.set(this.inviteeList);
     // Pinned first, then oldest-to-newest -- the canvas renders its feed in
     // insertion order with new messages at the bottom, chat-style.
     this.sigFeed.set(
@@ -582,6 +590,69 @@ export class MemoryRepository implements RunitRepository {
       this.pushToken = token;
     },
   };
+
+  // --------------------------------------------------------------- invitees
+
+  invitees = {
+    all: undefined as unknown as Observable<Invitee[]>,
+
+    add: async ({ email, displayName }: { email: string; displayName?: string }) => {
+      const addr = email.trim();
+      if (!addr) return;
+
+      // CASE-INSENSITIVE, mirroring the `invitees_event_email` unique index. This adapter
+      // is what the whole e2e suite runs, so a rejection nobody can reach here is a
+      // rejection nobody ever tests -- the same argument `hosts.invite` makes for
+      // mirroring the server's caps.
+      if (this.inviteeList.some((i) => i.email.toLowerCase() === addr.toLowerCase())) {
+        throw new Error('That address is already on the list.');
+      }
+
+      this.inviteeList = [
+        ...this.inviteeList,
+        {
+          id: this.id('inv'),
+          email: addr,
+          displayName: displayName?.trim() || null,
+          // NOTHING SENDS, so nothing is invited yet. The schema keeps "on the list" and
+          // "was emailed" apart and so does this.
+          invitedAt: null,
+          joinedGuestId: null,
+        },
+      ];
+      this.shiftInvitedCount(1);
+      this.recompute();
+    },
+
+    remove: async (id: InviteeId) => {
+      const before = this.inviteeList.length;
+      this.inviteeList = this.inviteeList.filter((i) => i.id !== id);
+      if (this.inviteeList.length !== before) this.shiftInvitedCount(-1);
+      this.recompute();
+    },
+  };
+
+  /**
+   * The client-side twin of `fold_invited_count()`. Without it the composer's
+   * "Send to N guests" would not move when a host adds someone -- and since Lane B IS
+   * this adapter, the entire feature would be invisible to every journey.
+   *
+   * IT SHIFTS BY A DELTA RATHER THAN RECOMPUTING, and that is a deliberate divergence
+   * from the server, which does `count(*) from invitees`. The fixtures carry a seeded
+   * `invitedCount` (the wedding's 180) with no rows behind it, because writing 180 fixture
+   * invitees to make one number true would be absurd. Recomputing would therefore collapse
+   * 180 to 1 the moment a host added anybody -- correct arithmetic, and it would read as a
+   * regression to every journey and every person who saw it.
+   *
+   * The property the e2e suite actually needs is that the number MOVES when the list
+   * changes, and a delta gives that on top of a seeded baseline. Against Supabase there is
+   * no baseline: the count IS the row count, and the trigger is the authority.
+   */
+  private shiftInvitedCount(by: number): void {
+    const ev = this.ev;
+    if (!ev) return;
+    this.ev = { ...ev, invitedCount: Math.max(0, ev.invitedCount + by) };
+  }
 
   // ------------------------------------------------------------------ event
 
@@ -1136,6 +1207,7 @@ export class MemoryRepository implements RunitRepository {
   private wire(): void {
     this.session.current = this.sigSession;
     this.session.holdsHostSeat = this.sigHoldsHostSeat;
+    this.invitees.all = this.sigInvitees;
     this.event.current = this.sigEvent;
     this.event.preview = this.sigPreview;
     this.chat.feed = this.sigFeed;

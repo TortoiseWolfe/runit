@@ -707,3 +707,55 @@ describe('reporting something', () => {
     ]);
   });
 });
+
+/* ------------------------------------------------------------------- invitees */
+
+describe('the guest list', () => {
+  it('moves the number the composer addresses, which is the whole point of #25', async () => {
+    // "Send to N guests" reads `event.invitedCount`, and until now nothing in the app
+    // could set N. The number moving is the claim; the list rendering is not.
+    const r = make();
+    const before = r.event.current.get()!.invitedCount;
+    await r.invitees.add({ email: 'sam@example.test', displayName: 'Sam' });
+    expect(r.event.current.get()!.invitedCount).toBe(before + 1);
+    expect(r.invitees.all.get()).toHaveLength(1);
+  });
+
+  it('takes them back off again', async () => {
+    const r = make();
+    const before = r.event.current.get()!.invitedCount;
+    await r.invitees.add({ email: 'sam@example.test' });
+    const [added] = r.invitees.all.get();
+    await r.invitees.remove(added!.id);
+    expect(r.event.current.get()!.invitedCount).toBe(before);
+    expect(r.invitees.all.get()).toHaveLength(0);
+  });
+
+  it('refuses the same address in another case, because that is one person', async () => {
+    // Mirrors the `invitees_event_email` unique index, which is case-insensitive on
+    // purpose. This adapter is what the whole e2e suite runs, so a rejection nobody can
+    // reach here is a rejection nobody ever tests.
+    const r = make();
+    await r.invitees.add({ email: 'Sam@Example.test' });
+    await expect(r.invitees.add({ email: 'sam@example.test' })).rejects.toThrow(/already on the list/);
+    expect(r.invitees.all.get()).toHaveLength(1);
+  });
+
+  it('never marks anyone as invited, because nothing sends', async () => {
+    // `invitedAt` separates "on the list" from "was emailed". Nothing in the product
+    // writes it, deliberately -- whether Runit emails strangers is not an implementation
+    // detail.
+    const r = make();
+    await r.invitees.add({ email: 'sam@example.test' });
+    expect(r.invitees.all.get()[0]!.invitedAt).toBeNull();
+    expect(r.invitees.all.get()[0]!.joinedGuestId).toBeNull();
+  });
+
+  it('ignores an empty address rather than adding a blank row', async () => {
+    const r = make();
+    const before = r.event.current.get()!.invitedCount;
+    await r.invitees.add({ email: '   ' });
+    expect(r.invitees.all.get()).toHaveLength(0);
+    expect(r.event.current.get()!.invitedCount).toBe(before);
+  });
+});

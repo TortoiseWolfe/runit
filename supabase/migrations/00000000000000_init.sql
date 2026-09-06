@@ -1584,6 +1584,18 @@ create trigger invitees_fold
   after insert or delete on public.invitees
   for each row execute function public.fold_invited_count();
 
+-- A COLUMN GRANT, which this table never had. `invitees` is the one write-target with an
+-- UPDATE policy and no column grant, so a host could rewrite `email` (re-pointing an
+-- invitation at a different person), `joined_guest_id` (claiming an arrival that did not
+-- happen) or `created_at`. Same shape `events`, `broadcasts`, `reports` and `hosts`
+-- already use: a policy says WHO may write, a grant says WHICH COLUMNS.
+--
+-- `invited_at` is deliberately NOT grantable from a client. It is the flag that separates
+-- "on the list" from "was emailed", and nothing may set it until something actually
+-- sends -- least of all the client, which cannot send.
+revoke update on public.invitees from authenticated, anon;
+grant  update (email, display_name) on public.invitees to authenticated;
+
 revoke execute on function public.fold_invited_count() from public, anon, authenticated;
 
 -- ========================================================================
