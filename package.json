@@ -34,6 +34,7 @@
     "typecheck": "tsc --noEmit",
     "verify:links": "node tools/verify-links.mjs",
     "verify:policies": "node tools/verify-policies.mjs",
+    "audit:sql": "node tools/audit-sql-declare.mjs",
     "verify:qr": "node tools/verify-qr.mjs",
     "qr:poster": "node tools/make-qr-poster.mjs",
     "scan:device": "node tools/scan-on-device.mjs",
