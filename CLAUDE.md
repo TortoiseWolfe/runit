@@ -689,13 +689,24 @@ Still open: #30 (every paid tier is unreachable — the pricing screen is cut an
 purchase path exists) · #41 (`eventTtlHours` still has zero readers: a free event never
 goes read-only).
 
-**`albumRetentionDays` HAS a reader now (#23), and the sweep does not exist (#40).** The
+**THE RETENTION SWEEP EXISTS AND IS ARMED (#40).** `supabase/functions/sweep-photos`, called
+by `run_photo_sweep()` through pg_net on a `pg_cron` schedule at 04:17 daily. It could not be
+SQL: `storage.protect_delete()` refuses every direct delete on `storage.objects`, so bytes go
+through the Storage API with a service role, which only an Edge Function holds. **Bytes first,
+row second, idempotent** — the row is deliberately left when the Storage API fails, because
+`storage_path` is the only thing that can name the object. `photos_past_retention()` decides
+what expired, in SQL beside `tier_limits`, and the clock runs from `starts_at` because the
+album already says "after the event". `verify_jwt` is not enough for a destructive endpoint —
+the anon key is public — so it also requires `x-sweep-key`, compared inside the database by
+`sweep_authorised()` so the secret never crosses the wire. **No lane here executes an Edge
+Function**, so lane E asserts the rule and the deleting was verified by hand against the live
+project. `docs/retention-sweep.md`, FIDELITY note AQ.
+
+**`albumRetentionDays` HAS a reader (#23), and now an enforcer (#40).** The
 album says how long photos are kept and the number comes from `tier_limits`, but nothing
 deletes anything — retention is stated, not enforced. That order is deliberate: the
 warning landed only after a viewer and a save control existed, because a deadline nobody
-can act on is a threat rather than a warning. The sweep is the one irreversible piece and
-**cannot be written in SQL at all** — `storage.protect_delete()` refuses every direct
-delete on `storage.objects`, so it needs the Storage API with a service role.
+can act on is a threat rather than a warning. The sweep shipped in #40.
 
 **The caps are a table.** `public.tier_limits` holds the numbers; `create_event`,
 `invite_host` and `join_event` read them and no client can write them. A cap that lives

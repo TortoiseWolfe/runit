@@ -2295,3 +2295,78 @@ shape closed three times already.
 is `live` by definition and the pill would be unreachable in the only lane that can screenshot
 it. The failure is never "the control is broken", it is "no test can reach the state where the
 control matters".
+
+## AQ. The retention the album promised, finally enforced
+Since note AI the album has said *"Photos here are kept for N days after the event"* and
+**nothing deleted anything**. The number was real — `tier_limits.album_retention_days`, read
+from the database — and the bytes stayed in the bucket forever. Stating a retention and not
+enforcing it is the smaller of two wrongs, but it is still one, and the storage bill grows
+without a ceiling.
+
+### It could not be written in SQL, and that shaped everything
+
+`storage.protect_delete()` refuses **every** direct delete on `storage.objects` — for the
+project owner as much as for a guest, which lane E has asserted since #10. So a `pg_cron` job
+with a `DELETE` in it is not a smaller version of this feature; it is a version that does not
+run. The bytes can only go through the Storage API with a service role, and that key exists
+nowhere in the app bundle, `.env` or `eas.json`. An Edge Function is the one place it already
+is — the same reasoning that put the push fan-out there.
+
+### Bytes first, row second — and this file learned it the hard way
+
+`init.sql` has carried the rule since the first migration: `storage_path` is the only thing
+that can name an object, so deleting the row first strands the bytes where nothing can reach
+them again. Two days ago I swept lane H's test rows before its objects and orphaned 980 bytes
+that now require a service key to remove. The sweep does it in the right order, leaves the row
+when the Storage API fails so a later run can retry, and treats an already-missing object as
+success — a seeded row that never had bytes, or a previous interrupted run, must still be able
+to finish.
+
+### The clock, which the app had already chosen
+
+`starts_at`, not the photo's `created_at`. The album's sentence says "after **the event**", and
+that sentence is already on screen — so a photo uploaded three days late expires with the
+party rather than outliving it. There was a real decision here and the copy had already made
+it; building it the other way would have quietly broken a promise the app was making.
+
+`null` is never, for the $599 tier. `0` would mean the opposite and read as plausible, which
+is why the column has always been nullable rather than defaulted.
+
+### The credential, because `verify_jwt` is not enough
+
+The gateway proves only that a caller holds *a* project JWT, and the anon key is **public** —
+it is compiled into the bundle. For a fan-out that is tolerable; for an endpoint that destroys
+photographs it is not. So the caller must also present `x-sweep-key`, and the comparison
+happens **inside the database** (`sweep_authorised()`) so the secret never crosses the wire
+and no endpoint can return it. A missing secret and a wrong one answer identically: telling
+them apart tells a prober whether the endpoint is armed.
+
+The first shape read `vault.decrypted_secrets` from inside the function and did not work at
+all — PostgREST exposes `public`, not `vault` — but the reason the final shape is better is
+the one above, not the bug.
+
+### Dry run is an escape, not the default
+
+The caller has to ask for a real sweep. But the report is identical either way, so the thing
+you check before arming a schedule is the thing that then runs. **An irreversible job whose
+rehearsal takes a different code path has not been rehearsed.**
+
+### What proves it, and what does not
+
+`run-checks.sh` never executes an Edge Function, so no gate in this repo proves this one
+works. Stated rather than glossed:
+
+| Claim | How |
+|---|---|
+| An expired free-tier photo is selected; a recent one is not; an unlimited tier never is | **Lane E**, live, 7 assertions |
+| All three functions are revoked from every client role | **Lane E** |
+| A direct SQL delete on `storage.objects` is still refused | **Lane E**, since #10 |
+| **Bytes and row actually disappear, in that order, idempotently** | **By hand against the live project** — a real event, two real objects, backdated; dry run `considered: 1`, sweep `bytes_removed: 2, rows_removed: 1`, re-run `considered: 0`; `folders.photo_count` folded to 0 and no other event was touched |
+| **The scheduled path** | **By hand** — `run_photo_sweep()`, then the 200 read back out of `net._http_response` |
+
+Nothing was due when it was armed: every event on the project is future-dated on a 365-day
+tier, so the first live run deletes nothing. That was checked before scheduling rather than
+after.
+
+**pg_net is fire-and-forget**, so a failed nightly run lands in `net._http_response` and
+nowhere else — the same silence the push fan-out has. `docs/retention-sweep.md` has the query.

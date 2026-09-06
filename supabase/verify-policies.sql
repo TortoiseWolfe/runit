@@ -56,7 +56,7 @@ declare
   buid2 uuid := 'cccccccc-0000-0000-0000-000000000003';
   ce2 record; pin boolean; gcap uuid; filler uuid; i int; bc uuid;
   -- #37 fixtures: the second count, and the seat a guest is promoted into.
-  m int; hst uuid;
+  m int; hst uuid; pho uuid;
   out text[] := '{}';
   fails int := 0;
 
@@ -1305,6 +1305,76 @@ begin
   end;
   execute 'reset role';
   delete from public.song_requests where event_id = ce2.event_id;
+
+  -- ==================================================================
+  -- RETENTION (#40)
+  -- ==================================================================
+  -- The album has promised "kept for N days after the event" since #23. These assert the
+  -- half that decides WHAT expires; the deleting is an Edge Function, because
+  -- `storage.protect_delete()` refuses every direct delete on storage.objects -- which the
+  -- storage block above already proves.
+  execute 'reset role';
+  insert into public.photos (id, event_id, folder_id, uploaded_by_guest_id, uploaded_by_name,
+                             status, hue, storage_path, thumb_path)
+  select gen_random_uuid(), ce2.event_id, e.active_folder_id, gcap, 'Ada', 'approved', 200,
+         ce2.event_id || '/ret.jpg', ce2.event_id || '/ret_t.jpg'
+    from public.events e where e.id = ce2.event_id
+  returning id into pho;
+
+  update public.events set tier = 'house_party', starts_at = now() - interval '400 days'
+   where id = ce2.event_id;
+  select count(*) into n from public.photos_past_retention(500) where id = pho;
+  out := out || format('%s an expired free-tier photo is selected (%s, want 1)',
+                       case when n = 1 then 'PASS' else 'FAIL' end, n);
+
+  -- THE CLOCK RUNS FROM `starts_at`, which is what the album already says out loud: "kept
+  -- for N days after THE EVENT". Building it from the photo's own created_at would let a
+  -- late upload outlive the party and quietly break a promise already on screen.
+  update public.events set starts_at = now() where id = ce2.event_id;
+  select count(*) into n from public.photos_past_retention(500) where id = pho;
+  out := out || format('%s and not while the event is recent -- the clock is starts_at (%s, want 0)',
+                       case when n = 0 then 'PASS' else 'FAIL' end, n);
+
+  -- NULL IS NEVER. `0` would mean the opposite and read as plausible, which is why the
+  -- column is nullable rather than defaulted.
+  update public.events set tier = 'venue', starts_at = now() - interval '4000 days'
+   where id = ce2.event_id;
+  select count(*) into n from public.photos_past_retention(500) where id = pho;
+  out := out || format('%s an unlimited tier is never swept, however old (%s, want 0)',
+                       case when n = 0 then 'PASS' else 'FAIL' end, n);
+
+  -- NONE OF THE THREE IS A CLIENT'S BUSINESS. One lists what is about to be destroyed
+  -- across every event in the project; one is an oracle on the sweep's credential; one
+  -- fires the sweep itself.
+  perform set_config('request.jwt.claims', json_build_object('sub',auid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  begin
+    perform public.photos_past_retention(1);
+    out := out || format('%s a guest listed what is about to be deleted', 'FAIL');
+  exception when others then
+    out := out || format('%s photos_past_retention is revoked from clients (%s)',
+                         case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+  begin
+    perform public.sweep_authorised('guess');
+    out := out || format('%s a client can test sweep keys', 'FAIL');
+  exception when others then
+    out := out || format('%s sweep_authorised is revoked from clients (%s)',
+                         case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+  begin
+    perform public.run_photo_sweep();
+    out := out || format('%s a client can fire the sweep', 'FAIL');
+  exception when others then
+    out := out || format('%s run_photo_sweep is revoked from clients (%s)',
+                         case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  execute 'reset role';
+  out := out || format('%s a wrong sweep key is refused',
+                       case when public.sweep_authorised('nope') = false then 'PASS' else 'FAIL' end);
+  delete from public.photos where id = pho;
+  update public.events set tier = 'event', starts_at = now() + interval '1 day' where id = ce2.event_id;
 
   select count(*) into fails from unnest(out) x where x like 'FAIL%';
   raise exception using message =
