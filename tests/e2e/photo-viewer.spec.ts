@@ -60,6 +60,27 @@ test.describe('opening a photo', () => {
     await expect(page.getByTestId('report-sheet-backdrop')).toBeVisible();
   });
 
+  test('a save control is there, because a RunIt photo exists nowhere else', async ({
+    page,
+  }, testInfo) => {
+    // #39. Capture writes to the app's cache, there is no share sheet, and retention is
+    // coming -- so this is the only way anybody keeps a photo they took.
+    //
+    // WHAT THIS PROVES AND WHAT IT DOES NOT: that the control is present and reachable,
+    // and that tapping it does not throw. `save.web.ts` returns early under
+    // EXPO_PUBLIC_FIDELITY=1 and touches nothing, so **no file is written and none could
+    // be checked here.** A camera roll is Lane C, by hand; iOS not at all.
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await joinAsGuest(page, scheme);
+    await page.getByTestId('tab-photos').click();
+    await page.getByTestId(/^tile-/).first().click();
+
+    await expect(page.getByTestId('viewer-save')).toBeVisible();
+    await page.getByTestId('viewer-save').click();
+    // The viewer stays open: saving is not leaving.
+    await expect(page.getByTestId('viewer-stage')).toBeVisible();
+  });
+
   test('the album still counts nine tiles, not eighteen', async ({ page }, testInfo) => {
     // The tile became a Pressable and kept its testID on the SAME node. Wrapping it in a
     // new parent, or naming the viewer control `tile-something`, would silently double
