@@ -177,6 +177,29 @@ new number arrives over realtime, so reading the composer immediately after the 
 race the write usually loses — it reported "Send to 0 guests" on one run in four. Waiting
 for the fold asserts the trigger; reading once asserts a millisecond.
 
+## When it fails
+
+It leaves `test-results/lane-h/`:
+
+| file | what it is |
+|---|---|
+| `trace.zip` | the whole run in the Playwright trace viewer — DOM snapshots, network, console, action by action. `pnpm exec playwright show-trace test-results/lane-h/trace.zip` |
+| `trace-bo.zip` | the same for the second guest, when one had been opened |
+| `failure.png` / `failure.html` | the page at the moment it stopped |
+| `failure.txt` | the **whole** error, the URL, every console line, and the event code |
+
+The event code is in the report on purpose: without it the artifact is not enough to sweep
+what the failed run left in the production project. And the storage sweep runs on the failure
+path too — a run that aborts is exactly the run you repeat.
+
+Traces are discarded on a green run, the same semantics `playwright.config.ts` gives the
+journeys with `retain-on-failure`.
+
+**This did not exist while the lane was being built**, and its absence is why six throwaway
+probe scripts were written: each one re-derived, badly, the state the browser had been holding
+a moment earlier. Two failures were misdiagnosed for several cycles because the error was
+truncated to its first line — the call log beneath it named the cause immediately.
+
 ## What it does NOT cover, and why neither is a matter of effort
 
 - **Push delivery.** `push.web.ts` returns `null` by design, and its docblock explains why a

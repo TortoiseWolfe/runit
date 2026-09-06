@@ -345,6 +345,23 @@ creates its own event, works only inside it, never touches a row it did not crea
 prints the code it leaves behind. Each run costs one anonymous `auth.users` row that
 Supabase never collects, plus one event. `docs/smoke-live.md` has the sweep.
 
+**WHEN A LANE FAILS IT LEAVES STATE NOW.** `test-results/lane-h/` and `test-results/lane-b/`
+get a screenshot, the DOM, the page URL, the whole error and every console line; lane H adds
+a Playwright `trace.zip` you open with `pnpm exec playwright show-trace`. The journeys always
+had this (`trace: 'retain-on-failure'`) and CI threw it away, uploading only screenshots —
+`checks.yml` uploads `test-results/` and `playwright-report/` on failure now. **`playwright
+test` wipes its `outputDir` at the start of every run**, which is why the journeys were moved
+to `test-results/journeys` and the lanes keep siblings.
+
+**Lane B refuses to run its gates on a partial walk.** `shots` accumulates as the walk goes,
+so a colour gate over 4 of 22 entries would print a green line having measured almost nothing.
+It exits instead, and `.provenance.json` carries `complete: false` — `design/screenshots/` is
+never cleared, so an aborted run otherwise leaves a mix of two runs' PNGs with no way to tell.
+
+**Two of the 22 screenshots differ run to run** — `00-create-key` in both schemes, because the
+recovery key is randomly minted. A byte-comparison baseline can never be clean for those; the
+other 20 are stable and are what a dedupe should be checked against.
+
 **NOT in `run-checks.sh`, on purpose.** Checks run many times an hour; each lane-H run
 writes to production. It is a deliberate command with the standing of `pnpm android` — a
 measurement with a cost, run before a build rather than on every save. It skips loudly

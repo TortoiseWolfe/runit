@@ -29,6 +29,14 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : 'list',
+  /**
+   * PLAYWRIGHT DELETES ITS OUTPUT DIRECTORY AT THE START OF EVERY RUN, unconditionally --
+   * `createRemoveOutputDirsTask` runs in setup regardless of `preserveOutput`. `run-checks.sh`
+   * runs `pnpm shots` BEFORE the journeys, so anything the standalone lanes wrote into the
+   * default `test-results/` would be wiped before CI could upload it. Giving the journeys
+   * their own subtree lets the lanes keep siblings; `.gitignore` already covers the root.
+   */
+  outputDir: 'test-results/journeys',
   timeout: 30_000,
   expect: { timeout: 10_000 },
 

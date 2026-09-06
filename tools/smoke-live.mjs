@@ -41,13 +41,13 @@
  * `.env.local`, CI has no secret store, and a gate that fails closed without them gets
  * switched off within a week.
  */
-import { createServer } from 'node:http';
-import { readFile } from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
-import { extname, join, resolve } from 'node:path';
-import { createRequire } from 'node:module';
+import { join, resolve } from 'node:path';
+import { chromium } from '@playwright/test';
 
-const require = createRequire(import.meta.url);
+import { serveDir } from './lib/serve.mjs';
+import { capture, laneDir, writeReport } from './lib/artifacts.mjs';
+
 const ROOT = resolve(import.meta.dirname, '..');
 const DIST = join(ROOT, 'dist-live');
 
@@ -80,33 +80,12 @@ if (!existsSync(DIST)) {
   process.exit(0);
 }
 
-let chromium;
-for (const spec of ['playwright', '@playwright/test']) {
-  try { ({ chromium } = require(spec)); break; } catch {}
-}
-if (!chromium) { console.error('pnpm add -D @playwright/test'); process.exit(1); }
-
-const MIME = {
-  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8', '.json': 'application/json',
-  '.png': 'image/png', '.svg': 'image/svg+xml', '.ttf': 'font/ttf', '.woff2': 'font/woff2',
-};
-
-const server = createServer(async (req, res) => {
-  const path = decodeURIComponent(req.url.split('?')[0]);
-  const candidates = [join(DIST, path), join(DIST, `${path}.html`), join(DIST, path, 'index.html'), join(DIST, 'index.html')];
-  for (const f of candidates) {
-    try {
-      const body = await readFile(f);
-      res.writeHead(200, { 'content-type': MIME[extname(f)] ?? 'application/octet-stream' });
-      res.end(body);
-      return;
-    } catch {}
-  }
-  res.writeHead(404); res.end();
-});
-await new Promise((r) => server.listen(0, r));
-const base = `http://127.0.0.1:${server.address().port}`;
+// SERVED BY THE SHARED MODULE, which also fixes a real divergence: this file bound
+// `server.listen(0, r)` with no host -- i.e. 0.0.0.0 -- publishing a build of the app,
+// project URL and publishable key inlined, to the local network for the life of the run.
+// Every sibling bound 127.0.0.1. The default is the safe one now.
+const server = await serveDir(DIST);
+const base = server.url;
 
 const results = [];
 const check = (ok, what, detail = '') => {
@@ -162,6 +141,10 @@ console.log(`\nlane H -- ${url.replace(/https:\/\/([a-z0-9]{6}).*/, 'https://$1â
 
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 402, height: 874 } });
+// ALWAYS ON, DISCARDED ON SUCCESS -- the same semantics `playwright.config.ts` gives the
+// journeys with `retain-on-failure`. This lane runs once per build against a live backend
+// and has no by-eye output to perturb, so the trace is worth its cost every time.
+await page.context().tracing.start({ screenshots: true, snapshots: true, sources: true });
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
@@ -174,6 +157,14 @@ let code = '';
  * this bucket happened.
  */
 const sweepPaths = new Set();
+/**
+ * Hoisted so the FAILURE HANDLER can reach them. They were declared inside the try, which
+ * meant the catch could not see the second client at all -- and the cross-client realtime
+ * assertions are exactly the ones that fail on it.
+ */
+let bo = null;
+let boCtx = null;
+const boErrors = [];
 const remember = (u) => {
   const m = u && decodeURIComponent(u).match(/\/object\/sign\/event-photos\/(.+?)\?/);
   if (m) sweepPaths.add(m[1]);
@@ -412,9 +403,9 @@ try {
   // reachable with one identity. A second browser context is a second anonymous user
   // joining by code, which is also the only way this suite has ever exercised realtime
   // BETWEEN clients rather than a client hearing its own echo.
-  const boCtx = await browser.newContext({ viewport: { width: 402, height: 874 } });
-  const bo = await boCtx.newPage();
-  const boErrors = [];
+  boCtx = await browser.newContext({ viewport: { width: 402, height: 874 } });
+  await boCtx.tracing.start({ screenshots: true, snapshots: true, sources: true });
+  bo = await boCtx.newPage();
   bo.on('pageerror', (e) => boErrors.push(e.message));
   await bo.goto(`${base}/join?code=${code}`, { waitUntil: 'networkidle' });
   await bo.waitForSelector('[data-testid="join-submit"]', { timeout: 30_000 });
@@ -514,6 +505,8 @@ try {
   check(back, 'and unblocking puts it back, so a mis-tap is not permanent');
 
   check(boErrors.length === 0, 'no page errors on the second client', boErrors.slice(0, 2).join(' | '));
+  // No path: discarded, exactly as `retain-on-failure` discards a passing journey's trace.
+  await boCtx.tracing.stop().catch(() => {});
   await boCtx.close();
 
   // ------------------------------------------------- the connection itself (#45)
@@ -556,13 +549,29 @@ try {
   check(errors.length === 0, 'no page errors during the journey', errors.slice(0, 2).join(' | '));
 
 } catch (e) {
-  // The FULL message, not the first line. Playwright puts the actionability reason -- "not
-  // visible", "intercepts pointer events", "outside of the viewport" -- in the call log
-  // BELOW the timeout line, and truncating it turned two diagnosable failures into guesses.
-  check(false, 'the journey completed', String(e).split('\n').slice(0, 12).join(' / '));
-  // The console is the only witness to a realtime channel that never subscribed, and a
-  // journey that aborts never reaches the page-errors check at the end.
-  if (errors.length) console.log(`  page console: ${errors.slice(0, 6).join(' | ')}`);
+  // One row per line in the PASS/FAIL table, so its format stays scannable...
+  check(false, 'the journey completed', String(e).split('\n')[0]);
+
+  // ...and the whole of it goes to disk, where truncation cannot hide it. Playwright puts
+  // the actionability reason -- "not visible", "intercepts pointer events", "waiting for
+  // getByTestId(...)" -- in the call log BELOW the timeout line, and squashing that onto one
+  // row turned two diagnosable failures into guesses while this lane was being built.
+  const dir = laneDir('lane-h');
+  await page.context().tracing.stop({ path: join(dir, 'trace.zip') }).catch(() => {});
+  if (boCtx) await boCtx.tracing.stop({ path: join(dir, 'trace-bo.zip') }).catch(() => {});
+  const failedAt = await capture(page, dir, 'failure');
+  if (bo) await capture(bo, dir, 'failure-bo');
+  writeReport(dir, {
+    url: failedAt,
+    error: e,
+    console: [...errors, ...boErrors.map((x) => `[bo] ${x}`)],
+    // The event code goes in the report too: without it the artifact is not enough to sweep
+    // what this run left behind in the production project.
+    extra: { event: EVENT_NAME, code: code || 'not created' },
+  });
+  console.error(`\n${String(e)}`);
+  console.log('  artifacts: test-results/lane-h/  (trace.zip, failure.png, failure.html, failure.txt)');
+  console.log('  open it:   pnpm exec playwright show-trace test-results/lane-h/trace.zip');
 }
 
 /**
@@ -599,6 +608,7 @@ if (sweepPaths.size) {
   console.log(`  swept ${sweepPaths.size} storage object(s): ${swept}`);
 }
 
+await page.context().tracing.stop().catch(() => {});
 await browser.close();
 server.close();
 
