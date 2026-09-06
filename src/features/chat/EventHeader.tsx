@@ -1,8 +1,10 @@
+import { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { useBlocked, useEvent } from '@/state/hooks';
+import { NameSheet } from '@/features/session/NameSheet';
+import { useBlocked, useEvent, useSession } from '@/state/hooks';
 import { alpha, border, insetDelta, radius, tracking, useTheme, weight } from '@/theme';
 
 /**
@@ -16,6 +18,11 @@ export function EventHeader({ eyebrow: eyebrowText }: { eyebrow: string }) {
   const router = useRouter();
   const event = useEvent();
   const blocked = useBlocked();
+  const session = useSession();
+  const [renaming, setRenaming] = useState(false);
+  // A host has no nickname to show -- she has a display name and a role pill on her own
+  // console. This is the guest's identity surface and nobody else's.
+  const nickname = session.kind === 'guest' ? session.nickname.trim() : '';
 
   return (
     <View
@@ -52,12 +59,42 @@ export function EventHeader({ eyebrow: eyebrowText }: { eyebrow: string }) {
           </Text>
         </Pressable>
       )}
+      {/*
+        YOUR OWN NAME, which no screen has ever shown you (#43).
+
+        NOT IN THE CANVAS -- FIDELITY note AM. The canvas has no identity surface at all,
+        because in a prototype the nickname is whatever the designer typed. In a shipped
+        app it is denormalised onto every song request and photo you send, and a guest who
+        typo'd it on the join screen had no way to find that out, let alone fix it.
+
+        It follows the existing conditional-pill pattern beside it rather than inventing
+        chrome: drawn only for a guest session, and only when there is a name, so a host
+        console and the moment before a join are both unchanged. Truncated to one line so
+        a long name cannot push the event's own name off the header.
+      */}
+      {nickname !== '' && (
+        <Pressable
+          onPress={() => setRenaming(true)}
+          accessibilityRole="button"
+          accessibilityLabel={`You are ${nickname}. Change your name.`}
+          testID="name-pill"
+          hitSlop={8}
+          style={[s.pill, s.namePill, { backgroundColor: tokens.base200, borderColor: tokens.base300 }]}
+        >
+          <Text style={[s.pillText, { color: tokens.baseContent }]} numberOfLines={1}>
+            {nickname}
+          </Text>
+        </Pressable>
+      )}
       <View
         testID="guest-count-pill"
         style={[s.pill, { backgroundColor: tokens.base200, borderColor: tokens.base300 }]}
       >
         <Text style={[s.pillText, { color: tokens.baseContent }]}>{event?.guestCount ?? 0} here</Text>
       </View>
+      {/* Rendered only while open, so every opening is a fresh mount and the field starts
+          from the name the room is seeing. See NameSheet's own note. */}
+      {renaming && <NameSheet nickname={nickname} onClose={() => setRenaming(false)} />}
     </View>
   );
 }
@@ -81,5 +118,8 @@ const s = StyleSheet.create({
     borderRadius: radius.pill,
     borderWidth: border,
   },
+  // A cap rather than a flex: the pills sit in a row with the event name, and a 40-character
+  // nickname would otherwise take the header.
+  namePill: { maxWidth: 110 },
   pillText: { fontSize: 12 },
 });

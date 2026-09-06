@@ -861,3 +861,59 @@ describe('marking an announcement read (#24)', () => {
     expect(first(r).seenCount).toBe(0);
   });
 });
+
+describe('changing your own name (#43)', () => {
+  const nameOn = (r: ReturnType<typeof make>, title: string) =>
+    r.music.queue.get().find((q) => q.title === title)?.requestedByName;
+
+  it('rewrites the name on what you already sent, not just the session', async () => {
+    const r = make();
+    await r.session.joinAsGuest({ code: 'SR1017', nickname: 'Ada' });
+    await r.music.request({ title: 'Blue Monday', artist: 'New Order' });
+    expect(nameOn(r, 'Blue Monday')).toBe('Ada');
+
+    await r.session.setNickname('Wren');
+
+    // `requestedByName` is denormalised so a deleted guest does not blank the history.
+    // A rename that moved only the session would leave the old name in front of the room.
+    expect(nameOn(r, 'Blue Monday')).toBe('Wren');
+    expect(r.session.current.get()).toMatchObject({ kind: 'guest', nickname: 'Wren' });
+  });
+
+  it('leaves everybody else alone', async () => {
+    const r = make();
+    await r.session.joinAsGuest({ code: 'SR1017', nickname: 'Ada' });
+    await r.session.setNickname('Wren');
+
+    // Scoped by guest id, not by name. The seed's other requesters are the control.
+    expect(nameOn(r, 'Dancing Queen')).toBe('Priya');
+  });
+
+  it('returns what was STORED, trimmed and capped', async () => {
+    const r = make();
+    await r.session.joinAsGuest({ code: 'SR1017', nickname: 'Ada' });
+
+    expect(await r.session.setNickname('  Wren  ')).toBe('Wren');
+    // 40 is the cap `set_nickname` applies server-side. A screen that echoed its input
+    // would show a name the room is not seeing.
+    const long = 'W'.repeat(60);
+    expect(await r.session.setNickname(long)).toBe('W'.repeat(40));
+  });
+
+  it('refuses an empty name rather than storing one', async () => {
+    const r = make();
+    await r.session.joinAsGuest({ code: 'SR1017', nickname: 'Ada' });
+    await expect(r.session.setNickname('   ')).rejects.toThrow(/cannot be empty/);
+    expect(r.session.current.get()).toMatchObject({ nickname: 'Ada' });
+  });
+
+  it('is not something a host can do, because she holds no guest row', async () => {
+    const r = make();
+    await r.event.create({
+      name: "Ruth's 40th", venue: 'The garden', startsAt: FIXED,
+      timezone: 'America/New_York', doorsLabel: 'Doors 7:00 PM', hostName: 'Ruth',
+    });
+    // Mirrors `set_nickname`'s 42501: `my_guest_id` is null for her until she takes a seat.
+    await expect(r.session.setNickname('Ruthie')).rejects.toThrow(/Not joined as a guest/);
+  });
+});

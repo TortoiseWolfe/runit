@@ -130,14 +130,29 @@ export function useJoinActions() {
 export function useSessionActions() {
   const repo = useRepository();
   const router = useRouter();
+  const { show } = useToast();
   return useMemo(
     () => ({
       closeEvent: async () => {
         await repo.session.closeEvent();
         router.replace('/join');
       },
+      /**
+       * #43. Returns nothing to the caller and reports through the toast instead, because
+       * the two outcomes a person cares about are "it changed" and "it did not", and the
+       * sheet closes either way. The stored name is what is quoted -- `set_nickname` trims
+       * and caps, so echoing the input would name something the room is not seeing.
+       */
+      setNickname: async (nickname: string) => {
+        try {
+          const stored = await repo.session.setNickname(nickname);
+          show(`You are ${stored} now.`);
+        } catch {
+          show('Could not change your name. Try again.');
+        }
+      },
     }),
-    [repo, router],
+    [repo, router, show],
   );
 }
 

@@ -618,6 +618,29 @@ export class MemoryRepository implements RunitRepository {
      * backend signed out and doubled the row. Both exist so the seam stays honest about
      * a difference the fixture cannot feel.
      */
+    setNickname: async (nickname: string) => {
+      const guestId = this.requireGuest();
+      const name = nickname.trim();
+      // Refused rather than defaulted, matching `set_nickname`'s 22023: a blank name is
+      // the one identity in the room with nothing on it.
+      if (!name) throw new Error('A nickname cannot be empty.');
+      const stored = name.slice(0, 40);
+
+      // The denormalised copies move with it, exactly as the RPC does in one transaction.
+      // `requestedByName` and `uploadedByName` exist so a deleted guest does not blank the
+      // history; leaving them stale is the state a rename is opened to fix.
+      this.requestList = this.requestList.map((r) =>
+        r.requestedByGuestId === guestId ? { ...r, requestedByName: stored } : r,
+      );
+      this.photoList = this.photoList.map((p) =>
+        p.uploadedByGuestId === guestId ? { ...p, uploadedByName: stored } : p,
+      );
+      const current = this.sigSession.get();
+      if (current.kind === 'guest') this.sigSession.set({ ...current, nickname: stored });
+      this.recompute();
+      return stored;
+    },
+
     closeEvent: async () => {
       this.sigSession.set({ kind: 'anonymous' });
     },

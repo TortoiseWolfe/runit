@@ -285,6 +285,11 @@ export type Database = {
         };
         Returns: { host_id: string; host_key: string }[];
       };
+      /**
+       * Returns the name as STORED -- trimmed and capped at 40 -- not what was sent (#43).
+       * A screen echoing its own input would show a name the room is not seeing.
+       */
+      set_nickname: { Args: { p_event: string; p_nickname: string }; Returns: string };
       is_host: { Args: { p_event: string }; Returns: boolean };
       join_event: { Args: { p_code: string; p_nickname: string }; Returns: string };
       my_guest_id: { Args: { p_event: string }; Returns: string };

@@ -515,18 +515,79 @@ grant  execute on function public.set_push_token(uuid, text) to authenticated;
 
 -- A COLUMN GRANT ON `guests`, which it has never had. Every other write target narrows
 -- its UPDATE this way -- `events` (:events grant), `broadcasts`, `reports` -- and `guests`
--- was the exception. `guests_update_self` permits a whole ROW, so without this a guest
--- could set their own `event_id` and walk their seat into another party, routing around
--- `join_event`'s code check AND its guest cap (#22).
+-- was the exception. Without it a guest could set their own `event_id` and walk their seat
+-- into another party, routing around `join_event`'s code check AND its guest cap (#22).
 --
--- It is not exploitable today for an unrelated reason -- the missing SELECT policy makes
--- `UPDATE ... WHERE` match nothing (#36) -- which is exactly why the grant should exist
--- anyway: the day somebody adds a select-own policy, the hole opens silently.
+-- IT GUARDS A DOOR NOBODY CAN CURRENTLY OPEN, and that is the reason to keep it. There is
+-- no update policy on `guests` at all now (#36) and no SELECT policy either, so no client
+-- UPDATE matches a row whatever the grant says. The day somebody adds a select-own policy
+-- to make something reachable, this is what stops the hole opening silently in the same
+-- commit.
 --
--- `push_token` is named here for completeness, not because the client uses it: writes go
--- through `set_push_token`, which is SECURITY DEFINER and unaffected by table grants.
+-- Both columns are named for completeness rather than because a client writes them: every
+-- real write goes through `set_push_token` or `set_nickname`, which are SECURITY DEFINER
+-- and unaffected by table grants.
 revoke update on public.guests from authenticated, anon;
 grant  update (nickname, push_token) on public.guests to authenticated;
+
+-- ------------------------------------------------------------------------
+-- YOUR OWN NAME (#43)
+-- ------------------------------------------------------------------------
+--
+-- A guest types a nickname once, on the join screen, and no screen ever shows it back.
+-- They find out it is wrong the way the room does -- under a song request, in front of
+-- everyone -- and until this there was nothing anywhere to change it.
+--
+-- WHY IT IS NOT A CLIENT UPDATE. See the note on `guests` above: the policy that looked
+-- like the route could never fire, and the failure was silent. A SECURITY DEFINER function
+-- scoped to `auth.uid()` is the shape every other guest-owned write already uses here.
+--
+-- WHY IT REWRITES THE DENORMALISED COPIES. `song_requests.requested_by_name` and
+-- `photos.uploaded_by_name` are `not null` on purpose, so a deleted guest does not blank
+-- the history -- the same reasoning as `broadcasts.author_name`. A rename that touched only
+-- `guests.nickname` would leave the old name on every row the guest has already created,
+-- which is precisely the state they opened this to fix.
+--
+-- WHAT IT DELIBERATELY DOES NOT TOUCH: `blocks.blocked_name`, stamped by
+-- `stamp_block_name`, and the subject labels `file_report` derives. Those are a host's
+-- record of who they actioned, and a record that changes under the person who wrote it is
+-- not a record. A rename is not a way to become someone else in a moderation queue.
+create or replace function public.set_nickname(p_event uuid, p_nickname text)
+returns text
+language plpgsql security definer set search_path = public as $$
+declare
+  v_guest uuid;
+  v_name  text;
+begin
+  v_guest := public.my_guest_id(p_event);
+  if v_guest is null then
+    raise exception 'not a guest of this event' using errcode = '42501';
+  end if;
+
+  -- Trimmed, and refused rather than defaulted when empty: a blank nickname is the one
+  -- identity in the room with nothing on it, and `join_event` would have refused it too.
+  v_name := btrim(coalesce(p_nickname, ''));
+  if v_name = '' then
+    raise exception 'empty_nickname' using errcode = '22023';
+  end if;
+  -- The join screen's field is unbounded and this column is `text`; a 40-character cap is
+  -- what the header pill can render without pushing the event name off its own screen.
+  if length(v_name) > 40 then
+    v_name := left(v_name, 40);
+  end if;
+
+  update public.guests set nickname = v_name where id = v_guest;
+  update public.song_requests set requested_by_name = v_name where requested_by_guest_id = v_guest;
+  update public.photos set uploaded_by_name = v_name where uploaded_by_guest_id = v_guest;
+
+  -- Returned rather than assumed, so the client renders what was STORED: the trim and the
+  -- cap both happen here, and a screen that echoed its own input would show a name the
+  -- room is not seeing.
+  return v_name;
+end $$;
+
+revoke execute on function public.set_nickname(uuid, text) from public, anon;
+grant  execute on function public.set_nickname(uuid, text) to authenticated;
 
 
 -- ------------------------------------------------------------------------
@@ -777,8 +838,25 @@ create policy events_read on public.events for select
   using (public.my_guest_id(id) is not null or public.is_host(id));
 
 -- guests: NO select policy, deliberately. Insert goes through join_event().
-create policy guests_update_self on public.guests for update
-  using (auth_user_id = auth.uid()) with check (auth_user_id = auth.uid());
+--
+-- AND NO UPDATE POLICY EITHER, WHICH IS THE POINT OF #36. There was one --
+-- `guests_update_self`, `using (auth_user_id = auth.uid())` -- and it could never fire.
+-- Postgres applies SELECT policies to the rows an `UPDATE ... WHERE` must read to evaluate
+-- its WHERE; with no SELECT policy that read returns nothing, and PostgREST has no way to
+-- issue a WHERE-less update. Measured live: no-WHERE touched 1 row, with a WHERE touched 0,
+-- which is the shape every client sends.
+--
+-- SO IT WAS DELETED RATHER THAN LEFT AS DOCUMENTATION. A policy that says "a guest may
+-- update their own row" invites exactly that implementation, and the failure mode is the
+-- silent one `assertWrote()` exists to catch: zero rows affected, nothing raised. It had
+-- already caught one author -- the first design for the push token was a direct
+-- `update guests set push_token = ...`, which would have failed on every device forever.
+--
+-- Everything a guest may change about their own row goes through a SECURITY DEFINER
+-- function that scopes to `auth.uid()` itself: `set_push_token` above, `set_nickname`
+-- below, and `join_event` for the row's existence. The column grant a few hundred lines up
+-- stays regardless, because it is what stops a future SELECT policy from silently making
+-- `event_id` writable.
 
 -- Hosts are public within the event: their names are printed on every broadcast.
 create policy hosts_read on public.hosts for select
