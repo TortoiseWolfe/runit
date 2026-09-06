@@ -673,6 +673,41 @@ describe('un-pinning an announcement (#26)', () => {
   });
 });
 
+describe('opening a photo full size (#38)', () => {
+  it('signs the FULL-SIZE key, not the thumbnail', async () => {
+    // The whole economy of #10 rests on this split: tiles render 400px copies, and the
+    // 1600px original is signed only when somebody chooses to look at one.
+    const c = ready((f) =>
+      f.seed('photos', [
+        { id: 'ph1', event_id: EVENT, folder_id: FOLDER, uploaded_by_guest_id: GUEST,
+          uploaded_by_name: 'Ada', status: 'approved', hue: 10,
+          storage_path: 'e1/ph1.jpg', thumb_path: 'e1/ph1_t.jpg',
+          created_at: FIXED },
+      ]),
+    );
+    const repo = await join(c);
+    const url = await repo.photos.fullUrl('ph1');
+
+    const signed = c.find('sign', 'event-photos');
+    const paths = signed.flatMap((op) => (op.payload as { paths: string[] }).paths);
+    expect(paths).toContain('e1/ph1.jpg');
+    expect(url).toContain('e1/ph1.jpg');
+  });
+
+  it('hands back nothing for a seeded row with no bytes anywhere', async () => {
+    const c = ready((f) =>
+      f.seed('photos', [
+        { id: 'ph2', event_id: EVENT, folder_id: FOLDER, uploaded_by_guest_id: null,
+          uploaded_by_name: 'Seed', status: 'approved', hue: 20,
+          storage_path: null, thumb_path: null, created_at: FIXED },
+      ]),
+    );
+    const repo = await join(c);
+    // The hue tile is its permanent rendering, and a viewer opened on it shows that.
+    expect(await repo.photos.fullUrl('ph2')).toBeNull();
+  });
+});
+
 describe('holding a host seat (#29)', () => {
   /**
    * `RoleSwitch` was drawn for every guest, and against this adapter its only possible

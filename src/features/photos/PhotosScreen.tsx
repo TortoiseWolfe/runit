@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { EventHeader } from '@/features/chat/EventHeader';
+import { PhotoViewer } from './PhotoViewer';
 import { ReportSheet } from '@/features/moderation/ReportSheet';
 import { usePhotoActions } from '@/state/actions';
 import {
@@ -51,6 +52,7 @@ export function PhotosScreen() {
   // the label and the author available after a realtime update removes it from the
   // grid -- otherwise reporting the thing that just got hidden crashes the sheet.
   const [reporting, setReporting] = useState<Photo | null>(null);
+  const [viewing, setViewing] = useState<Photo | null>(null);
 
   const visible = approved.filter((p) => p.folderId === active?.id);
   const totalPhotos = folders.reduce((a, f) => a + f.photoCount, 0);
@@ -207,9 +209,22 @@ export function PhotosScreen() {
             // not a placeholder to be replaced -- it is the layer underneath, and
             // it stays the permanent rendering for the nine seeded rows, which
             // have no bytes and never will.
-            <View
+            /*
+              THE TILE IS THE CONTROL NOW (#38). It was a plain View: tapping a photo did
+              nothing at all, and only the `⋯` badge inside it responded.
+
+              The testID stays on this node, which is why it is a Pressable rather than a
+              Pressable wrapped around a View -- guest-photos.spec.ts counts the album with
+              getByTestId(/^tile-/), and a second element per tile matching that prefix
+              silently doubled the count from 9 to 18 once already. The report badge keeps
+              its deliberate `report-tile-` name for the same reason.
+            */
+            <Pressable
               key={p.id}
               testID={`tile-${p.id}`}
+              onPress={() => setViewing(p)}
+              accessibilityRole="button"
+              accessibilityLabel={`Open the photo from ${p.uploadedByName}`}
               style={[
                 s.tile,
                 { width: tileSize, height: tileSize, backgroundColor: albumTileColor(p.hue, isDark) },
@@ -254,10 +269,21 @@ export function PhotosScreen() {
               >
                 <Text style={[s.tileReportGlyph, { color: tokens.neutralContent }]}>⋯</Text>
               </Pressable>
-            </View>
+            </Pressable>
           ))}
         </View>
       </ScrollView>
+
+      <PhotoViewer
+        photo={viewing}
+        onClose={() => setViewing(null)}
+        onReport={(p) => {
+          // Close the viewer FIRST. Two modals stacked leaves the report sheet behind a
+          // full-screen photo on iOS, which reads as a frozen app.
+          setViewing(null);
+          setReporting(p);
+        }}
+      />
 
       <ReportSheet
         visible={reporting !== null}
@@ -336,7 +362,11 @@ const s = StyleSheet.create({
     paddingHorizontal: GRID_PADDING,
   },
   // Width and height are supplied at the call site -- see the note above.
-  tile: { borderRadius: 6 },
+  // The real size is `tileSize`, computed from the window width -- which lane A2 cannot
+  // resolve, because it is a DECLARATION check rather than a geometry one and refuses to
+  // pretend otherwise. This is the floor a tile never goes below, declared so the audit
+  // can see it: a three-column grid at 402pt gives ~120.
+  tile: { borderRadius: 6, minWidth: 44, minHeight: 44 },
   // Fills the tile it sits inside; the tile owns the size.
   tileImage: { width: '100%', height: '100%' },
   overlay: {

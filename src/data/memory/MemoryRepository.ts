@@ -996,6 +996,14 @@ export class MemoryRepository implements RunitRepository {
       return await this.runTransfer(id);
     },
 
+
+    /**
+     * There is no bucket behind this adapter, so the only bytes that exist are the ones
+     * this device holds. A seeded row has none and never will -- the hue tile is its
+     * permanent rendering, and a viewer opened on it shows exactly that.
+     */
+    fullUrl: async (id: PhotoId) => this.photoList.find((p) => p.id === id)?.localUri ?? null,
+
     retry: async (id: PhotoId) => {
       const photo = this.photoList.find((p) => p.id === id);
       // Guarded so a double-tap cannot start two transfers for one photo, and
