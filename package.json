@@ -29,6 +29,7 @@
     "test:e2e:report": "playwright show-report",
     "test:e2e:ui": "playwright test --ui",
     "typecheck": "tsc --noEmit",
+    "verify:links": "node tools/verify-links.mjs",
     "verify:policies": "node tools/verify-policies.mjs",
     "verify:qr": "node tools/verify-qr.mjs",
     "web": "expo start --web"

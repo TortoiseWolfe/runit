@@ -97,6 +97,15 @@ pnpm shots
 step "QR decode  (the only check that reads what the QR actually encodes)"
 node tools/verify-qr.mjs
 
+# Lane G. Skips LOUDLY until Cloudflare Pages is connected, like lane E -- the host has to
+# be created by a human in a browser, and a gate nobody can turn green gets deleted.
+#
+# It reads the BODY back, not the status. `runit.pages.dev` was in INVITE_ORIGIN for one
+# commit and answers 200 on every path with a stranger's OAuth callback page, so a status
+# check would have passed while every QR pointed at somebody else's website.
+step "invitation host  (lane G -- skips LOUDLY until Cloudflare Pages is connected)"
+node tools/verify-links.mjs
+
 step "end-to-end journeys  (Playwright, 402x874, dark + light)"
 pnpm exec playwright test
 
