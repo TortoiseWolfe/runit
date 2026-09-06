@@ -131,6 +131,28 @@ const toastGone = () =>
     .waitForSelector('[data-testid="toast"]', { state: 'detached', timeout: 15_000 })
     .catch(() => {});
 
+/**
+ * SEE IT, WITHOUT INSISTING REALTIME DELIVERED IT.
+ *
+ * Every host segment re-mounts and refetches when you navigate to it, so "the row reached
+ * the host queue" and "a websocket pushed it within N seconds" are different claims.
+ * Exactly ONE assertion in this file is about realtime delivery -- the broadcast -- and it
+ * says so. Everything else is about the row being there, so it is allowed a refetch rather
+ * than being quietly turned into a flaky test of the transport.
+ *
+ * Measured on this project: realtime usually delivers in 240ms-1.2s and occasionally not at
+ * all inside a minute. Blurring the two claims is how a lane earns a reputation for
+ * flakiness and gets switched off.
+ */
+const seeInConsole = async (segment, selector, ms = 20_000) => {
+  const found = await page.waitForSelector(selector, { timeout: ms }).then(() => true).catch(() => false);
+  if (found) return true;
+  await page.getByTestId('host-segment-broadcast').click();
+  await page.waitForSelector('[data-testid="host-broadcast"]', { timeout: 20_000 });
+  await page.getByTestId(segment).click();
+  return page.waitForSelector(selector, { timeout: ms }).then(() => true).catch(() => false);
+};
+
 const STAMP = new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14);
 const EVENT_NAME = `smoke ${STAMP}`;
 const ANNOUNCEMENT = `Smoke ${STAMP}: the cake is real.`;
@@ -145,6 +167,18 @@ page.on('pageerror', (e) => errors.push(e.message));
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 
 let code = '';
+/**
+ * Collected AS THE JOURNEY GOES, and swept after the try/catch rather than inside it.
+ * A run that aborts is exactly the run you repeat, so a sweep that only fires on success
+ * leaks bytes fastest when things are going worst -- which is how the first orphans in
+ * this bucket happened.
+ */
+const sweepPaths = new Set();
+const remember = (u) => {
+  const m = u && decodeURIComponent(u).match(/\/object\/sign\/event-photos\/(.+?)\?/);
+  if (m) sweepPaths.add(m[1]);
+};
+
 try {
   // ---------------------------------------------------------------- create
   await page.goto(`${base}/create`, { waitUntil: 'networkidle' });
@@ -287,6 +321,7 @@ try {
     )
     .then((h) => h.jsonValue())
     .catch(() => null);
+  remember(album?.src);
   check(
     !!album && /\/storage\/v1\/object\/sign\//.test(album.src) && album.src.includes('_t.jpg'),
     'the album renders the SIGNED THUMBNAIL, so event_photos_select admits thumb_path',
@@ -316,6 +351,7 @@ try {
     )
     .then((h) => h.jsonValue())
     .catch(() => null);
+  remember(full?.src);
   check(
     !!full && /\/storage\/v1\/object\/sign\//.test(full.src) && !full.src.includes('_t.jpg'),
     'and the viewer signs the FULL-SIZE object, which is a different path (#38)',
@@ -342,55 +378,207 @@ try {
   check(/1 photos|1 photo/.test(hostPanel), 'the folder count folded on the host side', hostPanel.match(/\d+ photos?/)?.[0] ?? '');
   check(/All caught up/i.test(hostPanel), 'and the free tier leaves no approval queue, as designed');
 
+  // -------------------------------------------------------------- invitees
+  //
+  // `invitedCount` IS NOT `guestCount`, and the two never appear on the same screen --
+  // which is why collapsing them is invisible by inspection. The composer addresses
+  // everyone INVITED; the guest header counts everyone PRESENT. This is `fold_invited_count`
+  // firing against real Postgres and the composer reading the folded number.
+  await page.getByTestId('host-segment-event').click();
+  await page.waitForSelector('[data-testid="host-event-details"]', { timeout: 20_000 });
+  await page.getByTestId('invitee-email').fill(`smoke-${STAMP}@example.test`);
+  await page.getByTestId('invitee-add').click();
+  await page.waitForSelector('[data-testid="invitee-row"]', { timeout: 20_000 });
+  check(true, 'a host can put someone on the guest list (#25)');
+
+  await page.getByTestId('host-segment-broadcast').click();
+  await page.waitForSelector('[data-testid="host-broadcast"]', { timeout: 20_000 });
+  // WAIT FOR THE FOLD, do not read once. `fold_invited_count` runs in the database and the
+  // new number reaches this client over realtime, so reading the composer the instant after
+  // the insert is a race the write usually loses. Read once, this reported "Send to 0
+  // guests" on one run in four -- which is a true statement about that millisecond and a
+  // false one about the trigger.
+  const composer = await page
+    .waitForFunction(() => /Send to [1-9]\d* guests?/.test(document.body.innerText), undefined, { timeout: 45_000 })
+    .then(() => page.getByTestId('host-broadcast').innerText())
+    .catch(() => page.getByTestId('host-broadcast').innerText());
+  check(/Send to 1 guest/.test(composer), 'and invited_count folds into the composer',
+        composer.match(/Send to \d+ guests?/)?.[0] ?? 'no count');
+
+  // ------------------------------------------------------- a SECOND guest
+  //
+  // THE UNLOCK FOR EVERYTHING BELOW. Reports refuse a self-report, blocking needs somebody
+  // to block, and "seen by" needs a reader who is not the author -- so none of it is
+  // reachable with one identity. A second browser context is a second anonymous user
+  // joining by code, which is also the only way this suite has ever exercised realtime
+  // BETWEEN clients rather than a client hearing its own echo.
+  const boCtx = await browser.newContext({ viewport: { width: 402, height: 874 } });
+  const bo = await boCtx.newPage();
+  const boErrors = [];
+  bo.on('pageerror', (e) => boErrors.push(e.message));
+  await bo.goto(`${base}/join?code=${code}`, { waitUntil: 'networkidle' });
+  await bo.waitForSelector('[data-testid="join-submit"]', { timeout: 30_000 });
+  await bo.getByTestId('join-nickname').fill('Bo');
+  await bo.getByTestId('join-submit').click();
+  await bo.waitForSelector('[data-testid="chat-feed"]', { timeout: 30_000 });
+  check(true, 'a second guest joins by code, on a second identity');
+
+  // The founder holds a guest seat too (#37), so `guests` has TWO rows here and the room
+  // must still read ONE. `guest_seats()` excluding a host-held seat is the only reason.
+  const boPill = (await bo.getByTestId('guest-count-pill').innerText()).trim();
+  check(boPill.startsWith('1'), 'the room counts the guest and not the host (#37)', boPill);
+
+  // Bo is looking at the feed, so ChatScreen's viewport sweep marks the announcement read.
+  // MemoryRepository has exactly ONE reader and cannot model this at all.
+  await page.getByTestId('host-segment-broadcast').click();
+  const seen = await page
+    .waitForFunction(() => /seen by ([1-9]\d*)/.test(document.body.innerText), undefined, { timeout: 45_000 })
+    .then(() => page.getByTestId('host-broadcast').innerText())
+    .catch(() => '');
+  check(/seen by [1-9]/.test(seen), 'a real second reader moves "seen by" off zero (#24)',
+        seen.match(/seen by \d+/)?.[0] ?? 'still zero');
+
+  // --------------------------------------------------------------- reports
+  await bo.getByTestId('tab-music').click();
+  await bo.getByTestId('request-input').fill(`Bo ${STAMP} - Bo Band`);
+  await bo.getByTestId('request-submit').click();
+  await bo.waitForFunction((t) => document.body.innerText.includes(t), `Bo ${STAMP}`, { timeout: 30_000 });
+
+  // Ada crosses back to the floor to see it. This is one client hearing ANOTHER client's
+  // insert -- the thing a single-context suite cannot tell apart from its own echo.
+  await page.getByTestId('role-switch').click();
+  await page.waitForSelector('[data-testid="chat-feed"]', { timeout: 30_000 });
+  await page.getByTestId('tab-music').click();
+  const crossed = await page
+    .waitForFunction((t) => document.body.innerText.includes(t), `Bo ${STAMP}`, { timeout: 45_000 })
+    .then(() => true)
+    .catch(() => false);
+  check(crossed, "another guest's request arrives over realtime, client to client");
+
+  // The report badge is drawn on somebody else's row and NOT on your own, so exactly one
+  // exists here -- which is both how this selects Bo's row and a claim worth making.
+  const reportBadges = page.locator('[data-testid^="request-report-"]');
+  check(await reportBadges.count() === 1, 'reporting is offered on their row and not on yours');
+  await reportBadges.first().click();
+  await page.waitForSelector('[data-testid="report-reason-spam"]', { timeout: 20_000 });
+  await page.getByTestId('report-reason-spam').click();
+  await page.waitForSelector('[data-testid="report-reason-spam"]', { state: 'detached', timeout: 20_000 });
+  check(true, 'a guest can file a report through file_report()');
+
+  await page.getByTestId('tab-chat').click();
+  await page.waitForSelector('[data-testid="chat-feed"]', { timeout: 20_000 });
+  await page.getByTestId('role-switch').click();
+  await page.getByTestId('host-segment-reports').click();
+  const sawReport = await seeInConsole('host-segment-reports', '[data-testid="host-reports"] [data-testid^="report-"]');
+  check(sawReport, 'and it reaches the host queue, where Guideline 1.2 needs it');
+  const reportRow = page.locator('[data-testid="host-reports"] [data-testid^="report-"]').first();
+
+  // Resolving is a host UPDATE narrowed by a column grant to `resolved_at`/`resolution`;
+  // `stamp_report_resolver` fills in who did it.
+  const rid = (await reportRow.getAttribute('data-testid'))?.replace('report-', '') ?? '';
+  await page.getByTestId(`resolve-dismissed-${rid}`).click();
+  const cleared = await page
+    .waitForSelector('[data-testid="reports-empty"]', { timeout: 30_000 })
+    .then(() => true)
+    .catch(() => false);
+  check(cleared, 'resolving clears it from the queue');
+
+  // -------------------------------------------------------------- blocking
+  //
+  // A block is a GUEST's own filter, not moderation: `guest_blocks` is per blocker, and
+  // the filtering happens before the queue hook returns. The host's view is untouched.
+  await page.getByTestId('role-switch').click();
+  await page.waitForSelector('[data-testid="chat-feed"]', { timeout: 30_000 });
+  await page.getByTestId('tab-music').click();
+  await page.locator('[data-testid^="request-report-"]').first().click();
+  await page.waitForSelector('[data-testid="report-block"]', { timeout: 20_000 });
+  await page.getByTestId('report-block').click();
+  const gone = await page
+    .waitForFunction((t) => !document.body.innerText.includes(t), `Bo ${STAMP}`, { timeout: 30_000 })
+    .then(() => true)
+    .catch(() => false);
+  check(gone, "blocking takes their song out of the blocker's queue");
+
+  // ...and it is reversible, which is what stops a mis-tap being permanent.
+  await page.getByTestId('tab-chat').click();
+  await page.getByTestId('blocked-pill').click();
+  await page.waitForSelector('[data-testid="blocked-list"]', { timeout: 20_000 });
+  const unblock = page.locator('[data-testid^="unblock-"]').first();
+  await unblock.click();
+  await page.getByTestId('blocked-done').click();
+  await page.getByTestId('tab-music').click();
+  const back = await page
+    .waitForFunction((t) => document.body.innerText.includes(t), `Bo ${STAMP}`, { timeout: 30_000 })
+    .then(() => true)
+    .catch(() => false);
+  check(back, 'and unblocking puts it back, so a mis-tap is not permanent');
+
+  check(boErrors.length === 0, 'no page errors on the second client', boErrors.slice(0, 2).join(' | '));
+  await boCtx.close();
+
   check(errors.length === 0, 'no page errors during the journey', errors.slice(0, 2).join(' | '));
 
-  /**
-   * SWEEP ITS OWN BYTES. `event_photos_delete` admits the HOST of the event through the
-   * Storage API, and this run is that host -- so the one piece of litter SQL cannot reach
-   * is the one the run can remove itself. `storage.protect_delete()` refuses every direct
-   * SQL delete on `storage.objects` (lane E asserts it), which is why the documented sweep
-   * cannot do this and why #40's retention sweep needs a service role.
-   *
-   * BEST EFFORT, AND IT NEVER FAILS THE RUN. A gate that goes red because tidying failed
-   * would be reporting the wrong thing -- the journey passed. It reports what it did.
-   */
-  const paths = [album?.src, full?.src]
-    .map((u) => (u ? decodeURIComponent(u).match(/\/object\/sign\/event-photos\/(.+?)\?/)?.[1] : null))
-    .filter(Boolean);
-  if (paths.length) {
-    const swept = await page.evaluate(
-      async ({ base: b, apikey, prefixes }) => {
-        try {
-          const raw = localStorage.getItem(`sb-${b.match(/https:\/\/([a-z0-9]+)\./)[1]}-auth-token`);
-          if (!raw) return 'no session';
-          // supabase-js base64-prefixes the stored session in recent versions.
-          const json = raw.startsWith('base64-') ? atob(raw.slice(7)) : raw;
-          const token = JSON.parse(json).access_token;
-          const res = await fetch(`${b}/storage/v1/object/event-photos`, {
-            method: 'DELETE',
-            headers: { Authorization: `Bearer ${token}`, apikey, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prefixes }),
-          });
-          return res.ok ? 'ok' : `http ${res.status}`;
-        } catch (err) {
-          return String(err).slice(0, 60);
-        }
-      },
-      { base: url, apikey: key, prefixes: paths },
-    );
-    console.log(`  swept ${paths.length} storage object(s): ${swept}`);
-  }
 } catch (e) {
   // The FULL message, not the first line. Playwright puts the actionability reason -- "not
   // visible", "intercepts pointer events", "outside of the viewport" -- in the call log
   // BELOW the timeout line, and truncating it turned two diagnosable failures into guesses.
   check(false, 'the journey completed', String(e).split('\n').slice(0, 12).join(' / '));
+  // The console is the only witness to a realtime channel that never subscribed, and a
+  // journey that aborts never reaches the page-errors check at the end.
+  if (errors.length) console.log(`  page console: ${errors.slice(0, 6).join(' | ')}`);
+}
+
+/**
+ * SWEEP ITS OWN BYTES, pass or fail. `event_photos_delete` admits the HOST of the event
+ * through the Storage API and this run is that host -- so the one piece of litter SQL
+ * cannot reach is the one the run can remove itself. `storage.protect_delete()` refuses
+ * every direct SQL delete on `storage.objects` (lane E asserts it), which is why the
+ * documented sweep cannot do this and why #40's retention sweep needs a service role.
+ *
+ * BEST EFFORT, AND IT NEVER CHANGES THE VERDICT. A gate that went red because tidying
+ * failed would be reporting the wrong thing.
+ */
+if (sweepPaths.size) {
+  const swept = await page.evaluate(
+    async ({ base: b, apikey, prefixes }) => {
+      try {
+        const raw = localStorage.getItem(`sb-${b.match(/https:\/\/([a-z0-9]+)\./)[1]}-auth-token`);
+        if (!raw) return 'no session';
+        // supabase-js base64-prefixes the stored session in recent versions.
+        const json = raw.startsWith('base64-') ? atob(raw.slice(7)) : raw;
+        const token = JSON.parse(json).access_token;
+        const res = await fetch(`${b}/storage/v1/object/event-photos`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}`, apikey, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prefixes }),
+        });
+        return res.ok ? 'ok' : `http ${res.status}`;
+      } catch (err) {
+        return String(err).slice(0, 60);
+      }
+    },
+    { base: url, apikey: key, prefixes: [...sweepPaths] },
+  );
+  console.log(`  swept ${sweepPaths.size} storage object(s): ${swept}`);
 }
 
 await browser.close();
 server.close();
 
 const failed = results.filter((r) => !r.ok).length;
+
+/**
+ * WHAT A GREEN RUN DOES NOT MEAN. Printed every time, because the risk with a lane like
+ * this is that it starts reading as "the backend works" rather than "these journeys work".
+ */
+console.log('');
+console.log('  not checked here, and neither is reachable from a browser:');
+console.log('    push delivery -- `push.web.ts` returns null BY DESIGN. Its docblock says why');
+console.log('      a fake token would be worse than none: it would flow to set_push_token and');
+console.log('      be stored as a routable address that routes nowhere.');
+console.log('    photo moderation -- `create_event` mints house_party, which auto-approves, and');
+console.log('      no client can set `events.tier` (#30). The approval queue has no reachable');
+console.log('      state in any event this app can currently create.');
 console.log('');
 if (code) {
   console.log(`  event "${EVENT_NAME}" (${code}) was left behind. See docs/smoke-live.md to sweep it.`);

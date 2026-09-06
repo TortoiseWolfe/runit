@@ -94,12 +94,18 @@ unreachable to every route the app has — `storage.protect_delete()` refuses di
 the owner as much as for a guest, so there is no SQL fallback either. Only a service role
 can remove them after that, which is the same blocker #40's retention sweep has.
 
-This happened during development of this lane: twelve objects, 840 bytes, orphaned in
+This happened during development of this lane: **fourteen objects, 980 bytes**, orphaned in
 `event-photos` by sweeping rows before bytes. They can only be removed from the Storage
-dashboard or with a service key.
+dashboard or with a service key, and they are the whole remaining litter — every run since
+cleans up after itself.
 
-**So the run sweeps its own bytes before it finishes**, and the SQL above is only ever for
-rows. If you ever sweep by hand, delete the objects while the event still exists.
+**So the run sweeps its own bytes before it finishes** — pass *or* fail, because a run that
+aborts is exactly the run you repeat, and a sweep that only fires on success leaks fastest
+when things are going worst. That is how the first orphans happened. Mutation-checked by
+breaking a mid-journey step and confirming the bytes still went.
+
+The SQL above is only ever for rows. If you sweep by hand, delete the objects while the
+event still exists.
 
 ## Photos, which is the longest chain and the one most able to fail silently
 
@@ -139,7 +145,49 @@ event this app can currently create, because `events.tier` is outside the column
 there is no purchase path (#30). Lane H asserts what a real event can actually do, and
 checks the queue reads "All caught up" so the behaviour is pinned rather than assumed.
 
-## What it does NOT cover yet
+## The second guest, which is what unlocked the rest
 
-Moderation (needs a paid tier), push delivery, the invitee list, reports, and the run of
-show. Those are the obvious next assertions; the lane is a smoke test, not a second suite.
+Reports refuse a self-report, blocking needs somebody to block, and "seen by" needs a reader
+who is not the author — so none of it is reachable with one identity. The lane opens a
+**second browser context**: a second anonymous user joining by code.
+
+That also gives the suite its only test of realtime **between clients** rather than a client
+hearing its own echo. And it makes two numbers real that `MemoryRepository` cannot model:
+`guest_seats()` excluding the host's own seat (the room reads 1 while `guests` holds 2), and
+a `seen_count` moving off zero for a reader who is not the author.
+
+What it covers: the guest list and `fold_invited_count` reaching the composer; a report
+filed through `file_report()`, arriving in the host queue and being resolved; and a block
+removing somebody's song from the blocker's queue only, with unblocking putting it back.
+
+## One assertion is about realtime. The rest are not, deliberately
+
+Every host segment re-mounts and refetches on navigation, so *"the row reached the host
+queue"* and *"a websocket pushed it within N seconds"* are different claims. Exactly one
+assertion here — the broadcast — is about delivery, and it reports its own latency. The
+others are allowed a refetch (`seeInConsole`) rather than being quietly turned into flaky
+tests of the transport.
+
+Measured on this project: realtime usually delivers in **240ms–1.2s**, and twice in roughly
+fifteen runs a row did not appear inside the timeout at all. Recorded in the tracker rather
+than smoothed over here.
+
+The same care applies to folded counters. `fold_invited_count` runs in the database and the
+new number arrives over realtime, so reading the composer immediately after the insert is a
+race the write usually loses — it reported "Send to 0 guests" on one run in four. Waiting
+for the fold asserts the trigger; reading once asserts a millisecond.
+
+## What it does NOT cover, and why neither is a matter of effort
+
+- **Push delivery.** `push.web.ts` returns `null` by design, and its docblock explains why a
+  fake token would be worse than none: it would flow into `set_push_token` and be stored as
+  a routable address that routes nowhere, and every assertion built on it would be measuring
+  the stub. Push needs a device (#27's credentials) or lane C.
+- **Photo moderation.** `create_event` mints `house_party`, which auto-approves uploads, and
+  no client can set `events.tier` (#30). The approval queue has **no reachable state** in any
+  event this app can currently create, so an approve/hide journey would require setting up
+  state out of band — which the lane cannot do (it has no database credentials) and should
+  not pretend to.
+
+Both are printed at the end of every run, so a green board is not mistaken for "the backend
+works".

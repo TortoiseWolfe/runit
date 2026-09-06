@@ -289,7 +289,7 @@ undecodable, which is the contrast/quiet-zone/resolution class a camera in a dim
 would hit.
 
 **H — the adapter that ships, against the database that ships** (`pnpm export:web:live &&
-pnpm smoke:live`). Fifteen checks driving `SupabaseRepository` through a real browser against
+pnpm smoke:live`). Twenty-eight checks driving `SupabaseRepository` through a real browser against
 the live project: `create_event`, the founding host seat, a broadcast round-tripping through
 realtime, a founder taking a guest seat (#37), her seat NOT counted in the room,
 `request_song` both inserting and merging (#44), and **the whole photo chain** — two objects
@@ -303,6 +303,27 @@ satisfied by the `data:` URI of the guest's own bytes, which would prove only th
 Mutation-checked by deleting `displayUrl` from `photoCache`'s comparator — the exact failure
 its own comment warns about — which turns the album red and leaves the viewer green, because
 the viewer resolves on demand rather than through the comparator.
+
+**A SECOND BROWSER CONTEXT is what unlocks the rest.** Reports refuse a self-report,
+blocking needs somebody to block, and "seen by" needs a reader who is not the author — none
+of it reachable with one identity. It is also the only test of realtime BETWEEN clients
+rather than a client hearing its own echo, and it makes two numbers real that Memory cannot
+model: the room reading 1 while `guests` holds 2 (`guest_seats` excluding the host's seat),
+and `seen_count` moving off zero.
+
+**Exactly ONE assertion there is about realtime delivery** — the broadcast, which reports
+its own latency. Every host segment refetches on navigation, so "the row reached the queue"
+and "a websocket pushed it in N seconds" are different claims, and blurring them is how a
+lane earns a reputation for flakiness. Measured: realtime usually lands in 240ms–1.2s, and
+twice in ~15 runs a row never arrived (#45). Folded counters need the same care —
+`fold_invited_count` reaching the composer read "Send to 0 guests" once in four runs when
+read immediately instead of waited for.
+
+**Push and photo moderation are NOT covered, and neither is a matter of effort.**
+`push.web.ts` returns null by design — a fake token would be stored as a routable address
+that routes nowhere. And `create_event` mints `house_party`, which auto-approves, so the
+approval queue has no reachable state in any event the app can currently create (#30). Both
+are printed at the end of every run so a green board is not read as "the backend works".
 
 **It sweeps its own bytes, and the ORDER is the lesson.** `event_photos_delete` requires the
 EVENT to still exist (`is_host(foldername(name)[1])`), so deleting rows first strands the
