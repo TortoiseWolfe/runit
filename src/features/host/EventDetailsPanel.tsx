@@ -1,10 +1,12 @@
 import { useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { useEvent } from '@/state/hooks';
+import { useEvent, useHosts } from '@/state/hooks';
 import { useHostActions } from '@/state/actions';
 import { formatClock, formatEventDate, instantToWallClock } from '@/lib/format';
 import { instantFrom, zoneChoices, zoneLabel } from '@/lib/eventForm';
+import { TIERS } from '@/domain/tiers';
+import type { HostRole } from '@/data/types';
 import { alpha, border, eyebrow, radius, useTheme, weight } from '@/theme';
 
 /**
@@ -23,10 +25,24 @@ import { alpha, border, eyebrow, radius, useTheme, weight } from '@/theme';
  * time the chrome changes.
  */
 
+/**
+ * The seats a host can hand out.
+ *
+ * `host` is a peer and is available on any tier with room. `dj` and `planner` are the
+ * paid feature -- `hostRoles`, first granted at the event tier -- and invite_host
+ * refuses them below it. DJ leads because it is the one this was asked for.
+ */
+const ROLE_CHOICES: { role: HostRole; label: string }[] = [
+  { role: 'dj', label: 'DJ' },
+  { role: 'planner', label: 'Planner' },
+  { role: 'host', label: 'Co-host' },
+];
+
 export function EventDetailsPanel() {
   const { tokens, fade } = useTheme();
   const event = useEvent();
-  const { saveEventDetails, rotateHostKey } = useHostActions();
+  const { saveEventDetails, rotateHostKey, invite } = useHostActions();
+  const hosts = useHosts();
 
   /**
    * Seeded ONCE from the event, then owned by the form.
@@ -45,6 +61,10 @@ export function EventDetailsPanel() {
   const [busy, setBusy] = useState(false);
   /** A freshly issued recovery key, held only long enough to be written down. */
   const [issuedKey, setIssuedKey] = useState<string | null>(null);
+  const [coHostName, setCoHostName] = useState('');
+  const [coHostRole, setCoHostRole] = useState<HostRole>('dj');
+  /** The co-host key, held only long enough to be written down. */
+  const [invitedKey, setInvitedKey] = useState<string | null>(null);
 
   const venueRef = useRef<TextInput>(null);
   const doorsRef = useRef<TextInput>(null);
@@ -64,6 +84,32 @@ export function EventDetailsPanel() {
    * halfway through being typed -- not an error worth colouring red.
    */
   const startsAt = useMemo(() => instantFrom(date, time, zone), [date, time, zone]);
+
+  /**
+   * The seat count the cap is measured against.
+   *
+   * `hosts.all` carries unclaimed seats too, which is right: a seat minted and not yet
+   * redeemed still occupies one. Counting only claimed seats would let a host mint an
+   * unbounded number of invitations and discover the cap only when people tried to use
+   * them.
+   */
+  const tier = TIERS[event?.tier ?? 'house_party'];
+  const atHostCap = hosts.length >= tier.limits.maxHosts;
+  const hostCap = Number.isFinite(tier.limits.maxHosts) ? String(tier.limits.maxHosts) : null;
+
+  const onInvite = async () => {
+    if (!coHostName.trim() || busy) return;
+    setBusy(true);
+    try {
+      const made = await invite({ displayName: coHostName, role: coHostRole });
+      if (made) {
+        setInvitedKey(made.hostKey);
+        setCoHostName('');
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const onSave = async () => {
     if (!startsAt || busy) return;
@@ -220,6 +266,104 @@ export function EventDetailsPanel() {
         The invitation reads name, then date, then this line, then the venue.
       </Text>
 
+      {/* WHO IS HELPING -- issue #16. Until this, `hosts.invite` threw against Supabase
+          and had no UI caller anywhere, so a host could not add a DJ at any price while
+          the $79 tier advertised "5 hosts with roles" as a headline.
+
+          A co-host gets a KEY, not an account. They type it on the join screen and
+          claim_host binds the seat to whatever anonymous session they are holding --
+          which is the point: the DJ and the floor staff should not need accounts.
+
+          The caps are enforced in Postgres, in invite_host, reading `tier_limits`. The
+          gate here is advisory: it changes the label so a host is not surprised, and the
+          repository still refuses if this view is stale. */}
+      {event ? (
+        <View style={s.keyBlock}>
+          <Text style={[s.sectionTitle, { color: alpha(tokens.baseContent, fade.muted) }]}>
+            Who is helping
+          </Text>
+
+          {hosts.map((h) => (
+            <View key={h.id} testID="seat-row" style={s.seatRow}>
+              <Text style={[s.seatName, { color: tokens.baseContent }]}>{h.displayName}</Text>
+              <Text style={[s.seatRole, { color: alpha(tokens.baseContent, fade.muted) }]}>
+                {h.roleLabel}
+              </Text>
+            </View>
+          ))}
+
+          {invitedKey ? (
+            <>
+              <Text testID="invited-key" style={[s.key, { color: tokens.baseContent }]}>
+                {invitedKey}
+              </Text>
+              <Text style={[s.helper, { color: alpha(tokens.baseContent, fade.body) }]}>
+                Give them this key and the event code. They type both on the join screen —
+                no account needed. It is not shown again.
+              </Text>
+            </>
+          ) : null}
+
+          <TextInput
+            value={coHostName}
+            onChangeText={setCoHostName}
+            placeholder="Their name"
+            placeholderTextColor={alpha(tokens.baseContent, fade.faint)}
+            accessibilityLabel="Name of the person helping"
+            testID="cohost-name"
+            returnKeyType="done"
+            submitBehavior="blurAndSubmit"
+            onSubmitEditing={onInvite}
+            style={fieldStyle}
+          />
+
+          <View style={s.zoneRow}>
+            {ROLE_CHOICES.map((r) => {
+              const on = r.role === coHostRole;
+              return (
+                <Pressable
+                  key={r.role}
+                  onPress={() => setCoHostRole(r.role)}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: on }}
+                  accessibilityLabel={`Role ${r.label}`}
+                  testID={`cohost-role-${r.role}`}
+                  style={[
+                    s.zone,
+                    { borderColor: tokens.base300, backgroundColor: on ? tokens.primary : 'transparent' },
+                  ]}
+                >
+                  <Text style={[s.zoneText, { color: on ? tokens.primaryContent : tokens.baseContent }]}>
+                    {r.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          {/* NEVER disabled at the cap, the same rule as "+ New folder": a control that is
+              visibly there and does nothing when tapped reads as a bug, and disabling it
+              makes the denial unreachable. The repository throws and the toast names the
+              limit. It once WAS disabled elsewhere and looked exactly like a broken button. */}
+          <Pressable
+            onPress={onInvite}
+            accessibilityRole="button"
+            accessibilityHint={atHostCap ? `This plan includes ${hostCap} hosts.` : undefined}
+            testID="cohost-invite"
+            style={[s.rotate, { borderColor: tokens.base300 }]}
+          >
+            <Text
+              style={[
+                s.rotateText,
+                { color: atHostCap ? alpha(tokens.baseContent, fade.faint) : tokens.baseContent },
+              ]}
+            >
+              {atHostCap ? `${hostCap} hosts on this plan` : 'Add a co-host'}
+            </Text>
+          </Pressable>
+        </View>
+      ) : null}
+
       {/* THE RECOVERY KEY, for the note that got lost or was shown to the wrong person.
           Issue #32.
 
@@ -308,6 +452,9 @@ const s = StyleSheet.create({
   zoneText: { fontSize: 13 },
   helper: { fontSize: 12, lineHeight: 18 },
   keyBlock: { marginTop: 18, gap: 8 },
+  seatRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 },
+  seatName: { fontSize: 15 },
+  seatRole: { fontSize: 13 },
   // Tabular so the three groups line up, and large because it gets copied by hand.
   key: { fontSize: 22, fontWeight: weight.semibold, letterSpacing: 2, fontVariant: ['tabular-nums'] },
   rotate: {

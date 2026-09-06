@@ -3,7 +3,7 @@ import {
 } from './fixtures/fakeClient';
 import { SupabaseRepository } from './SupabaseRepository';
 import type { RunitClient } from './client';
-import { JoinError, ScheduleError } from '../repository';
+import { EntitlementError, JoinError, ScheduleError } from '../repository';
 
 /**
  * Scoped to WHAT DIFFERS from MemoryRepository, because that is the only place a test
@@ -413,10 +413,102 @@ describe('writes the schema has no route for', () => {
   it('refuse loudly rather than appearing to work', async () => {
     const c = ready();
     const repo = await join(c);
-    // Both would otherwise be a silent no-op, which is the failure this adapter is
-    // built to avoid. hosts has no INSERT policy; events.tier is outside the grant.
-    await expect(repo.hosts.invite({ displayName: 'X', role: 'dj' })).rejects.toThrow(/no INSERT policy/);
+    // `events.tier` is outside the column grant, so an update naming it fails with 42501
+    // and one that did not name it would change nothing while returning success. It is
+    // the last write here with no server-side route; `hosts.invite` used to be the other
+    // and now goes through invite_host (#16).
     await expect(repo.event.setTier('venue')).rejects.toThrow(/column grant/);
+  });
+});
+
+/* ------------------------------------------------------ inviting a co-host (#16) */
+
+const INVITED = { host_id: 'h0000000-0000-0000-0000-000000000009', host_key: 'QRS4-TUV5-WXY6' };
+
+describe('inviting a co-host', () => {
+  it('sends the role and label under the p_ names the function declares', async () => {
+    const c = ready((cl) =>
+      cl.on((op) =>
+        op.kind === 'rpc' && op.table === 'invite_host' ? { data: [INVITED], error: null } : undefined,
+      ),
+    );
+    const repo = await join(c);
+    await repo.hosts.invite({ displayName: 'DJ Marco', role: 'dj', roleLabel: 'DJ' });
+
+    // PostgREST resolves overloads by argument NAME, so a typo here is not a type error,
+    // it is a 404 at runtime against a function that exists.
+    expect(c.find('rpc', 'invite_host')[0]!.payload).toEqual({
+      p_event: EVENT,
+      p_display_name: 'DJ Marco',
+      p_role: 'dj',
+      p_role_label: 'DJ',
+    });
+  });
+
+  it('hands back the key, which exists nowhere else', async () => {
+    const c = ready((cl) =>
+      cl.on((op) =>
+        op.kind === 'rpc' && op.table === 'invite_host' ? { data: [INVITED], error: null } : undefined,
+      ),
+    );
+    const repo = await join(c);
+    await expect(repo.hosts.invite({ displayName: 'DJ Marco', role: 'dj' })).resolves.toEqual({
+      hostId: INVITED.host_id,
+      hostKey: 'QRS4-TUV5-WXY6',
+    });
+  });
+
+  it('sends an empty label rather than undefined, so the SQL default applies', async () => {
+    const c = ready((cl) =>
+      cl.on((op) =>
+        op.kind === 'rpc' && op.table === 'invite_host' ? { data: [INVITED], error: null } : undefined,
+      ),
+    );
+    const repo = await join(c);
+    await repo.hosts.invite({ displayName: 'Jordan', role: 'planner' });
+    // `undefined` would be omitted from the JSON body and PostgREST would fail to match
+    // the four-argument overload. '' is what makes invite_host's own fallback fire.
+    expect((c.find('rpc', 'invite_host')[0]!.payload as { p_role_label: string }).p_role_label).toBe('');
+  });
+
+  it('turns the cap refusal into an EntitlementError the toast can name', async () => {
+    const c = ready((cl) =>
+      cl.on((op) =>
+        op.kind === 'rpc' && op.table === 'invite_host' ? pgError('54023', 'host_cap_reached') : undefined,
+      ),
+    );
+    const repo = await join(c);
+    // 54023 is the function's own cap refusal. Mapping it back through the domain is what
+    // keeps Postgres and the app from disagreeing about what a host is told.
+    await expect(repo.hosts.invite({ displayName: 'Third', role: 'host' })).rejects.toBeInstanceOf(
+      EntitlementError,
+    );
+  });
+
+  it('says who may invite rather than leaking a Postgres code', async () => {
+    const c = ready((cl) =>
+      cl.on((op) =>
+        op.kind === 'rpc' && op.table === 'invite_host' ? pgError('42501', 'not_a_host') : undefined,
+      ),
+    );
+    const repo = await join(c);
+    await expect(repo.hosts.invite({ displayName: 'X', role: 'host' })).rejects.toThrow(
+      /Only a host of this event can invite/,
+    );
+  });
+
+  it('treats a missing row as a schema mismatch, not a silent success', async () => {
+    // `returns table` gives an ARRAY; an empty one cannot happen on success. Reading
+    // data?.[0] off it would hand the screen `undefined` as a co-host's only credential.
+    const c = ready((cl) =>
+      cl.on((op) =>
+        op.kind === 'rpc' && op.table === 'invite_host' ? { data: [], error: null } : undefined,
+      ),
+    );
+    const repo = await join(c);
+    await expect(repo.hosts.invite({ displayName: 'X', role: 'host' })).rejects.toThrow(
+      /schema mismatch/,
+    );
   });
 });
 

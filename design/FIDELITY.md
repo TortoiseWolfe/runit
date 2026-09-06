@@ -844,3 +844,65 @@ hands; the event arrives with an active folder; only the hash is stored; **a dif
 identity presenting the key gets back in**, which is what "new phone" means; and rotation
 issues a new key while the old one stops working, which is the half that makes rotation
 mean anything.
+
+## U. A DJ gets a seat, and the caps stopped living only in TypeScript
+"Add a DJ" was advertised and unbuilt. `src/domain/tiers.ts` puts *"5 hosts with roles
+(host, DJ, planner)"* on the featured $79 tier, and `hosts.invite` threw unconditionally
+against Supabase while having **no UI caller anywhere in `src/`**. So the headline feature
+of the tier this product is aimed at was refused to everyone, at every price.
+
+**The free tier is not the problem, and it is worth saying because I got this wrong
+first.** `house_party` is `maxHosts: 1` with `hostRoles: false`, and its own `featureLines`
+says **"1 host"** — free → 2 hosts → roles is a coherent ladder that advertises exactly
+what it delivers. The defect was one layer up: the control did not exist on any tier.
+
+**A co-host gets a key, not an account.** `invite_host` mints a `hosts` row with
+`auth_user_id` NULL and a `host_claims` hash beside it, and returns the plaintext once. The
+invitee types it on the join screen; `claim_host` binds the seat to whatever anonymous
+session they are holding. That is the point of the whole key mechanism — the DJ and the
+floor staff should not need accounts, and `docs/design-host-accounts.md` said so before any
+of it was built.
+
+This is also where the imported "RunIt Flow" canvas and the app disagree. The canvas
+assumes founders hold email accounts and only co-hosts hold keys; this app shipped keys for
+the **founder** (note T), so the coherent build was "issue a second key, scoped to a role"
+— reusing `mint_token`, `claim_host` and `rotate_host_key` rather than S4's email model.
+
+**`claim_host` gained a one-seat-per-person guard.** Whoever holds two keys for one event
+could otherwise bind both rows to themselves. Not an escalation — `is_host` is already true
+from the first seat — but it *strands* the second: the co-host it was minted for can never
+claim it, and nothing on screen would say why.
+
+**THE CAPS ARE A TABLE NOW.** Every entitlement was enforced in a repository method, on the
+stated grounds that a check in a button handler is bypassed by the second caller. That does
+not go far enough: a check in a *client* is bypassed by the second client, and
+`src/data/supabase/README.md` already forbade client-only enforcement in as many words.
+`public.tier_limits` holds the numbers, `invite_host` reads them, and no client can write
+them.
+
+Duplicating them into SQL is real drift risk, which is why `src/domain/tiers.test.ts`
+re-parses the migration's own seed and fails on mismatch — the same shape as
+`tokens.test.ts` re-parsing `theme.css`. `docs/design-host-accounts.md` predicted this exact
+drift and named this exact remedy. Verified by mutation: giving the party tier a third host
+in SQL alone fails the suite.
+
+**The tier audit learned to see SQL.** `tools/audit-tier-claims.mjs` counted a
+`checkFeature` call anywhere under `src/`, which a call in `MemoryRepository` satisfies —
+and that adapter does not ship. It now also counts enforcement in the migration, and it
+*reports where each flag is enforced* rather than only that it is. `hostRoles` reads `SQL`;
+`pinnedAnnouncements` and `pushNotifications` are still flagged `in-memory adapter ONLY`,
+which is issue #21 made legible instead of hidden behind one green line. Deliberately not a
+failure yet: making it one today would fail the build on two flags that predate the check,
+which is how a gate gets switched off.
+
+**`roleLabel` travels now.** Both adapters stripped it on the way out of `hosts.all`, so a
+seat list could only ever render the permission grade — "Riley · Bride" was reachable only
+through the `Session`. Memory also set `roleLabel: displayName`, which printed
+"DJ Marco · DJ Marco". Mutation-checked: restoring the strip fails two journeys.
+
+**What proved it.** Lane B's 198 journeys run `MemoryRepository`, so they prove the screen
+and nothing about the grant. **Lane E proves the rest**, run live: the free tier stops at
+one host, an empty `role_label` falls back to the role's own name, the seat stays unclaimed
+until the key is presented, only the hash is stored, the founder cannot collect the
+co-host's seat, and **the DJ redeems his key as a different identity with no account** —
+which is the whole claim.

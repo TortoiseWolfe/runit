@@ -805,6 +805,18 @@ begin
     raise exception 'bad_host_key' using errcode = '42501';
   end if;
 
+  -- ONE SEAT PER PERSON PER EVENT. Without this, whoever holds two keys for one event
+  -- can bind both rows to themselves -- which is not an escalation (is_host is already
+  -- true from the first seat) but it strands the second seat: the co-host it was minted
+  -- for can never claim it, and nothing on screen says why. Rebinding your OWN seat is
+  -- still fine, which is what makes the recovery path work.
+  if exists (
+    select 1 from public.hosts h
+     where h.event_id = v_event and h.auth_user_id = auth.uid() and h.id <> v_host
+  ) then
+    raise exception 'already_a_host_here' using errcode = '42501';
+  end if;
+
   -- REBIND rather than refuse when already claimed. The KEY is the credential, not the
   -- anonymous identity -- and that identity is not durable: an Android reinstall wipes
   -- the keystore, so a host who reinstalled would otherwise be locked out of their own
@@ -1031,6 +1043,143 @@ end $$;
 
 revoke execute on function public.rotate_host_key(uuid) from public, anon;
 grant  execute on function public.rotate_host_key(uuid) to authenticated;
+
+-- ========================================================================
+-- INVITING A CO-HOST -- the DJ, the planner, the bride's sister
+-- ========================================================================
+--
+-- THE CAPS LIVE HERE NOW, not only in src/domain/tiers.ts.
+--
+-- Every entitlement in this app was enforced in TypeScript, in a repository method, on
+-- the stated grounds that a check in a button handler is bypassed by the second caller.
+-- That reasoning does not go far enough: a check in a CLIENT is bypassed by the second
+-- client, and src/data/supabase/README.md already forbids client-only enforcement in as
+-- many words -- "Mirror each check with a Postgres trigger or an RLS policy."
+--
+-- So the numbers are a table. Duplicating them by hand is the drift this repo names in
+-- docs/design-host-accounts.md; `src/domain/tiers.test.ts` re-parses the seed below and
+-- fails on mismatch, which is the same shape as tokens.test.ts re-parsing theme.css.
+-- NULL means unlimited, because Number.POSITIVE_INFINITY has no integer to be.
+create table public.tier_limits (
+  tier        text primary key check (tier in ('house_party','party','event','venue')),
+  max_guests  integer,
+  max_hosts   integer,
+  max_photos  integer,
+  max_folders integer,
+  -- Whether a seat may be anything other than 'host'. The DJ QUEUE is free on every
+  -- tier; this is about a co-host SEAT wearing a role, which is a different product.
+  host_roles  boolean not null
+);
+
+alter table public.tier_limits enable row level security;
+
+-- Readable by anyone signed in: it is the pricing table, and the app already renders it.
+-- No write policy for anybody -- these numbers change by migration, not by request.
+create policy tier_limits_read on public.tier_limits for select using (true);
+revoke insert, update, delete on public.tier_limits from authenticated, anon;
+
+insert into public.tier_limits (tier, max_guests, max_hosts, max_photos, max_folders, host_roles)
+values ('house_party',   10,    1,  100,    1, false),
+       ('party',         50,    2, 1000,    3, false),
+       ('event',        300,    5, null,   10, true),
+       ('venue',       3000, null, null, null, true)
+on conflict (tier) do update set
+  max_guests  = excluded.max_guests,  max_hosts   = excluded.max_hosts,
+  max_photos  = excluded.max_photos,  max_folders = excluded.max_folders,
+  host_roles  = excluded.host_roles;
+
+-- Minting a second host seat, and the key that redeems it.
+--
+-- `hosts` still has NO INSERT POLICY, and that stays true: a co-host is not a row a
+-- client composes, it is a seat plus a credential, and the two have to arrive together
+-- or the seat is unreachable. Same argument as create_event.
+--
+-- THE INVITEE NEEDS NO ACCOUNT. They get a key, they type it on the join screen, and
+-- claim_host binds the seat to whatever anonymous session they are holding. That is the
+-- point of the whole key mechanism: the DJ and the floor staff should not need accounts.
+--
+-- The caps are read from tier_limits above rather than trusted from the client, because
+-- the client that would have been trusted is the one being capped.
+create or replace function public.invite_host(
+  p_event        uuid,
+  p_display_name text,
+  p_role         text,
+  p_role_label   text default ''
+)
+returns table (host_id uuid, host_key text)
+language plpgsql security definer set search_path = public, extensions as $$
+declare
+  v_host  uuid;
+  v_key   text;
+  v_tier  text;
+  v_cap   integer;
+  v_roles boolean;
+  v_seats integer;
+  v_label text;
+begin
+  if auth.uid() is null then
+    raise exception 'not authenticated' using errcode = '28000';
+  end if;
+
+  -- Only a host invites. Not a guest, and not a stranger holding the event code.
+  if not public.is_host(p_event) then
+    raise exception 'not_a_host' using errcode = '42501';
+  end if;
+
+  if coalesce(btrim(p_display_name), '') = '' then
+    raise exception 'host_needs_a_name' using errcode = '22023';
+  end if;
+
+  if p_role is null or p_role not in ('host','planner','dj') then
+    raise exception 'bad_role' using errcode = '22023';
+  end if;
+
+  select e.tier into v_tier from public.events e where e.id = p_event;
+  select tl.max_hosts, tl.host_roles into v_cap, v_roles
+    from public.tier_limits tl where tl.tier = v_tier;
+
+  -- A tier with no row would silently uncap everything, which is the wrong direction to
+  -- fail in for a paid limit.
+  if not found then
+    raise exception 'unknown_tier' using errcode = '22023';
+  end if;
+
+  select count(*) into v_seats from public.hosts h where h.event_id = p_event;
+  -- NULL cap means unlimited, so the comparison is skipped rather than defaulted.
+  if v_cap is not null and v_seats >= v_cap then
+    raise exception 'host_cap_reached' using errcode = '54023';
+  end if;
+
+  -- A seat that is not a plain host is the paid feature. The free and party tiers can add
+  -- a second pair of hands but cannot label them DJ, which is exactly what the ladder
+  -- advertises: "5 hosts with roles" is the event tier's line, not the party tier's.
+  if p_role <> 'host' and not v_roles then
+    raise exception 'host_roles_not_in_plan' using errcode = '54023';
+  end if;
+
+  -- role_label is what the console PRINTS ("Bride", "Best Man", "Head of Ops"). Falling
+  -- back to a capitalised role keeps it never-empty, since the column is NOT NULL and the
+  -- UI renders it beside every name.
+  v_label := coalesce(nullif(btrim(p_role_label), ''),
+                      case p_role when 'dj' then 'DJ'
+                                  when 'planner' then 'Planner'
+                                  else 'Host' end);
+
+  -- auth_user_id stays NULL: nobody holds this seat until they present the key.
+  insert into public.hosts (event_id, display_name, role, role_label)
+  values (p_event, btrim(p_display_name), p_role, v_label)
+  returning id into v_host;
+
+  v_key := public.mint_token(12);
+  insert into public.host_claims (host_id, secret_hash)
+  values (v_host, extensions.crypt(v_key, extensions.gen_salt('bf')));
+
+  return query select v_host,
+                      substr(v_key,1,4) || '-' || substr(v_key,5,4) || '-' || substr(v_key,9,4);
+end $$;
+
+revoke execute on function public.invite_host(uuid, text, text, text) from public, anon;
+grant  execute on function public.invite_host(uuid, text, text, text) to authenticated;
 
 -- ========================================================================
 -- THE GUEST LIST -- the first personal data beyond a chosen nickname

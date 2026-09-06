@@ -18,7 +18,7 @@ import type {
 import { subjectKey } from '../types';
 import {
   EntitlementError, JoinError, ScheduleError, type UploadOutcome,
-  type EventDetails, type EventPreview, type NewEvent,
+  type EventDetails, type EventPreview, type NewEvent, type NewHost,
   type Observable, type RunitRepository, type Unsubscribe,
 } from '../repository';
 import { checkFeature, checkLimit, type Entitlements } from '@/domain/entitlements';
@@ -134,6 +134,13 @@ const mintFromAlphabet = (len: number): string => {
   return out;
 };
 
+/** What a seat is called when nobody named it. Mirrors invite_host's own fallback. */
+const DEFAULT_ROLE_LABEL: Record<HostRole, string> = {
+  host: 'Host',
+  dj: 'DJ',
+  planner: 'Planner',
+};
+
 /** XV24HJ78DBAB -> XV24-HJ78-DBAB. Presentation only; claimHost canonicalises it back. */
 const group = (key: string): string => `${key.slice(0, 4)}-${key.slice(4, 8)}-${key.slice(8, 12)}`;
 
@@ -242,7 +249,7 @@ export class MemoryRepository implements RunitRepository {
   private sigPending: Signal<Photo[]>;
   private sigMine: Signal<Photo[]>;
   private sigApproved: Signal<Photo[]>;
-  private sigHosts: Signal<{ id: string; displayName: string; role: HostRole }[]>;
+  private sigHosts: Signal<Host[]>;
   private sigBlocked: Signal<BlockedGuest[]>;
   private sigReports: Signal<Report[]>;
   private sigMyReports: Signal<ReadonlySet<string>>;
@@ -296,7 +303,7 @@ export class MemoryRepository implements RunitRepository {
     this.sigPending = new Signal<Photo[]>([]);
     this.sigMine = new Signal<Photo[]>([]);
     this.sigApproved = new Signal<Photo[]>([]);
-    this.sigHosts = new Signal<{ id: string; displayName: string; role: HostRole }[]>([]);
+    this.sigHosts = new Signal<Host[]>([]);
     this.sigBlocked = new Signal<BlockedGuest[]>([]);
     this.sigReports = new Signal<Report[]>([]);
     this.sigMyReports = new Signal<ReadonlySet<string>>(new Set());
@@ -436,7 +443,9 @@ export class MemoryRepository implements RunitRepository {
         )
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     );
-    this.sigHosts.set(this.hostList.map(({ id, displayName, role }) => ({ id, displayName, role })));
+    // roleLabel travels now. It was stripped here, which is why a seat list could not
+    // render "Riley · Bride" -- only the Session carried the label.
+    this.sigHosts.set(this.hostList.map((h) => ({ ...h })));
 
     this.sigBlocked.set(
       [...this.blockList].sort((a, b) => b.blockedAt.localeCompare(a.blockedAt)),
@@ -904,8 +913,11 @@ export class MemoryRepository implements RunitRepository {
   // ------------------------------------------------------------------ hosts
 
   hosts = {
-    all: undefined as unknown as Observable<{ id: string; displayName: string; role: HostRole }[]>,
-    invite: async ({ displayName, role }: { displayName: string; role: HostRole }) => {
+    all: undefined as unknown as Observable<Host[]>,
+    invite: async ({ displayName, role, roleLabel }: NewHost) => {
+      // Both gates mirror invite_host's, which reads them from `tier_limits` in Postgres.
+      // Keeping them here too is not redundancy: this adapter is what the whole e2e suite
+      // runs, so a denial nobody can reach here is a denial nobody ever tests.
       const e = this.computeEntitlements();
       const seat = checkLimit(e, 'hosts');
       if (!seat.allowed) throw new EntitlementError(seat.denial);
@@ -913,11 +925,22 @@ export class MemoryRepository implements RunitRepository {
         const roles = checkFeature(e, 'hostRoles');
         if (!roles.allowed) throw new EntitlementError(roles.denial);
       }
+
+      const hostId = this.id('hst');
+      const key = mintFromAlphabet(12);
       this.hostList = [
         ...this.hostList,
-        { id: this.id('hst'), displayName, role, roleLabel: displayName },
+        {
+          id: hostId,
+          displayName: displayName.trim(),
+          role,
+          // It used to be `roleLabel: displayName`, which printed "DJ Marco · DJ Marco"
+          // in the console. The same fallback the SQL uses: the role's own human name.
+          roleLabel: roleLabel?.trim() || DEFAULT_ROLE_LABEL[role],
+        },
       ];
       this.recompute();
+      return { hostId, hostKey: group(key) };
     },
   };
 

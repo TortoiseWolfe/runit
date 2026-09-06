@@ -271,6 +271,16 @@ export type Database = {
         Returns: { event_id: string; code: string; host_id: string; host_key: string }[];
       };
       rotate_host_key: { Args: { p_event: string }; Returns: string };
+      /** Returns exactly one row. host_key is the only copy that will ever exist. */
+      invite_host: {
+        Args: {
+          p_event: string;
+          p_display_name: string;
+          p_role: string;
+          p_role_label?: string;
+        };
+        Returns: { host_id: string; host_key: string }[];
+      };
       is_host: { Args: { p_event: string }; Returns: boolean };
       join_event: { Args: { p_code: string; p_nickname: string }; Returns: string };
       my_guest_id: { Args: { p_event: string }; Returns: string };

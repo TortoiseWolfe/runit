@@ -79,7 +79,32 @@ for (const file of walk(SRC)) {
   }
 }
 
-const orphans = granted.filter((f) => readers.get(f).length === 0);
+/**
+ * SQL ENFORCEMENT COUNTS TOO, and for a granted flag it counts for more.
+ *
+ * The rule above looks for a `checkFeature` call anywhere under `src/`, which a call in
+ * `MemoryRepository` satisfies -- and MemoryRepository does not ship. Issue #21 is exactly
+ * that: three of four granted flags were "enforced" only in the adapter nobody runs in
+ * production, and this gate reported green over it.
+ *
+ * The real enforcement for `hostRoles` now lives in `invite_host`, which reads
+ * `tier_limits` in Postgres. No `checkFeature` call can represent that, so the gate has to
+ * learn to see it: a flag's snake_case name appearing in the migration is enforcement by
+ * the only party a second client cannot route around.
+ *
+ * This does NOT close #21 -- `pinnedAnnouncements` and `pushNotifications` are still
+ * client-only -- but the report below now says WHERE each flag is enforced, so the
+ * remaining gap is legible instead of hidden behind a single green line.
+ */
+const MIGRATION = join(ROOT, 'supabase/migrations/00000000000000_init.sql');
+const sql = readFileSync(MIGRATION, 'utf8');
+const snake = (f) => f.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
+const inSql = new Map(flags.map((f) => [f, new RegExp(`\\b${snake(f)}\\b`).test(sql)]));
+
+/** A reader that ships, i.e. not the in-memory fixture adapter. */
+const shipping = (f) => readers.get(f).some((rel) => !rel.startsWith('src/data/memory/'));
+
+const orphans = granted.filter((f) => readers.get(f).length === 0 && !inSql.get(f));
 
 console.log(
   `audited ${flags.length} tier features; ${granted.length} granted by at least one tier`,
@@ -88,7 +113,11 @@ console.log(
 if (orphans.length > 0) {
   console.error(`\n\x1b[31mFAIL: ${orphans.length} advertised feature(s) that nothing enforces\x1b[0m\n`);
   for (const f of orphans) {
-    console.error(`  ${f} — granted in tiers.ts, but no checkFeature() call reads it.`);
+    console.error(
+      `  ${f} — granted in tiers.ts, but nothing reads it: no checkFeature() call and
+` +
+        `    no mention of \`${snake(f)}\` in the migration.`,
+    );
   }
   console.error(
     `\n  A tier that grants a flag nothing reads is selling nothing. Either build the\n` +
@@ -98,9 +127,27 @@ if (orphans.length > 0) {
   process.exit(1);
 }
 
+let clientOnly = 0;
 for (const f of granted) {
   const sites = readers.get(f);
   const files = [...new Set(sites)].length;
-  console.log(`  ${f} — ${sites.length} call(s) across ${files} file(s)`);
+  // WHERE, not just how many. A count alone is what let three flags look enforced while
+  // living entirely in the adapter that does not ship.
+  const where = [
+    inSql.get(f) ? 'SQL' : null,
+    shipping(f) ? 'shipping adapter' : null,
+    sites.length ? `${sites.length} call(s) across ${files} file(s)` : null,
+  ].filter(Boolean);
+  const weak = !inSql.get(f) && !shipping(f);
+  if (weak) clientOnly += 1;
+  console.log(`  ${f} — ${where.join(' · ')}${weak ? '   <- in-memory adapter ONLY (#21)' : ''}`);
 }
 console.log('\n\x1b[32mevery granted feature is enforced somewhere.\x1b[0m');
+if (clientOnly > 0) {
+  // Deliberately not a failure. Making it one today would fail the build on two flags
+  // that predate this check, which is how a gate gets switched off. It is reported every
+  // run instead, so the number cannot quietly grow.
+  console.log(
+    `\x1b[33m  ${clientOnly} of them only in the adapter that does not ship. See issue #21.\x1b[0m`,
+  );
+}
