@@ -12,7 +12,10 @@
       "bundleIdentifier": "com.turtlewolfe.runit",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
-      }
+      },
+      "associatedDomains": [
+        "applinks:runit.pages.dev"
+      ]
     },
     "android": {
       "package": "com.turtlewolfe.runit",

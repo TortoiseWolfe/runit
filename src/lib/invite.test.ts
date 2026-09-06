@@ -1,4 +1,9 @@
-import { icsFilename, icsFor, joinLink, shareMessage } from './invite';
+import { readFileSync } from 'fs';
+import { join } from 'path';
+
+import {
+  INVITE_ORIGIN, appSchemeLink, icsFilename, icsFor, joinLink, shareMessage,
+} from './invite';
 
 /**
  * The iCalendar half of this is where the real risk lives. A malformed .ics does NOT
@@ -19,19 +24,26 @@ const FIXED = () => '2026-09-04T12:00:00.000Z';
 
 describe('the join link', () => {
   it('upper-cases and trims the code, matching what join_event does server-side', () => {
-    expect(joinLink('  sr1017 ')).toBe('runit://join?code=SR1017');
+    expect(joinLink('  sr1017 ')).toBe(`${INVITE_ORIGIN}/i/SR1017`);
   });
 
-  it('percent-encodes, so a code can never break the query string', () => {
-    expect(joinLink('a b&c')).toBe('runit://join?code=A%20B%26C');
+  it('percent-encodes, so a code can never break the path', () => {
+    // It was the query string until #33; the reason survives the move. A code is data in
+    // a URL either way, and `&` or a space would truncate or split it.
+    expect(joinLink('a b&c')).toBe(`${INVITE_ORIGIN}/i/A%20B%26C`);
   });
 });
 
 describe('the share message', () => {
-  it('leads with the CODE, because the link only resolves if Runit is installed', () => {
+  it('still leads with the CODE, though no longer for the old reason', () => {
+    // It used to lead with the code because the link was a custom scheme that "only
+    // resolves if Runit is installed". That is no longer true -- an https link opens a
+    // page for everyone. It still leads with the code because a code is what a person
+    // reads aloud across a room and types, and because plenty of channels mangle,
+    // truncate or strip a URL while leaving six characters intact.
     const m = shareMessage(EVENT);
     expect(m).toContain('code SR1017');
-    expect(m.indexOf('SR1017')).toBeLessThan(m.indexOf('runit://'));
+    expect(m.indexOf('SR1017')).toBeLessThan(m.indexOf(INVITE_ORIGIN));
   });
 
   it('omits the venue line entirely when there is no venue', () => {
@@ -124,5 +136,84 @@ describe('the filename', () => {
   it('falls back rather than producing a dotfile', () => {
     // '.ics' with no stem is a hidden file on every unix-ish system.
     expect(icsFilename({ name: '🎉🎉🎉' })).toBe('event.ics');
+  });
+});
+
+/* ------------------------------------------------ the universal link (#33) */
+
+/**
+ * FOUR FILES HAVE TO AGREE, AND NOTHING ELSE CHECKS THEM.
+ *
+ * A universal link that is misconfigured does not error. It silently opens Safari instead
+ * of the app, forever, and the only way to notice is to hold an iPhone. A wrong team id,
+ * a bundle id that drifted, a path prefix that stopped matching, a Content-Type the host
+ * guesses -- every one of those fails exactly that way.
+ *
+ * So the association file lives in this repo rather than on the web host's, and these
+ * assertions read the real files off disk. They cannot prove iOS accepts the result -- no
+ * Mac here, and Apple's CDN caches -- but they can prove the four artefacts describe the
+ * same app at the same address, which is the half that rots silently.
+ */
+const REPO = join(__dirname, '../..');
+const AASA = JSON.parse(
+  readFileSync(join(REPO, 'web/.well-known/apple-app-site-association'), 'utf8'),
+) as { applinks: { details: { appIDs: string[]; components: { '/': string }[] }[] } };
+const APP_JSON = JSON.parse(readFileSync(join(REPO, 'app.json'), 'utf8')) as {
+  expo: { scheme: string; ios: { bundleIdentifier: string; associatedDomains: string[] } };
+};
+const EAS = JSON.parse(readFileSync(join(REPO, 'eas.json'), 'utf8')) as {
+  submit: { production: { ios: { appleTeamId: string } } };
+};
+
+describe('the invitation link', () => {
+  it('is an https URL a stranger can open, not a custom scheme', () => {
+    // The whole point of #33. `runit://` was, in this file's own former words, "a dead
+    // string" to anyone without the app -- which is precisely who a printed QR is for.
+    expect(joinLink('house7')).toBe(`${INVITE_ORIGIN}/i/HOUSE7`);
+    expect(joinLink('  sr1017 ')).toBe(`${INVITE_ORIGIN}/i/SR1017`);
+  });
+
+  it('still offers the custom scheme, for the app that is already installed', () => {
+    expect(appSchemeLink('house7')).toBe('runit://join?code=HOUSE7');
+    expect(APP_JSON.expo.scheme).toBe('runit');
+  });
+});
+
+describe('the app and the association file describe the same app', () => {
+  it('claims the host the links actually point at', () => {
+    // `applinks:` + the bare host, no scheme and no path. A mismatch here means iOS never
+    // fetches the file at all, and nothing anywhere says so.
+    const host = new URL(INVITE_ORIGIN).host;
+    expect(APP_JSON.expo.ios.associatedDomains).toEqual([`applinks:${host}`]);
+  });
+
+  it('names this app: the team id from eas.json and the bundle id from app.json', () => {
+    const expected = `${EAS.submit.production.ios.appleTeamId}.${APP_JSON.expo.ios.bundleIdentifier}`;
+    expect(AASA.applinks.details[0]!.appIDs).toEqual([expected]);
+  });
+
+  it('matches the path joinLink actually produces', () => {
+    // A pattern that stopped matching would send every invitation to Safari. Checked
+    // against a real generated link rather than against a copy of the prefix.
+    const patterns = AASA.applinks.details[0]!.components.map((c) => c['/']);
+    expect(patterns).toContain('/i/*');
+    const path = new URL(joinLink('HOUSE7')).pathname;
+    expect(patterns.some((p) => path.startsWith(p.replace(/\*$/, '')))).toBe(true);
+  });
+
+  it('is served as application/json, which the host does not guess', () => {
+    // Apple documents application/json; a static host guesses from the extension, and
+    // this file deliberately has none. GitHub Pages answers application/octet-stream --
+    // measured, not assumed -- which is why the site moved to a host that can be told.
+    const headers = readFileSync(join(REPO, 'web/_headers'), 'utf8');
+    expect(headers).toContain('/.well-known/apple-app-site-association');
+    expect(headers).toMatch(/Content-Type:\s*application\/json/);
+  });
+
+  it('rewrites /i/<code> to the one page, without changing the URL', () => {
+    // 200 not 301: Apple matches the URL as SENT, and a redirect would also lose the code
+    // out of the address bar before the page could read it.
+    const redirects = readFileSync(join(REPO, 'web/_redirects'), 'utf8');
+    expect(redirects).toMatch(/\/i\/\*\s+\/i\/index\.html\s+200/);
   });
 });

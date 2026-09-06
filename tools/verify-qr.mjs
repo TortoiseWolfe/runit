@@ -24,7 +24,23 @@ import { PNG } from 'pngjs';
 const ROOT = join(import.meta.dirname, '..');
 const SHOT = join(ROOT, '.qr-verify.png');
 // The seeded event the harness boots. Must match fixtures/wedding.ts.
-const EXPECTED = 'runit://join?code=SR1017';
+//
+// AN HTTPS URL SINCE #33, and that is the thing this lane exists to catch. A QR renders
+// and scans perfectly whatever string is inside it, so the payload changing from
+// `runit://join?code=…` to a universal link is invisible to every other check -- the box
+// looks identical. The old payload was a dead string to anyone without the app, which is
+// precisely the person a printed card is handed to.
+//
+// Read from src/lib/invite.ts rather than typed again here: this file asserting its own
+// copy of the format would pass while the app encoded something else entirely.
+const INVITE_ORIGIN = /INVITE_ORIGIN = '([^']+)'/.exec(
+  readFileSync(join(ROOT, 'src/lib/invite.ts'), 'utf8'),
+)?.[1];
+if (!INVITE_ORIGIN) {
+  console.error('FAIL: could not read INVITE_ORIGIN out of src/lib/invite.ts');
+  process.exit(1);
+}
+const EXPECTED = `${INVITE_ORIGIN}/i/SR1017`;
 
 const server = spawn('node', [join(ROOT, 'tools/serve-dist.mjs')], {
   stdio: ['ignore', 'pipe', 'inherit'],

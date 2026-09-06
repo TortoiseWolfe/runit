@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>You're invited · RunIt</title>
+<meta name="description" content="An invitation to an event on RunIt.">
+<meta name="robots" content="noindex">
+<!--
+  THE PAGE A SCANNED QR LANDS ON WHEN THE APP IS NOT INSTALLED.
+
+  Before this, the QR encoded `runit://join?code=...`, and src/lib/invite.ts said what
+  that meant: "it only resolves on a phone that already has Runit installed. To anyone
+  else it is a dead string." A printed card handed to a stranger -- which is the whole
+  point of a printed card -- did nothing.
+
+  With the association file beside this page, iOS opens the app directly and never renders
+  this. So this is the fallback, and it has exactly one job: show the code big enough to
+  type, and offer the App Store.
+
+  NO EVENT NAME HERE, deliberately. The name lives behind `event_preview`, which is
+  granted to `authenticated` only so that guessing codes stays behind the anonymous
+  sign-in rate limit. A public web page reading event names would hand that away to anyone
+  with a loop and no session at all.
+
+  No build step, no framework, no analytics, no cookies. One file, and it works with the
+  network off after first paint.
+-->
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #F5F0EB;
+    --ink: #1F2937;
+    --muted: #6B7280;
+    --line: #DDD5CB;
+    --accent: #1F2937;
+    --accent-ink: #F5F0EB;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1A1A2E;
+      --ink: #E2E8F0;
+      --muted: #9AA3B2;
+      --line: #2E2E48;
+      --accent: #E2E8F0;
+      --accent-ink: #1A1A2E;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100svh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 28px 22px calc(28px + env(safe-area-inset-bottom));
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { width: 100%; max-width: 420px; }
+  .eyebrow {
+    font-size: 12px; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--muted); margin: 0 0 10px;
+  }
+  h1 { font-size: 30px; line-height: 1.15; margin: 0 0 26px; font-weight: 600; }
+  .label {
+    font-size: 11px; letter-spacing: .06em; color: var(--muted);
+    margin: 0 0 6px; text-transform: uppercase;
+  }
+  /* Tabular so the characters line up, and large because it gets read aloud across a
+     room and typed by someone holding a drink. */
+  .code {
+    font-size: 42px; font-weight: 600; letter-spacing: .18em;
+    font-variant-numeric: tabular-nums; margin: 0 0 4px;
+    word-break: break-all;
+  }
+  .blurb { color: var(--muted); margin: 22px 0 28px; }
+  .cta {
+    display: block; text-align: center; text-decoration: none;
+    background: var(--accent); color: var(--accent-ink);
+    padding: 15px 18px; border-radius: 12px; font-weight: 600;
+  }
+  .open { display: block; text-align: center; margin-top: 16px; color: var(--muted); font-size: 14px; }
+  .fine { margin-top: 30px; padding-top: 18px; border-top: 1px solid var(--line);
+          color: var(--muted); font-size: 12px; }
+  .fine a { color: inherit; }
+</style>
+</head>
+<body>
+<main>
+  <p class="eyebrow">You're invited to an event on</p>
+  <h1>RunIt</h1>
+
+  <p class="label">Your code</p>
+  <!-- Filled from the URL. Falls back to a readable dash rather than an empty gap. -->
+  <p class="code" id="code">&mdash;</p>
+
+  <p class="blurb">
+    Announcements, a shared album and song requests, on one screen for the night.
+    No account, no phone number.
+  </p>
+
+  <a class="cta" id="store" href="https://apps.apple.com/app/id6808766120">Get RunIt · App&nbsp;Store</a>
+  <a class="open" id="open" href="#">Already have it? Open the invitation &rarr;</a>
+
+  <p class="fine">
+    <a href="https://tortoisewolfe.github.io/runit-legal/privacy/">Privacy</a> &middot;
+    <a href="https://tortoisewolfe.github.io/runit-legal/support/">Support</a>
+  </p>
+</main>
+<script>
+  // The code is the last path segment: /i/HOUSE7 -> HOUSE7. Same alphabet the app mints
+  // from (no 0/O, no 1/I/L), upper-cased because a QR may carry any case and a person
+  // reading it aloud will not preserve one.
+  var raw = decodeURIComponent(location.pathname.split('/').filter(Boolean).pop() || '');
+  var code = raw.toUpperCase().replace(/[^A-HJ-NP-Z2-9]/g, '').slice(0, 12);
+  if (code) {
+    document.getElementById('code').textContent = code;
+    document.title = code + ' · RunIt';
+    // The custom scheme still works and is instant when the app IS installed. It is the
+    // manual escape hatch for the case where iOS did not hand the link to the app --
+    // a fresh install that has not yet fetched the association file, most often.
+    document.getElementById('open').setAttribute('href', 'runit://join?code=' + encodeURIComponent(code));
+  } else {
+    document.getElementById('open').style.display = 'none';
+  }
+</script>
+</body>
+</html>

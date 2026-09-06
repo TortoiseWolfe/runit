@@ -1,0 +1,9 @@
+# Apple documents that the association file must be served as application/json, and it
+# has NO FILE EXTENSION -- which means a static host guesses. GitHub Pages guesses
+# `application/octet-stream`; verified by probing runit-legal/.nojekyll, which is why the
+# site is here and not there. Cloudflare Pages lets us say it outright.
+#
+# This file is the entire reason the host moved. Do not drop it.
+/.well-known/apple-app-site-association
+  Content-Type: application/json
+  Cache-Control: public, max-age=3600

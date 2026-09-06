@@ -906,3 +906,57 @@ one host, an empty `role_label` falls back to the role's own name, the seat stay
 until the key is presented, only the hash is stored, the founder cannot collect the
 co-host's seat, and **the DJ redeems his key as a different identity with no account** —
 which is the whole claim.
+
+## V. The QR stopped being a dead string
+The canvas has said *"Scanned the QR? Your code is filled in"* since the first artboard,
+and generation shipped long ago. What nobody checked is what the QR **encoded**:
+`runit://join?code=…`, a custom scheme. `src/lib/invite.ts` described the consequence in
+its own docblock, accurately, and then nothing acted on it for months:
+
+> it only resolves on a phone that already has Runit installed. To anyone else it is a
+> dead string.
+
+A printed card is handed to strangers. The one person a printed QR exists for — somebody
+at the door without the app — got nothing at all. Scanning produced an unopenable URL and
+no error.
+
+**Two things the issue and the code both had wrong, found by measuring rather than
+reading.** `invite.ts` claimed `runit-legal` was "already positioned to serve" an
+association file. It is not: Apple fetches from the **domain root**, and `runit-legal` is a
+GitHub Pages *project* site that can only answer under `/runit-legal/`. The apex 404s and
+no user-site repo exists. And GitHub Pages **cannot set a Content-Type** — probing
+`runit-legal/.nojekyll`, also extensionless, returns `application/octet-stream` where Apple
+documents `application/json`. Both were assumptions dressed as facts, mine included, and
+both took one `curl` to settle.
+
+So the links live on a Cloudflare Pages subdomain, which can be told what to serve.
+`runit-legal` does not move: App Store Connect's privacy and support URLs are registered
+and unchanged.
+
+**The web files are in this repo, not the host's, and that is the point.** A misconfigured
+universal link does not error — it silently opens Safari, forever. A wrong team id, a
+drifted bundle id, a path prefix that stopped matching, a host that changed: every one
+fails that way. Keeping `web/` beside the app makes them checkable, and
+`src/lib/invite.test.ts` now asserts that four artefacts describe the same app at the same
+address. Mutation-checked both ways: a wrong team id in the association file fails, and an
+`associatedDomains` pointing elsewhere fails.
+
+**`/i/<CODE>`, not `/join?code=`.** Shorter on a card, smaller as a QR, and it gives the
+association file one unambiguous prefix to match. It needs a matching app route or
+expo-router falls through to `+not-found` — an invitation opening the app on an error
+screen, which is worse than opening the browser. `src/app/i/index.tsx` exists as well,
+because a dynamic segment needs a segment: a truncated `/i/` would otherwise say "this
+event does not exist" to somebody holding a real invitation. The empty-code guard inside
+`[code].tsx` was unreachable until a journey caught it.
+
+**The change is an improvement even if the association never validates.** Without it the
+link opens a page showing the code big enough to type; before it, the same scan opened
+nothing. The failure mode went from silence to a readable page, which is why this shipped
+without a device to confirm the rest.
+
+**What is NOT proven, and must be said plainly.** No lane here can show that iOS accepts
+the file, that Apple's CDN fetched it, or that a real tap reaches the app. There is no Mac
+in this environment and Apple caches for days. Lane F proves the QR encodes the link;
+jest proves the config agrees; a phone proves the rest and nothing else does. Until one
+has, the universal link is **unverified** — check it with Settings → Developer → Universal
+Links → Diagnostics.

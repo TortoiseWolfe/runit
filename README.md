@@ -20,7 +20,8 @@ specification for every screen.
 | Store listing name | **RunIt: Event Companion** — plain "RunIt" is taken on the App Store by `se.runit.app`, so a suffix was needed. The SUFFIX is what makes it unique, not the casing: `RunIt: Event Companion` was accepted by App Store Connect on 2026-09-05, which is the availability check. Home-screen name is `RunIt`; the bundle id, slug and scheme stay lowercase (`com.turtlewolfe.runit`, `runit`) — invisible to users, and the bundle id is permanent. |
 | Bundle ID | `com.turtlewolfe.runit` |
 | Support URL | <https://tortoisewolfe.github.io/runit-legal/support/> — a required App Store Connect field for release; Apple checks it resolves. |
-| Apple Team ID | `Y774K5FF67` |
+| Apple Team ID | `Y774K5FF67` — also half of the associated-domains appID, `Y774K5FF67.com.turtlewolfe.runit`, in `web/.well-known/apple-app-site-association`. `src/lib/invite.test.ts` asserts the two agree. |
+| Invitation links | <https://runit.pages.dev> — Cloudflare Pages, output dir `web/`, deployed from this repo. It exists because Apple fetches the association file from the domain ROOT and GitHub Pages can neither serve the apex here nor set `Content-Type: application/json`. See `web/README.md`. **Unverified on a device.** |
 | Privacy policy | <https://tortoisewolfe.github.io/runit-legal/privacy/> — a required, publicly-accessible field in App Store Connect (Guideline 5.1.1(i)). Source: [`TortoiseWolfe/runit-legal`](https://github.com/TortoiseWolfe/runit-legal), public because Pages on a private repo needs a paid plan. |
 | Supabase | project `qwusbxallkbzfladvgfx`, org `ieceljlytbxfhtaxvnyq`, us-east-2 |
 

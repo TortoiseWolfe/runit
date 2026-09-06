@@ -12,15 +12,18 @@ import { alpha, eyebrow, radius, tracking, useTheme, weight } from '@/theme';
  * the only way a guest could get one was to be told it out loud. This is the half that
  * had to come first; the scanner (issue #1) is only useful once this exists.
  *
- * IT ENCODES THE DEEP LINK, NOT THE BARE CODE. A camera app resolves `runit://join?code=X`
- * straight into the app with the field already filled, which is the experience the canvas
- * describes. A bare code would scan to a meaningless string and leave the guest typing it
- * anyway.
+ * IT ENCODES A UNIVERSAL LINK, NOT THE BARE CODE. `joinLink` returns
+ * `https://<origin>/i/<CODE>`, so a camera app opens the app straight to the join screen
+ * with the field filled -- and opens a page showing the code for anyone who does not have
+ * it. A bare code would scan to a meaningless string and leave the guest typing it anyway.
  *
- * THE CODE IS PRINTED BENEATH IT, and that is not decoration. The custom scheme only
- * resolves on a phone that already has Runit installed; everyone else needs to read
- * something. A QR with no human-readable fallback is a dead end for exactly the people
- * who most need help getting in.
+ * IT USED TO ENCODE `runit://join?code=X`, which resolved only on a phone that already
+ * had Runit installed. A printed card is handed to strangers, so the one person it was
+ * for got nothing at all. Issue #33.
+ *
+ * THE CODE IS PRINTED BENEATH IT, and that is still not decoration -- a QR with no
+ * human-readable fallback is a dead end whenever a camera will not focus, the light is
+ * bad, or someone is reading it out across a room.
  *
  * ALWAYS DARK-ON-LIGHT, in both colour schemes. QR contrast is a scanner requirement
  * rather than a design choice -- inverted codes fail on a meaningful fraction of camera
