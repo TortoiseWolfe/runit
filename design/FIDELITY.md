@@ -1941,3 +1941,72 @@ through a door they could only reach by holding one.
 | `reads_own` admits your own read and refuses a forged one | **E**, live |
 | The fold does not count staff | **E**, live — a naive count fails it |
 | Two devices, two readers | **nothing here.** Memory has exactly one reader, and Lane E writes rows rather than driving the app |
+
+## AL. The QR that could be shown and never read
+`README.md` has promised *"guests scan a QR or type a code"* since the first commit. Only
+half of it existed: `EventQr` renders on the host console, Lane F decodes what it actually
+encodes — and **nothing anywhere read a QR in.** The canvas's *"Scanned the QR? Your code
+is filled in"* sat over a field the prototype pre-filled by hand.
+
+Note O records the attempt to close that by editing the README, and reverting it: the code
+was what was behind, and quietening the claim made the gap harder to find rather than
+smaller. The sentence is unchanged now, because it was always right — what was missing was
+the button beside it.
+
+### The interesting failures of a scanner are string failures
+
+`codeFromScan` is pure and lives in `src/lib/invite.ts`, beside `joinLink`, which is what
+produced the string being read. It accepts our own `/i/CODE` link, the `runit://` scheme
+still registered, and a bare code off a printed card — and it **refuses an `/i/` link on
+any other host**, which is the half worth having. A sticker on a lamppost could otherwise
+put an arbitrary code into the field of an app that is about to send a nickname somewhere,
+and `INVITE_ORIGIN` pointed at a stranger's website for one commit, so "the host does not
+matter" is not a hypothesis this codebase gets to hold.
+
+The round-trip test scans `joinLink()`'s own output rather than a hand-written string, so
+it cannot drift from the generator. That one test could not see uppercasing — `joinLink`
+already uppercases on the way out — which a mutation run showed, so a second assertion
+scans a lower-case link.
+
+### Typing never stops being an option
+
+The issue asked for a manual fallback never more than one tap away. The honest reading is
+stronger: typing stays the **primary** path, the field is never hidden or replaced, and
+every exit from the sheet lands back on it — a code, a refusal, a denied permission, or the
+"Type the code instead" control that is drawn whatever else is true, including while the
+camera is running. A scanner someone cannot get out of is worse than no scanner.
+
+A QR that is not ours says so (*"That QR is not a RunIt invitation"*) rather than doing
+nothing, which is the difference between "wrong code" and "this app is broken". And
+`onBarcodeScanned` fires on every frame that resolves a code, so one scan per opening is a
+guard, not a nicety.
+
+### Two plugins now write the same Info.plist key
+
+`expo-image-picker` has declared `NSCameraUsageDescription` since photo capture; `expo-camera`
+declares it too. Config plugins apply in order and the later one silently wins, so two
+plausible strings would mean a guest at the door is asked to allow the camera *"to add
+photos to the album"*. One sentence covers both uses, and `appConfig.test.ts` fails if they
+ever disagree — the only place that can catch it, since the plist is prebuild output and
+`/ios` is gitignored.
+
+### What is verified, and the part that is not
+
+| Claim | Lane |
+|---|---|
+| Every string a scanner can be handed parses, or is refused | **jest**, 8 cases, three mutations caught |
+| A scan reaches the field, resolves the invitation, and joins | **B**, 6 journeys, three mutations caught |
+| The permission strings agree and name both uses | **jest**, mutation caught |
+| **A camera reads a real QR** | **nothing here.** No lane in this environment can point a lens at anything |
+
+`QrScanner.web.tsx` is the same shape as `capture.web.ts`: headless Chromium refuses
+`getUserMedia`, so the web sibling keeps `CameraView` out of the browser bundle entirely and,
+under `EXPO_PUBLIC_FIDELITY=1` only, offers one control that feeds `codeFromScan` the exact
+string `joinLink()` produces. That proves the wiring and nothing about a lens. Outside the
+harness it says plainly that scanning needs the phone.
+
+**Lane C could witness the real thing** — the emulator has a virtual scene the camera can be
+pointed at, and it is how photo capture was witnessed end to end. That has not been done for
+this, and until it is, native scanning is unverified. **Issue #42**, filed rather than left
+in this paragraph — and it wants the dev client rebuilt first, because `expo-camera` is a
+new native dependency.

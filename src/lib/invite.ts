@@ -83,6 +83,60 @@ export function shareMessage(event: Pick<RunitEvent, 'name' | 'code' | 'venue' |
   return lines.join('\n');
 }
 
+/**
+ * READING A QR BACK -- the inverse of `joinLink`, and the whole of #28 that can be tested
+ * without a camera.
+ *
+ * A scanner hands you whatever the code contained, and the interesting failures are all
+ * string failures rather than camera failures: a link with a trailing slash, a code in the
+ * wrong case, a QR from a DIFFERENT app that happens to be pointed at the lens, a printed
+ * card photographed with a query string appended by whatever shared it. So the parsing
+ * lives here, pure, beside the function that produced the string in the first place.
+ *
+ * WHAT IT ACCEPTS, deliberately narrow:
+ *   - `https://<our origin>/i/HOUSE7` -- what our own QR encodes.
+ *   - `runit://join?code=HOUSE7` -- the custom scheme, still registered.
+ *   - a bare `HOUSE7`, because a code printed as text is a real thing to scan.
+ *
+ * WHAT IT REFUSES, and this is the half worth having: an `/i/` link on ANY OTHER HOST.
+ * Accepting one would mean a QR sticker on a lamppost could put an arbitrary code into the
+ * field of an app that is about to send a nickname somewhere -- and `INVITE_ORIGIN` was
+ * pointed at a stranger's website for one commit, so "the host does not matter" is not a
+ * hypothesis this codebase gets to hold.
+ *
+ * It returns the code UPPERCASED and trimmed, because that is what `join_event` compares
+ * (`upper(code) = upper(btrim(p_code))`) and what the field expects.
+ */
+export function codeFromScan(raw: string): string | null {
+  const text = raw.trim();
+  if (!text) return null;
+
+  // A bare code, which is also what the field itself holds. Anchored and length-bounded:
+  // `join_event` mints six characters from a 31-letter alphabet, and a loose match here
+  // would accept the first word of any text QR in the room.
+  if (/^[A-Za-z0-9]{4,12}$/.test(text)) return text.toUpperCase();
+
+  let url: URL;
+  try {
+    url = new URL(text);
+  } catch {
+    return null;
+  }
+
+  if (url.protocol === 'runit:') {
+    // `runit://join?code=X` parses with host 'join' in the WHATWG parser, so the code is
+    // read from the query rather than the path.
+    const code = url.searchParams.get('code');
+    return code && /^[A-Za-z0-9]{4,12}$/.test(code.trim()) ? code.trim().toUpperCase() : null;
+  }
+
+  // Origin, not hostname: a `http://` copy of our own host is somebody else's server as
+  // far as this is concerned.
+  if (url.origin !== INVITE_ORIGIN) return null;
+  const m = /^\/i\/([A-Za-z0-9]{4,12})\/?$/.exec(url.pathname);
+  return m ? m[1]!.toUpperCase() : null;
+}
+
 /* ------------------------------------------------------------------ iCalendar */
 
 /**

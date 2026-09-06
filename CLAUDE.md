@@ -604,11 +604,33 @@ the same screen, which is why collapsing them is invisible by inspection --
 `host-console.spec.ts` switches roles mid-test to catch it. "Send to 180 guests" was never
 a fiction; the gap was that no screen could set the number, which #25 closed.
 
-**Dead ends a host reaches by using the app as designed.** #24 (`seen by 0` forever) ·
-#37 (a founder cannot leave the host console) · #29 (`RoleSwitch` was shown to
-every guest and, against Supabase, only ever refuses).
+**Dead ends a host reaches by using the app as designed — all three closed.** #29
+(`RoleSwitch` was shown to every guest and, against Supabase, only ever refused) · #37 (a
+founder could not leave the host console: `becomeGuest` opened with `requireGuest()` and
+`create_event` mints her no `guests` row — she takes a seat on demand now) · #24 (`seen by
+0` forever: `broadcast_reads` had a policy and a fold and no writer).
 
-**Promised and not built.** #28 (QR *scanning* — generation shipped, the scan never did).
+**STAFF ARE NOT GUESTS, and it is now one rule asked in three places.**
+`public.guest_seats()` excludes a seat held by a host of that event, and it is what
+`fold_guest_count` and `join_event`'s cap check both read; `fold_seen_count` applies the
+same exclusion one level down. So a host looking at her own party does not appear in "N
+already here", does not eat one of the ten seats a free tier sells, and does not make her
+own announcement read "seen by 1" before anyone has seen it. `hosts` folds on
+`update of auth_user_id` too, because `claim_host` promotes a guest without touching
+`guests` at all. FIDELITY notes AJ and AK.
+
+**Promised and now built.** #28 shipped the scanner — `expo-camera`, `codeFromScan` living
+beside `joinLink` because every interesting failure of a scanner is a string failure, and
+typing still the primary path with the field never hidden. **No lane here can point a lens
+at anything**, so native scanning is unwitnessed: that is #42, and it wants a dev-client
+rebuild first because `expo-camera` is a new native dependency. FIDELITY note AL.
+
+**`app.json` has two plugins writing `NSCameraUsageDescription`.** `expo-image-picker` and
+`expo-camera` both declare it, config plugins apply in order, and the later one silently
+wins — so a guest at the door would be asked to allow the camera "to add photos to the
+album". One sentence covers both uses and `src/lib/appConfig.test.ts` fails if they ever
+disagree. It is the only place that can catch it: the plist is prebuild output and `/ios`
+is gitignored.
 
 **PUSH IS BUILT** (#27). `set_push_token` stores a token on the caller's own `guests` row;
 `fan_out_push` (a trigger on `broadcasts`) and `fan_out_song_push` (on `song_requests`
