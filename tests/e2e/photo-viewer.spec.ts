@@ -91,3 +91,42 @@ test.describe('opening a photo', () => {
     await expect(page.getByTestId(/^tile-/)).toHaveCount(9);
   });
 });
+
+/**
+ * The retention line — issue #23.
+ *
+ * It ships only because #39 gave it something to point at. A deadline nobody can act on is
+ * not a warning, it is bad news, so the sentence names the control and the control exists.
+ *
+ * NOTHING DELETES ANYTHING YET. The copy says how long photos are KEPT, which is true;
+ * promising a removal that no code performs would be the failure this whole session has
+ * been unpicking.
+ */
+test.describe('how long the album lasts', () => {
+  test('the album says how long photos are kept, and what to do about it', async ({
+    page,
+  }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await joinAsGuest(page, scheme);
+    await page.getByTestId('tab-photos').click();
+
+    // The demo wedding sits on the Event tier: a year.
+    await expect(page.getByTestId('album-retention')).toContainText('365 days');
+    // The line is useless without naming the way to act on it.
+    await expect(page.getByTestId('album-retention')).toContainText('Save');
+  });
+
+  test('it is at the FOOT of the album, not the first thing anyone meets', async ({
+    page,
+  }, testInfo) => {
+    // A deadline should not greet someone opening a shared photo album at a party. It
+    // should be there when they scroll to the end and start choosing favourites.
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await joinAsGuest(page, scheme);
+    await page.getByTestId('tab-photos').click();
+
+    const feed = await page.getByTestId('album').innerText();
+    const tileText = 'photos in the album';
+    expect(feed.indexOf(tileText)).toBeLessThan(feed.indexOf('Photos here are kept'));
+  });
+});

@@ -78,7 +78,7 @@ export const TIERS: Record<TierId, Tier> = {
       '100 photos · 1 folder',
       'Requests, upvotes, play next',
     ],
-    limits: { maxGuests: 10, maxHosts: 1, maxPhotos: 100, maxFolders: 1, eventTtlHours: 48, albumRetentionDays: null },
+    limits: { maxGuests: 10, maxHosts: 1, maxPhotos: 100, maxFolders: 1, eventTtlHours: 48, albumRetentionDays: 30 },
     features: {
       photoModeration: false, hostRoles: false, customBranding: false,
       venueBranding: false, pinnedAnnouncements: false, pushNotifications: false,

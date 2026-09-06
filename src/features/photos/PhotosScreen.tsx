@@ -6,7 +6,7 @@ import { PhotoViewer } from './PhotoViewer';
 import { ReportSheet } from '@/features/moderation/ReportSheet';
 import { usePhotoActions } from '@/state/actions';
 import {
-  useActiveFolder, useApprovedPhotos, useFolders, useMyReports, useMyUploads,
+  useActiveFolder, useApprovedPhotos, useEntitlements, useFolders, useMyReports, useMyUploads,
 } from '@/state/hooks';
 import { subjectKey, type Photo } from '@/data/types';
 import { albumTileColor, alpha, border, radius, tracking, useTheme, weight } from '@/theme';
@@ -53,6 +53,12 @@ export function PhotosScreen() {
   // grid -- otherwise reporting the thing that just got hidden crashes the sheet.
   const [reporting, setReporting] = useState<Photo | null>(null);
   const [viewing, setViewing] = useState<Photo | null>(null);
+  /**
+   * `null` means unlimited -- the $599 tier -- and there is nothing honest to warn about
+   * then, so the line is not drawn at all rather than saying "kept forever", which is a
+   * promise nobody should make about somebody else's storage bill.
+   */
+  const retentionDays = useEntitlements().tier.limits.albumRetentionDays;
 
   const visible = approved.filter((p) => p.folderId === active?.id);
   const totalPhotos = folders.reduce((a, f) => a + f.photoCount, 0);
@@ -272,6 +278,32 @@ export function PhotosScreen() {
             </Pressable>
           ))}
         </View>
+
+        {/*
+          HOW LONG THIS ALBUM LASTS (#23).
+
+          It sits at the FOOT of the album rather than the top, and that is deliberate: a
+          deadline is not the first thing anyone should meet when they open a shared photo
+          album at a party. It is the thing they should find when they scroll to the end
+          and start thinking about which ones they want.
+
+          IT SHIPS AFTER A SAVE CONTROL EXISTS (#39), not before. A deadline nobody can act
+          on is not a warning, it is bad news -- so the sentence names the thing to do, and
+          the thing is real.
+
+          NOTHING DELETES ANYTHING YET, and the copy is careful not to claim otherwise: it
+          says how long photos are KEPT, which is true, rather than promising a removal
+          that no code performs. The sweep is separate work and irreversible.
+        */}
+        {retentionDays !== null ? (
+          <Text
+            testID="album-retention"
+            style={[s.retention, { color: alpha(tokens.baseContent, fade.muted) }]}
+          >
+            Photos here are kept for {retentionDays} days after the event. Tap one and
+            choose Save to keep it on your phone.
+          </Text>
+        ) : null}
       </ScrollView>
 
       <PhotoViewer
@@ -367,6 +399,16 @@ const s = StyleSheet.create({
   // pretend otherwise. This is the floor a tile never goes below, declared so the audit
   // can see it: a three-column grid at 402pt gives ~120.
   tile: { borderRadius: 6, minWidth: 44, minHeight: 44 },
+  // GRID_PADDING, not a fresh number: this line is a sibling of the grid rather than a
+  // child of it, so it inherits no gutter and would render flush at x=0. Caught by the
+  // gutter gate added in note X -- which exists because exactly this shipped once.
+  retention: {
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 18,
+    marginBottom: 8,
+    paddingHorizontal: GRID_PADDING,
+  },
   // Fills the tile it sits inside; the tile owns the size.
   tileImage: { width: '100%', height: '100%' },
   overlay: {
