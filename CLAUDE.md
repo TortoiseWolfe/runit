@@ -103,7 +103,7 @@ pnpm audit:styles               # Lane A: the RN colour-parser gate
 pnpm audit:targets              # Lane A2: touch targets, WCAG 2.2 SC 2.5.8 (AA)
 pnpm audit:keyboard             # Lane A3: keyboard strategy + return-key contract
 pnpm export:web && pnpm shots   # Lane B: screenshots at 402x874 + colour gate
-pnpm test:e2e                   # Lane B: 206 Playwright journeys, dark + light
+pnpm test:e2e                   # Lane B: 270 Playwright journeys, dark + light
 pnpm verify:links               # Lane G: is the invitation host OURS, and does it serve JSON
 pnpm qr:poster                  # regenerate the scan target from the app's own EventQr
 pnpm scan:device                # Lane C: witness expo-camera reading that QR off a real lens
@@ -202,7 +202,7 @@ switched off inside a week. `<Screen>` sets VERTICAL insets only, by design, so 
 container that omits `paddingHorizontal` renders flush at x=0; that shipped on both create
 screens, including the one that prints the recovery key. FIDELITY note X.
 
-`pnpm test:e2e` runs 206 journey tests (`tests/e2e/`) across both colour
+`pnpm test:e2e` runs 270 journey tests (`tests/e2e/`) across both colour
 schemes: join and its rejection path, the three guest tabs, the host console,
 the pricing ladder and every denial it can render, and the painted theme
 tokens. Each spec was written against the canvas and then attacked by a critic
@@ -290,10 +290,27 @@ order. Programmatic probes catch a different class of thing; neither substitutes
 for the other.
 
 **It is a COMPARISON, so it does not run at all on a screen with no render** -- and it
-does not fail either, it silently measures nothing. `00-create-event` and
-`00-create-key` are screenshot but have no counterpart in `design/renders/`, because the
-create flow came from `docs/design-host-accounts.md` rather than the canvas. Do not read
-"all pairs green" as "every screen was looked at". Issue #35.
+does not fail either, it silently measures nothing. **`pnpm shots` now says which**, in a
+pairing gate beside the colour, contrast and gutter ones (#35). Do not read "all gates
+green" as "every screen was looked at"; read the gate's own lines.
+
+Measured, and it was worse than #35 recorded: **8 of 11 walked screens pair, and the five
+that did not were two different problems.** THREE have no render at all --
+`00-create-event` and `00-create-key` came from `docs/design-host-accounts.md` rather than
+the canvas, and `03-host-event` is a fourth host segment the canvas never drew, recorded
+nowhere until the gate counted it. TWO had a render under a different NAME: the canvas
+draws two states of the music and photos tabs and the walk shoots one, so following the
+instruction above literally found nothing and lane D had never run on either.
+
+**The variant mappings were READ, not guessed, and the obvious guess is wrong.**
+`02-guest-music` pairs with `-nowplaying`, NOT `-list`: both draw the queue, only one draws
+the Now Playing card, and the walk's music tab has it. A mapping to the wrong render is an
+absent check replaced by a WRONG one, which is worse than the gap.
+
+**The gate does not fail on the three.** It fails on a screen in neither the manifest nor
+`renders/`, so a new screen costs one line and a sentence -- and the manifest must be a
+bijection with the walk, so a stale entry fails too. A gate that reds the normal path is a
+gate that gets switched off.
 
 **F — QR decode** (`pnpm verify:qr`). The only check that reads what the QR actually
 ENCODES. It drives the web export to the host console, opens the QR, screenshots that
@@ -656,7 +673,10 @@ that lives in a button handler is bypassed by the second caller.
   canvas — it exists so the e2e suite can prove joining *increments* the room
   rather than merely that the room reads 173 afterwards. FIDELITY note J.
 - The demo wedding sits on the Event tier where nothing is capped, so the
-  gating layer is invisible against it. Use the `housePartySeed` fixture to see
+  gating layer is invisible against it. `housePartySeed` is the fixture that shows
+  it working -- but **only `MemoryRepository.test.ts` can reach it.** No Playwright
+  journey can boot it (`tests/e2e/co-host.spec.ts` says so in as many words), so no
+  lane that renders a screen has ever seen a capped event. Use it to see
   it work.
 
 ## Working from the design
@@ -689,7 +709,7 @@ and a key, never an account) · #33 (the QR encodes a universal link, so a scan 
 someone without the app) · #22 (`join_event` counts against `tier_limits.max_guests` and
 raises 54023) · #34 (`auth_user_id` revoked from every client role) · #26 (a host can
 un-pin, and only `pinned` is writable) · #21 (every granted feature is enforced, or is no
-longer granted) · #27 (push is not sold). FIDELITY notes S, T, U, V, W, X, Y and Z.
+longer granted). FIDELITY notes S, T, U, V, W, X, Y and Z.
 
 **#26 nearly undid #21, and the interaction is the thing to remember.** The pin-folding
 trigger was `before insert`; an UPDATE policy on top of that leaves a free-tier host one
@@ -698,10 +718,11 @@ a write path to a table, check what triggers guard the paths that already exist.
 
 **Advertised and unenforced — #21 is CLOSED**, and it ended in the two different ways
 this kind of issue can end. `pinnedAnnouncements` got real enforcement (a trigger folding
-a pin the tier cannot carry). `pushNotifications` stopped being GRANTED and stopped being
-SOLD — `false` on every tier, "+ push" out of the $79 copy — while the flag stays in
-`TierFeatures` as the build target, which is what `audit-tier-claims.mjs` tells you to do
-in the text it prints when it fails, and how its eight unenforced siblings already live.
+a pin the tier cannot carry). `pushNotifications` was ALSO un-granted and un-sold at that
+point — the remedy `audit-tier-claims.mjs` prints, and how its eight unenforced siblings
+still live. **That is no longer the state and this paragraph used to claim it was**: #27
+built the fan-out, so `pushNotifications` is `true` on the top two tiers and "+ push" is
+back in the $79 copy. See PUSH IS BUILT below, which is the current word.
 `pnpm audit:tiers` reports 12 features, 3 granted, every one enforced, no yellow line.
 Still open: #30 (every paid tier is unreachable — the pricing screen is cut and no
 purchase path exists) · #41 (`eventTtlHours` still has zero readers: a free event never
