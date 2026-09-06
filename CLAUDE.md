@@ -539,9 +539,11 @@ a write path to a table, check what triggers guard the paths that already exist.
 
 **Advertised and unenforced — #21 is CLOSED**, and it ended in the two different ways
 this kind of issue can end. `pinnedAnnouncements` got real enforcement (a trigger folding
-a pin the tier cannot carry). `pushNotifications` got deleted from the ladder, because you
-cannot gate a capability nothing has and building push is blocked three ways. `pnpm
-audit:tiers` now reports 11 features, 3 granted, every one enforced, with no yellow line.
+a pin the tier cannot carry). `pushNotifications` stopped being GRANTED and stopped being
+SOLD — `false` on every tier, "+ push" out of the $79 copy — while the flag stays in
+`TierFeatures` as the build target, which is what `audit-tier-claims.mjs` tells you to do
+in the text it prints when it fails, and how its eight unenforced siblings already live.
+`pnpm audit:tiers` reports 12 features, 3 granted, every one enforced, no yellow line.
 Still open: #23 (`eventTtlHours`, `albumRetentionDays`: zero readers) · #30 (every paid
 tier is unreachable — the pricing screen is cut and no purchase path exists).
 
@@ -558,11 +560,16 @@ every guest and, against Supabase, only ever refuses).
 
 **Promised and not built.** #28 (QR *scanning* — generation shipped, the scan never did).
 
-**Push is no longer promised** (#27). The flag, the two tiers that granted it, the "+ push"
-in the Event card's copy and the `push` argument every adapter discarded are all gone.
-`src/domain/tiers.test.ts` asserts push appears on NEITHER side — no column in SQL, no
-flag, no feature line — and its docblock says to delete that test the day push is built
-rather than weaken it. FIDELITY note Z.
+**Push is no longer promised** (#27). The two tiers that granted it, the "+ push" in the
+Event card's copy, and the `push` argument every adapter discarded are all gone; the FLAG
+stays at `false` everywhere as the build target. `src/domain/tiers.test.ts` asserts push is
+neither granted nor sold — no column in SQL, no tier granting it, no feature line — and its
+docblock says to delete that test the day push is built rather than weaken it.
+
+**Do not assert that an unenforced flag is ABSENT.** Nine of them are meant to be present
+and `false`; a test demanding absence contradicts the remedy `audit:tiers` prints, and
+removes the flag from the ladder-monotonicity test that was already covering it. FIDELITY
+note Z.
 
 **The reason the rest kept arriving by phone.** #20 — all 142 journeys boot
 `MemoryRepository`.

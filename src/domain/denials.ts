@@ -29,6 +29,7 @@ const FEATURE_COPY: Partial<Record<keyof TierFeatures, string>> = {
   photoModeration: 'Approving photos before they appear is not enabled for this event.',
   hostRoles: 'Host roles are not enabled for this event.',
   pinnedAnnouncements: 'Pinned announcements are not enabled for this event.',
+  pushNotifications: 'Push notifications are not enabled for this event.',
   zipExport: 'ZIP export is not enabled for this event.',
 };
 

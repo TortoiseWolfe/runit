@@ -94,10 +94,16 @@ for (const file of walk(SRC)) {
  *
  * THIS NOW CLOSES #21, and it took two different kinds of fix. `pinnedAnnouncements`
  * got real enforcement -- a trigger on `broadcasts` that folds a pin the tier cannot
- * carry, on INSERT or UPDATE. `pushNotifications` got the other treatment: it was DELETED
- * from the ladder, because push does not exist and you cannot gate a capability nothing
- * has. Removing the promise was the only honest option left once building it was out of
- * scope (#27).
+ * carry, on INSERT or UPDATE. `pushNotifications` got the other treatment -- the one the
+ * failure text below recommends: every tier grants it `false` now and the "+ push" came
+ * out of the $79 tier's featureLines, while the FLAG STAYS as the build target. Push does
+ * not exist (`expo-notifications` is not a dependency) and you cannot gate a capability
+ * nothing has, so removing the PROMISE was the only honest option left once building it
+ * was out of scope (#27).
+ *
+ * It was deleted outright first. That made it the only one of nine unenforced flags
+ * handled differently, and it silently dropped push out of the ladder-monotonicity test
+ * that had been covering it. The remedy this file prints is the remedy this file means.
  *
  * The report says WHERE each flag is enforced rather than just that it is, because
  * "enforced" spread across a shipping adapter and a migration is the distinction that

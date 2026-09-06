@@ -1159,7 +1159,7 @@ adversarial pass over the issue survey, before any of it was written.
   "The control is on screen" and "the label changed" would both pass against a button
   that does nothing to the feed. Making `setPinned` a no-op fails it.
 
-## Z. Push was deleted from the ladder, because you cannot gate what does not exist
+## Z. Push stopped being sold, and the flag stayed as the build target
 `pushNotifications` was a `TierFeatures` flag, granted on the **$79 Event** and **$599
 Venue** tiers, with *"Pinned announcements + push"* printed on the Event card. There is no
 push. `expo-notifications` is not a dependency and never has been.
@@ -1175,16 +1175,38 @@ promise the type system makes on behalf of code that does not exist.
 folding a pin the tier cannot carry. Push had no such route: you cannot gate a capability
 nothing has, so the only honest options were build it or stop selling it, and building it
 is blocked three ways (an APNs key behind an Apple login with 2FA, the dependency, and a
-paid-tier decision). `pnpm audit:tiers` now reports **11 features, 3 granted, every one
+paid-tier decision). `pnpm audit:tiers` now reports **12 features, 3 granted, every one
 enforced**, with no yellow line under it for the first time.
+
+**THE FLAG STAYS, at `false` on every tier.** That is not a hedge, it is the remedy the
+gate itself prints when it fails:
+
+    Either build the enforcement, or set the flag false on every tier until you do
+    and take the line out of featureLines. The flag may stay in TierFeatures as the
+    build target.
+    — tools/audit-tier-claims.mjs:130-133
+
+Eight siblings already live that way — `customBranding`, `venueBranding`, `zipExport`,
+`requestCaps`, `multiDjQueues`, `folderTemplates`, `bulkQrPrinting`, `prioritySupport` —
+and `entitlements.test.ts` records the reasoning for `requestCaps` in as many words.
+
+**It was deleted outright first, and that was wrong twice over.** It made push the only one
+of nine unenforced flags handled differently, for no stated reason. And it took the flag
+out of `'feature %s never disappears as tiers get dearer'` — an existing monotonicity test
+that had been covering it — so a deletion sold as removing fiction quietly removed
+coverage as well. Caught by re-reading the tool's own failure text, not by any gate.
 
 **The database was already honest and the price list was not**, which is the detail worth
 keeping. `tier_limits` deliberately had no push column, and `tiers.test.ts` asserted that
 — but it asserted only that half. The TypeScript ladder went on carrying the flag,
 granting it on two tiers, and selling it in copy, and the test that existed to catch
-exactly this could not see any of it. It now checks both sides: no column in SQL, no flag
-in any tier's `features`, and no `/push/i` in any tier's `featureLines`. Mutation-checked
-in both directions.
+exactly this could not see any of it.
+
+It now checks both sides: no column in SQL, **no tier GRANTING it**, and no `/push/i` in
+any tier's `featureLines`. Not "the key is absent" — that first version quietly forbade
+the remedy the sibling gate recommends, and **two gates disagreeing about one flag is
+worse than either rule alone.** Mutation-checked in both directions: granting it on a tier
+fails three separate tests plus `audit:tiers`, and restoring the copy line fails one.
 
 The docblock says to **delete that test on the day push is built, not weaken it.**
 
