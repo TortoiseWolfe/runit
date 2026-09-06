@@ -44,7 +44,8 @@ function seededLimits(): Record<string, Record<string, number | boolean>> {
   const block = SQL.slice(at, SQL.indexOf('on conflict', at));
 
   const rows: Record<string, Record<string, number | boolean>> = {};
-  const re = /\('(\w+)',\s*([\d]+|null),\s*([\d]+|null),\s*([\d]+|null),\s*([\d]+|null),\s*(true|false)\)/g;
+  const re =
+    /\('(\w+)',\s*([\d]+|null),\s*([\d]+|null),\s*([\d]+|null),\s*([\d]+|null),\s*(true|false),\s*(true|false)\)/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(block)) !== null) {
     rows[m[1]!] = {
@@ -53,6 +54,7 @@ function seededLimits(): Record<string, Record<string, number | boolean>> {
       maxPhotos: fromSql(m[4]!),
       maxFolders: fromSql(m[5]!),
       hostRoles: m[6] === 'true',
+      pinnedAnnouncements: m[7] === 'true',
     };
   }
   return rows;
@@ -86,6 +88,32 @@ describe('tier_limits in Postgres matches src/domain/tiers.ts', () => {
 
   it.each(TIER_ORDER)('%s grants host roles on both sides or neither', (tier) => {
     expect(SEEDED[tier]!.hostRoles).toBe(TIERS[tier].features.hostRoles);
+  });
+
+  /**
+   * Only the flags Postgres can actually enforce are mirrored.
+   *
+   * `pinnedAnnouncements` is, by a trigger on `broadcasts` (#21). `pushNotifications`
+   * deliberately is NOT in `tier_limits`: push does not exist at all (#27), and a column
+   * claiming to gate it would be a second place asserting a capability nothing has.
+   */
+  it.each(TIER_ORDER)('%s allows pinning on both sides or neither', (tier) => {
+    expect(SEEDED[tier]!.pinnedAnnouncements).toBe(TIERS[tier].features.pinnedAnnouncements);
+  });
+
+  it('does not pretend to gate push, which does not exist', () => {
+    const block = SQL.slice(SQL.indexOf('create table public.tier_limits'));
+    // COLUMN DEFINITIONS ONLY. The first version of this matched the whole block and
+    // fired on the COMMENT explaining why push is absent -- a test failing on its own
+    // documentation, which is the shape of a check that measures prose instead of code.
+    const columns = block
+      .slice(0, block.indexOf(');'))
+      .split('\n')
+      .filter((l) => !l.trim().startsWith('--'))
+      .join('\n');
+    expect(columns).not.toMatch(/push/i);
+    // The floor: prove the filter did not simply strip everything.
+    expect(columns).toMatch(/pinned_announcements\s+boolean/);
   });
 
   /**

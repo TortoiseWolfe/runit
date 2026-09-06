@@ -291,6 +291,8 @@ language plpgsql security definer set search_path = public as $$
 declare
   v_event uuid;
   v_guest uuid;
+  v_cap   integer;
+  v_seats integer;
 begin
   if auth.uid() is null then
     raise exception 'not authenticated' using errcode = '28000';
@@ -303,6 +305,35 @@ begin
   -- code. This can, and the client surfaces it as "That code doesn't match an event."
   if v_event is null then
     raise exception 'unknown_code' using errcode = 'P0002';
+  end if;
+
+  -- THE GUEST CAP (#22). The debt block at the foot of this file called its absence
+  -- "a real debt, not a decision" -- src/data/supabase/README.md forbids client-only
+  -- enforcement, and until tier_limits existed there was no number here to enforce.
+  --
+  -- ONLY A NEW SEAT IS CAPPED. This function is idempotent on (event_id, auth_user_id)
+  -- and that is the whole reason the session is persisted: a reinstall must land on the
+  -- same row. Refusing a REJOIN at a full event would lock out the people already in it.
+  if not exists (
+    select 1 from public.guests g
+     where g.event_id = v_event and g.auth_user_id = auth.uid()
+  ) then
+    -- Serialise joins for THIS event. Two guests arriving in the same millisecond would
+    -- otherwise both read 9-of-10 and both insert. A row lock on the event is the cheap
+    -- correct answer at a scale where the largest cap is 3000.
+    perform 1 from public.events where id = v_event for update;
+
+    select tl.max_guests into v_cap
+      from public.tier_limits tl
+      join public.events e on e.tier = tl.tier
+     where e.id = v_event;
+
+    select count(*) into v_seats from public.guests g where g.event_id = v_event;
+
+    -- NULL is unlimited, so the comparison is skipped rather than defaulted.
+    if v_cap is not null and v_seats >= v_cap then
+      raise exception 'event_full' using errcode = '54023';
+    end if;
   end if;
 
   insert into public.guests (event_id, auth_user_id, nickname)
@@ -465,6 +496,21 @@ create policy guests_update_self on public.guests for update
 -- Hosts are public within the event: their names are printed on every broadcast.
 create policy hosts_read on public.hosts for select
   using (public.my_guest_id(event_id) is not null or public.is_host(event_id));
+
+-- ...BUT NOT auth_user_id (#34). A policy says WHO may read; it cannot say WHICH COLUMNS,
+-- the same gap `events` and `reports` close for writes. Every joined guest could select
+-- `*` from this table and get back the auth identity of every host.
+--
+-- Not exploitable today -- it is an opaque uuid, and every policy checks auth.uid() against
+-- the CALLER'S OWN jwt, which a guest cannot forge. It matters the day host sign-in ships
+-- (#18), when the same column correlates a person across every event they run. A guest
+-- needs the name, the role and the label; nothing else on this row is theirs to see.
+--
+-- `toHost` in mappers.ts already drops it, and that is NOT the control: a mapper runs on
+-- the client, and PostgREST answers whatever the grant allows.
+revoke select on public.hosts from authenticated, anon;
+grant  select (id, event_id, display_name, role, role_label, created_at)
+  on public.hosts to authenticated;
 
 create policy broadcasts_read on public.broadcasts for select
   using (public.my_guest_id(event_id) is not null or public.is_host(event_id));
@@ -728,9 +774,10 @@ create policy event_photos_delete on storage.objects for delete to authenticated
 --
 -- * `hosts` has no INSERT policy, so hosts.invite() cannot add anyone. The free tier
 --   allows exactly one host, so v1 does not need it. Bootstrap is one service-role insert.
--- * No tier cap is enforced here. join_event() does not check maxGuests, despite
---   src/data/supabase/README.md requiring server-side enforcement. Client-only checks are
---   what that README forbids, so this is a real debt, not a decision.
+-- * CLOSED (#22). join_event() reads public.tier_limits and raises 54023 over the cap.
+--   It was open for a long time and the note is kept because the reasoning still applies
+--   to anything added later: src/data/supabase/README.md forbids client-only checks, so a
+--   limit with no server-side route is a debt rather than a decision.
 -- * `broadcast_reads` has a policy AND a fold trigger, but nothing in RunitRepository ever
 --   marks a broadcast read -- so seen_count folds a table nobody writes to and stays 0.
 --   Either add chat.markRead(), or stop rendering the count. "Seen by 0" under every
@@ -883,6 +930,42 @@ begin
 end $$;
 
 revoke execute on function public.mint_token(int) from public, anon, authenticated;
+
+-- PINNING IS A PAID FEATURE, and the server has to say so.
+--
+-- `pinnedAnnouncements` was granted by two tiers and read in exactly one place --
+-- MemoryRepository -- so against Supabase a free-tier host could pin, which is issue #21.
+-- SupabaseRepository.chat.send never looked at the flag; `pinned` went straight into the
+-- INSERT.
+--
+-- IT DEGRADES RATHER THAN REFUSES, matching the reasoning already written into
+-- MemoryRepository: "Refusing to post an announcement because the plan cannot PIN it
+-- would be hostile." The announcement goes out; it simply does not stick to the top.
+-- A trigger rather than a policy, because a policy can only permit or deny a whole row.
+create or replace function public.fold_pin_to_plan() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  v_ok boolean;
+begin
+  if new.pinned then
+    select tl.pinned_announcements into v_ok
+      from public.tier_limits tl
+      join public.events e on e.tier = tl.tier
+     where e.id = new.event_id;
+    -- coalesce, so an event on a tier with no row loses the pin rather than keeping it.
+    -- Failing toward the cheaper plan is the right direction for a paid feature.
+    if not coalesce(v_ok, false) then
+      new.pinned := false;
+    end if;
+  end if;
+  return new;
+end $$;
+
+revoke execute on function public.fold_pin_to_plan() from public, anon, authenticated;
+
+create trigger broadcasts_pin_to_plan
+  before insert on public.broadcasts
+  for each row execute function public.fold_pin_to_plan();
 
 -- ========================================================================
 -- CREATING AN EVENT -- the supply side, which did not exist
@@ -1068,7 +1151,13 @@ create table public.tier_limits (
   max_folders integer,
   -- Whether a seat may be anything other than 'host'. The DJ QUEUE is free on every
   -- tier; this is about a co-host SEAT wearing a role, which is a different product.
-  host_roles  boolean not null
+  host_roles  boolean not null,
+  -- Whether an announcement may be pinned to the top of every guest's feed.
+  --
+  -- Only the flags the SERVER can actually enforce belong in this table. `pushNotifications`
+  -- deliberately is not here: push does not exist (#27), and a column claiming to gate it
+  -- would be a second place asserting a capability nothing has.
+  pinned_announcements boolean not null default false
 );
 
 alter table public.tier_limits enable row level security;
@@ -1078,15 +1167,17 @@ alter table public.tier_limits enable row level security;
 create policy tier_limits_read on public.tier_limits for select using (true);
 revoke insert, update, delete on public.tier_limits from authenticated, anon;
 
-insert into public.tier_limits (tier, max_guests, max_hosts, max_photos, max_folders, host_roles)
-values ('house_party',   10,    1,  100,    1, false),
-       ('party',         50,    2, 1000,    3, false),
-       ('event',        300,    5, null,   10, true),
-       ('venue',       3000, null, null, null, true)
+insert into public.tier_limits
+  (tier, max_guests, max_hosts, max_photos, max_folders, host_roles, pinned_announcements)
+values ('house_party',   10,    1,  100,    1, false, false),
+       ('party',         50,    2, 1000,    3, false, false),
+       ('event',        300,    5, null,   10, true,  true),
+       ('venue',       3000, null, null, null, true,  true)
 on conflict (tier) do update set
   max_guests  = excluded.max_guests,  max_hosts   = excluded.max_hosts,
   max_photos  = excluded.max_photos,  max_folders = excluded.max_folders,
-  host_roles  = excluded.host_roles;
+  host_roles  = excluded.host_roles,
+  pinned_announcements = excluded.pinned_announcements;
 
 -- Minting a second host seat, and the key that redeems it.
 --

@@ -51,9 +51,10 @@ export class EntitlementError extends Error {
  * `on conflict (event_id, auth_user_id) do update set nickname` -- nicknames are
  * deliberately non-unique. The arm asserted a constraint the schema does not have.
  *
- * `event_full` is produced by MemoryRepository only, because join_event enforces
- * no tier cap. Keeping it is what makes that debt visible in the type rather than
- * only in a SQL comment (supabase/migrations/00000000000000_init.sql).
+ * `event_full` was produced by MemoryRepository ONLY for a long time, because
+ * join_event enforced no tier cap -- and keeping it in the type is what kept that
+ * debt visible rather than leaving it in a SQL comment. `join_event` reads
+ * `public.tier_limits` now (#22) and raises 54023, so both adapters reach it.
  */
 export type JoinReason =
   | 'unknown_code'

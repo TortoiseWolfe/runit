@@ -981,3 +981,61 @@ nobody can satisfy gets deleted.
 
 `pages.dev` names are global and first-come. Probe before choosing one: an unclaimed
 `<name>.pages.dev` does not resolve at all, while a taken one answers.
+
+## W. The rest of the ladder became true, and Lane E ran whole for the first time
+Note U made *one* cap real: `tier_limits` exists, and `invite_host` reads it. That left the
+other three advertised limits exactly as they were — printed on the pricing page, enforced
+in `MemoryRepository` alone, and free for the taking against Supabase. #22, #21 and #34
+close that, and the arc is worth writing down because each one failed in a *different* way.
+
+**#22 — the guest cap, which counted nothing.** `join_event` admitted every caller. The
+free tier says "up to 30 guests" and the room simply kept filling; `event_full` sat in
+`JoinReason` as copy only the in-memory adapter could produce, which is the tell — a reason
+with no producer is a promise with no enforcement. The function now counts against
+`tier_limits.max_guests` and raises **54023**.
+
+**A guest already seated must still get back in, and that is the load-bearing half.**
+`join_event` is idempotent on `(event_id, auth_user_id)`, so the cap has to be checked
+*only for a new seat*. Checked before the idempotent branch, a reinstall at a full event
+would lock out someone already standing in the room — the worst failure this feature could
+have, and invisible until the room is full. Lane E asserts both directions: the 11th guest
+is refused, and Ada rejoins.
+
+**#21 — the pin, which degrades rather than refuses.** `pinned_announcements` is false on
+`house_party`. A trigger folds a free-tier pin to `pinned = false` and **lets the broadcast
+through**. That asymmetry is deliberate: refusing the insert would lose the host's message
+over a formatting privilege they did not know they lacked. The announcement is the thing
+they came to send; the pin is decoration. Lane E asserts both — the pin drops *and* the row
+lands.
+
+**#34 — a column a policy could not hide.** `hosts_read` admits any joined guest, and the
+table carries `auth_user_id`. A policy says *who* may read; it cannot say *which columns*.
+`toHost` dropped it client-side and that was never a control — a mapper runs on the client
+and PostgREST answers whatever the grant allows. `revoke select on public.hosts` plus a
+grant naming six columns closes it, the way `events` already narrows writes.
+
+**The revoke names the ROLE, so it applies to hosts too**, and that is stronger than the
+issue asked for. Nothing on the client has ever needed the column — `SupabaseRepository.ts`
+selects named columns and `toHost` discards it — so leaving it readable to hosts would be a
+capability with no caller.
+
+### What running the file actually caught
+
+`supabase/verify-policies.sql`'s own header says anything added here must be **run, not
+merely written**. Running it caught two bugs, and both were in the *test*:
+
+    two assertions looked a host row up by `where auth_user_id = ...` while standing in
+    `set local role authenticated`. After #34 that raises 42501 — outside any handler,
+    aborting the whole DO block, which is precisely the failure mode #31 was filed for.
+    The first cost a round trip at line 253; the second, at line 347, cost another.
+
+Both are now read as the owner, because they are claims about a **row**, not about what a
+client may see. The permission itself is asserted separately, from a guest *and* from a
+host. A test that reads a column the schema hides does not prove the column is hidden; it
+just stops the file.
+
+The whole file now runs end to end: **79 assertions, 0 failures**, first complete run since
+the block was unblocked. `tools/verify-policies.mjs` now carries that number as a
+**coverage floor**, the same doctrine lanes A and A2 already use: an abort cannot hide
+(it never reaches the closing RAISE, so there is no report to parse), but a file that
+*shrinks* would report "0 FAILURE(S)" in the same words over half the coverage.

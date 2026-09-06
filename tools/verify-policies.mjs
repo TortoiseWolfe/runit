@@ -100,11 +100,53 @@ console.log(report);
 // The report opens with "<n> FAILURE(S)."; anything but zero is a red gate.
 const m = /^(\d+) FAILURE\(S\)/m.exec(report);
 if (!m) {
+  // AN ABORT LANDS HERE, and that is the point. If any statement raises outside a
+  // `begin ... exception` block, the closing RAISE never runs, so there is no report to
+  // parse -- which is #31's original failure wearing a different hat. The message names
+  // the shape rather than the cause, so read the raised error above it: it carries the
+  // CONTEXT line naming the PL/pgSQL line number that actually blew up.
   console.error('\x1b[31mFAIL: could not parse the policy report. Did the SQL change shape?\x1b[0m');
+  console.error('  A DO block that ABORTS never reaches its closing RAISE, so it produces');
+  console.error('  no report at all. The error printed above names the line.');
   process.exit(1);
 }
 if (Number(m[1]) > 0) {
   console.error(`\x1b[31mFAIL: ${m[1]} policy assertion(s) failed.\x1b[0m`);
   process.exit(1);
 }
-console.log('\x1b[32mok: all policy assertions hold against the live database\x1b[0m');
+
+/**
+ * THE COVERAGE FLOOR, and it is the same doctrine as lane A's and lane A2's.
+ *
+ * "0 FAILURE(S)" over forty assertions and over eighty look identical on the board. An
+ * abort cannot hide here -- it never reaches the RAISE, so it lands in `!m` above -- but
+ * these can, and all three are real ways this file has shrunk or could:
+ *
+ *   - a section deleted, or lost to a bad merge on a file this large;
+ *   - a `begin ... exception when others` widened until it swallows a whole block;
+ *   - assertions rewritten into one that reports a single line.
+ *
+ * A gate that passes having measured less than it did last time is the exact bug #31 was
+ * filed for. Raise this number when you add assertions; that is the intended friction.
+ */
+const EXPECTED_ASSERTIONS = 79;
+// The FIRST assertion shares its line with the "0 FAILURE(S)." preamble -- `format()`
+// joins the array after it -- so an anchored line match silently undercounts by one.
+const counted = report
+  .split('\n')
+  .map((line) => line.replace(/^\s*\d+ FAILURE\(S\)\.\s*/, '').trim())
+  .filter((line) => /^(PASS|FAIL) /.test(line)).length;
+if (counted < EXPECTED_ASSERTIONS) {
+  console.error(
+    `\x1b[31mFAIL: only ${counted} assertions ran, and ${EXPECTED_ASSERTIONS} were expected.\x1b[0m`,
+  );
+  console.error('  Zero failures over a shrunken file is not a pass -- it is a smaller');
+  console.error('  measurement reported in the same words. Something stopped asserting.');
+  console.error('  If you deliberately removed assertions, lower EXPECTED_ASSERTIONS here');
+  console.error('  in the same commit, so the number always states what is actually covered.');
+  process.exit(1);
+}
+
+console.log(
+  `\x1b[32mok: all ${counted} policy assertions hold against the live database\x1b[0m`,
+);
