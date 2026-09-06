@@ -1346,3 +1346,75 @@ not), and removing the fallback fails it.
 
 That is the whole argument for mutation-testing an assertion before trusting it, and it is
 the second time in two days a test of mine measured nothing while reporting green.
+
+## AC. Three ways a photo escaped the resize, and a web path that never had one
+`#11` named one bug. There were three on native, and the worst was not a skipped resize.
+
+**The picker's dimensions were never trustworthy, and its own types say so:**
+
+    Width of the image or video. Can be `0` if the system did not provide the width.
+    — expo-image-picker/build/ImagePicker.types.d.ts
+
+They are declared `number`, not `number | undefined`, so **`pnpm typecheck` is green on the
+broken code and would be green on any patch that only added `?? 0`.**
+
+| what the picker returns | what happened |
+|---|---|
+| both `undefined` | `Math.max` is `NaN`; every comparison with `NaN` is false, so `NaN > 1600` skipped the resize |
+| both `0` | `longEdge` 0, `0 > 1600` false, same skip — no `NaN` involved, and a shorter path to it |
+| **one `0`, one real** | `longEdge` was real so a scale *was* computed, and `resize({ width: Math.round(0 * 0.4) })` asked for **width zero** |
+
+The third is worse than the other two: not a skipped resize but a degenerate one, and the
+contextual `manipulate`/`resize` API validates nothing.
+
+**The fix removes the input rather than defending it.** `renderAsync()` returns an
+`ImageRef` whose `width`/`height` come from the decoded native bitmap, so the picker's
+numbers are never read at all. And `resize` documents that *"if you specify only one value,
+the other will be calculated automatically to preserve image ratio"* — so clamping the long
+edge directly deletes the multiplication, which **was** the bug. The orientation branch is
+load-bearing rather than tidy: the old code always passed `width`, which was right for
+portrait only by arithmetic accident.
+
+There was **no test file for `capture.ts` at all.** There is now, and it is mutation-checked
+against the original implementation: **seven of its eight tests fail** on the old code.
+
+**The remaining honest gap:** both a resized and an unresized capture produce a valid JPEG,
+so nothing static can tell them apart. Only Lane C, reading the output file's size back off
+a device, can. The commit claims the resize is now *impossible to skip* — not that the
+trigger was ever observed on a particular handset.
+
+### The web path had no compression whatsoever
+
+`capture.web.ts` measured `naturalWidth`/`naturalHeight` purely to report them, then handed
+the **original file** to `upload()`. A 12MB original went straight at a bucket with a 10MB
+per-object limit and failed as a generic transfer error.
+
+**`shrink()` is exported and takes its decoder and canvas as arguments, deliberately.** No
+lane here can reach it through `capturePhoto`: the compression lives in the `change`
+listener, reachable only on the non-fidelity branch, and that branch opens an OS file
+chooser nothing in `tools/shoot-app.mjs` answers — which is the entire reason the fidelity
+branch exists. jsdom implements no `canvas.toBlob`. **A seam was the only way this could be
+tested at all**; without one it would have shipped unverified, which is what the scoping
+predicted.
+
+Three details that are each a silent bug if missed:
+
+- **`imageOrientation: 'from-image'`.** An `<img>` applies EXIF orientation; a raw canvas
+  draw does not. Without it every portrait upload from a phone lands sideways — silently,
+  and only on web.
+- **`toBlob` can yield `null`**, and returning `null` from `capturePhoto` means *"the guest
+  backed out"* — which `actions.ts` swallows in silence. A compression failure would have
+  looked exactly like a cancelled camera: no photo, no toast, no error. It falls back to the
+  original bytes.
+- **A decode reporting 0 must not build a 0×0 canvas.** The same unvalidated-input trap as
+  native, one platform over; a blank image is worse than an uncompressed one.
+
+**`MAX_EDGE` and `QUALITY` moved to `captureConstants.ts`, which imports nothing.**
+`capture.web.ts` cannot value-import `capture.ts` without dragging three Expo packages into
+the browser bundle and breaking its own stated invariant — and `./capture` from inside
+`capture.web.ts` is a Metro resolution hazard besides.
+
+The fidelity branch is untouched and still the first statement in the function.
+`guest-photos.spec.ts` asserts the literal `data:image/png;base64,iVBOR…` prefix, and
+routing the synthetic pixel through the compressor would turn it into a `blob:` URI and
+fail — that assertion is the only thing proving the URI came out of the capture path.
