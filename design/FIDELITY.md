@@ -1098,3 +1098,63 @@ adding the check and adding the screen are one change, not two.
 
 What is still missing is a render to compare either screen against; lane D remains unable
 to run on them. Filed rather than left in this paragraph.
+
+## Y. Un-pinning, and the fix that would have undone the fix before it
+`broadcasts` carried a SELECT policy and an INSERT policy and nothing else. So a pin was
+permanent: a notice that stopped being true two hours in — *"Last call at the bar is 11 PM
+sharp"* — sat above every guest's feed for the rest of the night, and no control anywhere
+in the app could move it. `SupabaseRepository` said so in a comment rather than in an
+issue, which is how it stayed true for months.
+
+**Only `pinned` moves.** `revoke update on public.broadcasts` then
+`grant update (pinned)`, the same shape `events`, `reports` and `hosts` already use. An
+un-pin control implemented without the column grant also hands every host the power to
+rewrite the **body** of an announcement guests have already read, and to re-attribute it
+by editing `author_name`. An announcement is a thing that was said; only its prominence is
+still editable afterwards. Lane E asserts the refusal at 42501.
+
+### The trap this set for the note before it
+
+`broadcasts_pin_to_plan` — the trigger from note W that folds a free tier's pin — was
+`before insert`. Adding an UPDATE policy on top of an insert-only trigger leaves a
+free-tier host **one statement** away from the pin #21 had just taken off her: send the
+announcement (folded to `false`), then `update ... set pinned = true`, with nothing in the
+path to fold it a second time.
+
+**The cap would have been undone by the feature that came after it, silently, and every
+gate would still have been green.** The trigger is now `before insert or update`, which is
+safe in both directions because `fold_pin_to_plan` acts only `if new.pinned` — an un-pin
+skips the body entirely. Lane E asserts the closed door directly: *a free-tier host cannot
+pin via UPDATE either.*
+
+This was found by an adversarial reviewer reading the migration, not by writing the
+feature. Nothing in #26 mentions the trigger; the two issues were filed a session apart
+and the interaction lives only in the order they were done.
+
+### The asymmetry, which is the whole subtlety of the client half
+
+**Pinning is gated on the plan. Un-pinning never is.** The symmetric version reads as
+consistent and is a real bug: a host who pins on a paid tier and then downgrades would be
+refused permission to take her own pin down — the exact dead end this feature exists to
+remove, re-created inside its own implementation. `event.setTier` makes it reachable in
+one line, and a real plan change makes it reachable in production.
+
+Postgres already had the right shape (`if new.pinned`), so a symmetric client gate would
+also have put the adapter out of step with the server. `MemoryRepository` gates only the
+`true` direction; `SupabaseRepository` gates neither and lets the trigger fold, because a
+rule stated twice is a rule that drifts.
+
+That one is not mine either — it came back as a `wrong` verdict on my own plan from the
+adversarial pass over the issue survey, before any of it was written.
+
+### What proves it
+
+- **Lane E**, live: un-pin lands one row; the body update is refused 42501; a free-tier
+  UPDATE cannot re-pin; **a guest's UPDATE affects zero rows and raises nothing.** That
+  last one is why `setPinned` ends in `assertWrote` — without it the refusal reads as
+  success and the pin springs back on the next realtime frame. 83 assertions, 0 failures.
+- **jest**, mutation-checked in both directions: making the entitlement symmetric fails
+  the downgrade test; the adapter test pins the payload to exactly `{ pinned }`.
+- **Lane B**, one journey measuring feed ORDER twice — pinned above, then below again.
+  "The control is on screen" and "the label changed" would both pass against a button
+  that does nothing to the feed. Making `setPinned` a no-op fails it.

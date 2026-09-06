@@ -628,6 +628,51 @@ describe('resolving a report', () => {
   });
 });
 
+describe('un-pinning an announcement (#26)', () => {
+  // `event.create` is the cheapest route to a HOST session -- the founder is the host
+  // because she made it -- and setPinned is hosts-only in this adapter, matching `send`.
+  const asHost = async (c: FakeClient) => {
+    const repo = build(c);
+    await repo.event.create(NEW_EVENT);
+    return repo;
+  };
+
+  it('THROWS on the silent shape, because a guest UPDATE affects zero rows and raises nothing', async () => {
+    // Not hypothetical and not inferred from the policy: lane E asserts exactly this
+    // against the live database -- "a guest pinning affects 0 rows and raises nothing".
+    // Without assertWrote the refusal reads as success and the pin springs back on the
+    // next realtime frame, with nothing anywhere reporting a failure.
+    const c = creatable();
+    c.on((op) => (op.kind === 'update' && op.table === 'broadcasts' ? refusedSilently() : undefined));
+    const repo = await asHost(c);
+    await expect(repo.chat.setPinned('bc1', false)).rejects.toThrow(/affected no rows/);
+  });
+
+  it('sends exactly one column, because the grant covers exactly one', async () => {
+    // `revoke update on broadcasts` + `grant update (pinned)`. Naming any other key --
+    // even one whose value is unchanged -- fails the whole statement, which is what
+    // stops a host silently rewriting the BODY of something guests have already read.
+    const c = creatable();
+    const repo = await asHost(c);
+    await repo.chat.setPinned('bc1', false);
+
+    const op = c.find('update', 'broadcasts')[0]!;
+    expect(op.payload).toEqual({ pinned: false });
+    expect(op.filters).toEqual([['id', 'bc1']]);
+  });
+
+  it('sends true as readily as false, and lets the SERVER fold it', async () => {
+    // No client-side entitlement check on this path, deliberately. `fold_pin_to_plan`
+    // folds a pin the tier cannot carry -- on INSERT **or UPDATE** -- so a free-tier
+    // host's `true` returns as `false` through realtime rather than being refused. A
+    // second copy of the rule here is a copy that drifts from the one in Postgres.
+    const c = creatable();
+    const repo = await asHost(c);
+    await repo.chat.setPinned('bc1', true);
+    expect(c.find('update', 'broadcasts')[0]!.payload).toEqual({ pinned: true });
+  });
+});
+
 describe('blocking, against a real backend', () => {
   it('re-reads the blocks after a write rather than patching a local set', async () => {
     // song_votes taught this lesson the hard way: a local set with no realtime feed

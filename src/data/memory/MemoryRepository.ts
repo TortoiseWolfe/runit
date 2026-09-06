@@ -11,7 +11,7 @@
 import * as Crypto from 'expo-crypto';
 
 import type {
-  BlockedGuest, Broadcast, Folder, FolderId, GuestId, Host, HostRole, NowPlaying, Photo, PhotoId,
+  BlockedGuest, Broadcast, BroadcastId, Folder, FolderId, GuestId, Host, HostRole, NowPlaying, Photo, PhotoId,
   Report, ReportId, ReportReason, ReportResolution, ReportSubject,
   RunitEvent, ScheduleItem, ScheduleItemId, Session, SongRequest, SongRequestId, TierId,
 } from '../types';
@@ -651,9 +651,15 @@ export class MemoryRepository implements RunitRepository {
       //
       // This used to say the toggle was already locked in the UI, so this was
       // defence in depth. It is not: `BroadcastPanel.tsx` renders an ungated
-      // Pressable and imports no entitlements at all. This IS the only gate --
-      // and only in this adapter. SupabaseRepository.chat.send never reads the
-      // flag, so a free-tier host CAN pin against the real backend. Issue #21.
+      // Pressable and imports no entitlements at all, so this is the only gate
+      // IN THIS ADAPTER.
+      //
+      // It is no longer the only gate anywhere. `fold_pin_to_plan` is a trigger on
+      // `public.broadcasts` that folds a pin the tier does not carry, so a free-tier
+      // host cannot pin against Supabase either -- and it fires on INSERT **OR UPDATE**,
+      // which is what keeps #26's un-pin control from handing the pin straight back.
+      // The two must keep agreeing; `src/domain/tiers.test.ts` is what guards the
+      // numbers, and Lane E is what proves the behaviour.
       const e = this.computeEntitlements();
       const canPin = pinned && checkFeature(e, 'pinnedAnnouncements').allowed;
       const canPush = push && checkFeature(e, 'pushNotifications').allowed;
@@ -675,6 +681,34 @@ export class MemoryRepository implements RunitRepository {
         },
       ];
       void canPush; // push fan-out belongs to the backend adapter
+      this.recompute();
+    },
+
+    setPinned: async (id: BroadcastId, pinned: boolean) => {
+      // NO SESSION CHECK, matching `send` directly above rather than being stricter than
+      // its own sibling. This adapter's `send` tolerates a non-host session and falls
+      // back to `hostList[0]`, because the fixtures drive the host console without
+      // always minting a host session. `SupabaseRepository` checks in BOTH methods,
+      // because there the check is real. Each adapter is internally consistent; the
+      // server policy (`broadcasts_pin`, `using (is_host(event_id))`) is the actual gate.
+
+      // ASYMMETRIC ON PURPOSE, and the symmetric version is a real bug rather than a
+      // theoretical one. Gating BOTH directions on `pinnedAnnouncements` refuses to take
+      // a pin DOWN on any tier that cannot put one up -- and that state is reachable:
+      // `event.setTier` downgrades, and so does a real plan change. The host would be
+      // left with a pinned notice nothing could move, which is precisely the dead end
+      // #26 exists to close, re-created inside its own fix.
+      //
+      // `chat.send` has the same shape for the same reason (`pinned && checkFeature`),
+      // and so does the server: `fold_pin_to_plan` acts only `if new.pinned`.
+      if (pinned) {
+        const gate = checkFeature(this.computeEntitlements(), 'pinnedAnnouncements');
+        if (!gate.allowed) throw new EntitlementError(gate.denial);
+      }
+
+      this.broadcastList = this.broadcastList.map((b) =>
+        b.id === id ? { ...b, pinned } : b,
+      );
       this.recompute();
     },
   };

@@ -17,7 +17,7 @@ import { capturePhoto } from '@/lib/capture';
 import { checkLimit } from '@/domain/entitlements';
 import { useEntitlements } from './hooks';
 import type {
-  FolderId, GuestId, PhotoId, ReportId, ReportReason, ReportResolution,
+  BroadcastId, FolderId, GuestId, PhotoId, ReportId, ReportReason, ReportResolution,
   ReportSubject, ScheduleItemId, SongRequestId,
 } from '@/data/types';
 import { useRepository } from './RepositoryProvider';
@@ -267,6 +267,14 @@ export function useHostActions() {
     () => ({
       send: (body: string, pinned: boolean, push: boolean) =>
         repo.chat.send({ body, pinned, push }),
+      /**
+       * #26. Through `guarded`, so a free tier's attempt to pin surfaces as the toast
+       * that NAMES the limit rather than as an unhandled throw -- the same treatment
+       * every other capped control gets. Un-pinning cannot be refused (the adapters gate
+       * only the `true` direction), so the guard is simply inert in that direction.
+       */
+      setBroadcastPinned: (id: BroadcastId, pinned: boolean) =>
+        guarded(() => repo.chat.setPinned(id, pinned)),
       /**
        * Forwards through the run of show. A tap that would move the cursor
        * BACKWARDS is refused and explained rather than performed -- the row above

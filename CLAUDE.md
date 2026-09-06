@@ -275,7 +275,7 @@ would hit.
 see row-level security behave. It runs `supabase/verify-policies.sql`, which seeds an
 event, a guest and a host inside a `DO` block, switches
 role with `set local role authenticated` and a forged `request.jwt.claims`, asserts
-**seventy-nine** behaviours, and RAISES at the end so nothing commits -- the "error" it
+**eighty-three** behaviours, and RAISES at the end so nothing commits -- the "error" it
 prints IS the report.
 
 **It did not run at all until 2026-09-05, and nothing said so.** A setup line inserted
@@ -292,7 +292,7 @@ photo insert had.
 RAISE never runs, so there is no report to parse, and the unparseable case is a red gate
 that says so. And a **coverage floor** (`EXPECTED_ASSERTIONS`, the same doctrine as lanes
 A and A2) fails a run that measures less than the last one -- because "0 FAILURE(S)" over
-forty assertions and over seventy-nine are the same sentence. Raise the number when you
+forty assertions and over eighty-three are the same sentence. Raise the number when you
 add assertions; that friction is the feature. What is still open in #31 is that **nothing
 re-runs it in CI** -- there is no secret store for the URL, so the lane skips there.
 
@@ -528,8 +528,13 @@ day #18 ships).
 (`create_event`) · #32 (the recovery key) · #16 (`invite_host` -- a co-host gets a seat
 and a key, never an account) · #33 (the QR encodes a universal link, so a scan works for
 someone without the app) · #22 (`join_event` counts against `tier_limits.max_guests` and
-raises 54023) · #34 (`auth_user_id` revoked from every client role). FIDELITY notes S, T,
-U, V and W.
+raises 54023) · #34 (`auth_user_id` revoked from every client role) · #26 (a host can
+un-pin, and only `pinned` is writable). FIDELITY notes S, T, U, V, W, X and Y.
+
+**#26 nearly undid #21, and the interaction is the thing to remember.** The pin-folding
+trigger was `before insert`; an UPDATE policy on top of that leaves a free-tier host one
+statement from the pin she was refused. It is `before insert or update` now. When you add
+a write path to a table, check what triggers guard the paths that already exist.
 
 **Advertised and unenforced.** #21 is down to **one** of four: `pnpm audit:tiers` reports
 `photoModeration`, `hostRoles` and `pinnedAnnouncements` enforced in the shipping adapter
@@ -546,7 +551,7 @@ only in `src/domain/tiers.ts` is enforced by whichever client happens to be aski
 
 **Dead ends a host reaches by using the app as designed.** #24 (`seen by 0` forever) ·
 #25 (`invitees` is unreachable from the app, and "Send to N guests" names a number
-nothing can set) · #26 (nothing can un-pin a broadcast) · #29 (`RoleSwitch` is shown to
+nothing can set) · #29 (`RoleSwitch` is shown to
 every guest and, against Supabase, only ever refuses).
 
 **Promised and not built.** #27 (push: `expo-notifications` is not a dependency and

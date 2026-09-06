@@ -184,6 +184,61 @@ test.describe('host console', () => {
     );
   });
 
+  /**
+   * #26. A pin used to be permanent: `broadcasts` carried a SELECT policy and an INSERT
+   * policy and nothing else, so a notice that stopped being true two hours in sat above
+   * every guest's feed for the rest of the night.
+   *
+   * The claim here is an ORDER claim measured twice -- pinned above PLAIN, then below it
+   * again -- because "the un-pin control is on screen" and "the row says Pin to top"
+   * would both pass against a button that does nothing to the feed. The feed order is
+   * the only thing a guest actually experiences.
+   */
+  test('a host can take a pin back down, and the guest feed reorders', async ({
+    page,
+  }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await joinAsGuest(page, scheme);
+    await switchToHost(page);
+
+    await page.getByTestId('broadcast-draft').fill(PLAIN);
+    await page.getByTestId('broadcast-send').click();
+    await expect(page.getByTestId('broadcast-draft')).toHaveValue('');
+
+    await page.getByTestId('broadcast-draft').fill(PINNED);
+    await page.getByTestId('pin-toggle').click();
+    await page.getByTestId('broadcast-send').click();
+    await expect(page.getByTestId('broadcast-draft')).toHaveValue('');
+
+    // FIRST measurement: the pin is doing something.
+    await page.getByTestId('role-switch').click();
+    await expect(page.getByTestId('chat-feed').getByText(PINNED)).toHaveCount(1);
+    const pinnedFeed = await lines(page, 'chat-feed');
+    expect(pinnedFeed.indexOf(PINNED)).toBeLessThan(pinnedFeed.indexOf(PLAIN));
+
+    // Take it down from the Sent list. The row is located by its BODY rather than by an
+    // index, so a change in send order cannot silently make this un-pin the wrong one.
+    await switchToHost(page);
+    const row = page
+      .getByTestId('host-broadcast')
+      .locator('[data-testid^="sent-"]')
+      .filter({ hasText: PINNED });
+    await expect(row.getByText('Pinned · tap to un-pin')).toHaveCount(1);
+    await row.getByText('Pinned · tap to un-pin').click();
+    // The same control, now offering the opposite -- which is what says the write landed
+    // rather than the tap being swallowed.
+    await expect(row.getByText('Pin to top')).toHaveCount(1);
+
+    // SECOND measurement, and the one that matters: chronology is back in charge, so
+    // PLAIN -- sent first, never pinned -- now sits above the message that outranked it
+    // a moment ago.
+    await page.getByTestId('role-switch').click();
+    const unpinnedFeed = await lines(page, 'chat-feed');
+    expect(unpinnedFeed.indexOf(PLAIN)).toBeLessThan(unpinnedFeed.indexOf(PINNED));
+    // Nothing was lost in the process: both are still in the room.
+    expect(unpinnedFeed.filter((l) => BYLINE.test(l))).toHaveLength(5);
+  });
+
   test('accepting a request drops the DJ queue badge and moves the row into Up next, ranked by votes not by when it was accepted', async ({
     page,
   }, testInfo) => {
