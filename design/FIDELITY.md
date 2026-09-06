@@ -1302,3 +1302,47 @@ sentinel the way capture does: a fake token would be stored as a real routable a
 routes nowhere, and every assertion built on it would be measuring the stub.
 
 Do not let a green board be read as push coverage.
+
+## AB. A browser visitor was a new person on every reload
+`expo-secure-store`'s web build is, verbatim, `export default {};`. Every method is
+`undefined`. So on web `SecureStore.getItemAsync(...)` did not return null — it **threw**,
+supabase-js swallowed it, and the session never persisted.
+
+**The cost was not "you have to log in again", because there is no logging in.** Every page
+load minted a **fresh anonymous auth user**. The invitation preview never appeared, because
+a brand-new identity has joined nothing. And the project accumulated one permanent
+`auth.users` row per reload, forever. Issue #12.
+
+**No chunking here, and that is a decision rather than an omission.** The native store
+splits at 1800 bytes because SecureStore refuses values over 2048 — a keychain constraint,
+not a property of storage. `localStorage` holds megabytes. Copying the chunking would carry
+the scar without the wound and add a torn-write failure mode that cannot occur.
+
+**The at-rest guarantee is genuinely weaker and the file says so out loud.** The native path
+hands every fragment to the iOS Keychain / Android Keystore; `localStorage` is plain text
+readable by any script on the origin. That is the standard position for a browser session
+and the token is a short-lived anonymous JWT that RLS scopes to one event — but it is not
+equivalent, and a reader should not have to infer that from silence.
+
+**It can never throw.** "Block all cookies" makes the accessor itself throw on *access*,
+Safari private mode has thrown on write, and a full quota throws on set. A store that
+propagates any of those takes sign-in down entirely, which is strictly worse than not
+persisting. Every path is guarded and falls back to an in-memory map for the life of the
+tab — the app then behaves exactly as it did before this file existed.
+
+### The bug inside the fix, and the test that was passing for the wrong reason
+
+`getItem` first returned `localStorage.getItem(key)` directly. That is wrong in one real
+case: a browser can pass the probe and still refuse the **real** write — a full quota is
+the ordinary way — and then `localStorage` answers `null` for a session this tab is
+genuinely holding. Preferring that null signs the guest out mid-party. It now falls back to
+the in-memory copy on a null, not only on a throw.
+
+**The test that was meant to catch it did not.** Its fake threw on *every* `setItem`, so the
+usability probe failed too and the store took its "unusable" branch — passing while never
+executing the line under test. **Mutation-testing caught it**: removing the fallback changed
+nothing. The fake now models quota properly (a one-byte probe fits, a 4.6KB session does
+not), and removing the fallback fails it.
+
+That is the whole argument for mutation-testing an assertion before trusting it, and it is
+the second time in two days a test of mine measured nothing while reporting green.

@@ -416,6 +416,12 @@ that lives in a button handler is bypassed by the second caller.
   overlays anything — so a keyboard measurement taken against it silently "confirms"
   whatever you expected. `adb shell pm clear com.google.android.inputmethod.latin`
   resets it to docked. This is the same trap as `hw.keyboard = no`, one layer down.
+- **`expo-secure-store` HAS NO WEB IMPLEMENTATION.** Its web build is `export default {}`,
+  so every method is `undefined` and calling one THROWS rather than returning null.
+  `secureSessionStorage.web.ts` exists for that reason; without it a browser visitor is a
+  brand-new anonymous auth user on every reload. Any other Expo native module reached from
+  shared code needs the same check — the web build being a stub is the default, not the
+  exception. FIDELITY note AB.
 - **A CLIENT `UPDATE` ON `guests` MATCHES NOTHING, SILENTLY.** The table has no SELECT
   policy, and Postgres applies SELECT policies to the rows an `UPDATE ... WHERE` must read
   to evaluate its WHERE. PostgREST always emits a WHERE, so `from('guests').update(...)`
