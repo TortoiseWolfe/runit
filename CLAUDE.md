@@ -183,6 +183,15 @@ gate** that composites every rendered text colour over its painted backdrop and
 fails below WCAG AA. Contrast, unlike `hitSlop`, is honestly measurable in this
 lane: `alpha()` emits a real `rgba()` over real DOM backgrounds.
 
+...and a **gutter gate**, on the same footing and for the same reason. `padding` is not
+`hitSlop`: react-native-web renders `paddingHorizontal` as real CSS padding on a real
+element, so `getBoundingClientRect()` reports where the pixels actually are. It asserts
+one narrow thing — **nothing readable or tappable within 8px of either edge** — not that
+every gutter is 20, which would fail the tab bar (12) and the join screen (24) and be
+switched off inside a week. `<Screen>` sets VERTICAL insets only, by design, so a content
+container that omits `paddingHorizontal` renders flush at x=0; that shipped on both create
+screens, including the one that prints the recovery key. FIDELITY note X.
+
 `pnpm test:e2e` runs 206 journey tests (`tests/e2e/`) across both colour
 schemes: join and its rejection path, the three guest tabs, the host console,
 the pricing ladder and every denial it can render, and the painted theme
@@ -244,6 +253,12 @@ kept deliberately as evidence.
 `design/screenshots/<screen>.png` in the same message and walk the regions in
 order. Programmatic probes catch a different class of thing; neither substitutes
 for the other.
+
+**It is a COMPARISON, so it does not run at all on a screen with no render** -- and it
+does not fail either, it silently measures nothing. `00-create-event` and
+`00-create-key` are screenshot but have no counterpart in `design/renders/`, because the
+create flow came from `docs/design-host-accounts.md` rather than the canvas. Do not read
+"all pairs green" as "every screen was looked at". Issue #35.
 
 **F — QR decode** (`pnpm verify:qr`). The only check that reads what the QR actually
 ENCODES. It drives the web export to the host console, opens the QR, screenshots that

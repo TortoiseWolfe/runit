@@ -147,6 +147,82 @@ async function auditContrast(page) {
   });
 }
 
+/**
+ * GUTTER PROBE -- does anything readable sit jammed against the bezel?
+ *
+ * WHY THIS EXISTS. `CreateEventScreen`'s content container omitted `paddingHorizontal`,
+ * so every label, field border and chip on it rendered flush at x=0 and bled off both
+ * edges. It shipped. Nothing here could see it: the colour gate reads one pixel, the
+ * contrast gate reads colour pairs, and lane D -- the eye -- is a COMPARISON lane, so on
+ * the one screen with no `design/renders/` counterpart it has nothing to compare and
+ * cannot run at all. That screen came from the host-accounts proposal, not the canvas.
+ *
+ * THIS IS HONESTLY MEASURABLE HERE, and that is the whole test for whether a check
+ * belongs in lane B. react-native-web drops `hitSlop`, strips `KeyboardAvoidingView`'s
+ * behaviour and filters `keyboardShouldPersistTaps` out before they reach the DOM -- so
+ * lanes A2 and A3 had to be static audits instead. It does NOT drop padding: a
+ * `paddingHorizontal` becomes real CSS padding on a real element, and
+ * `getBoundingClientRect()` returns where the pixels actually are. Same footing as
+ * contrast.
+ *
+ * WHAT IT CLAIMS, EXACTLY. Not "every gutter is 20" -- that would fail on the tab bar
+ * (12) and the join screen (24) and get switched off within a week, which is what the
+ * 44-vs-24 touch-target mistake already taught this repo. It claims only that **nothing
+ * readable or tappable is within 8px of either edge**. No design in this app puts text
+ * or a control there; flush-to-zero is the bug class, and 8 catches it with room.
+ */
+const GUTTER_MIN = 8;
+
+async function auditGutter(page, viewportWidth) {
+  return page.evaluate(
+    ({ W, MIN }) => {
+      const out = [];
+      // Anything inside a horizontally scrolling strip legitimately runs to the edge --
+      // that overflow IS the affordance saying there is more. Excluded rather than
+      // special-cased later, so the gate never reports a scroll strip as a defect.
+      const inScroller = (el) => {
+        for (let n = el.parentElement; n && n !== document.body; n = n.parentElement) {
+          const ox = getComputedStyle(n).overflowX;
+          if (ox === 'auto' || ox === 'scroll') return true;
+        }
+        return false;
+      };
+
+      for (const el of document.querySelectorAll('*')) {
+        const tag = el.tagName;
+        const control = tag === 'INPUT' || tag === 'TEXTAREA' || el.getAttribute('role') === 'button';
+        // Leaf text only, so a wrapper is not blamed for where its child sits.
+        const text = el.children.length ? '' : (el.textContent || '').trim();
+        if (!control && !text) continue;
+        if (el.getAttribute('data-testid') === 'scheme-probe') continue;
+
+        const st = getComputedStyle(el);
+        if (st.visibility === 'hidden' || parseFloat(st.opacity) < 0.05) continue;
+
+        const box = el.getBoundingClientRect();
+        if (box.width < 1 || box.height < 1) continue;
+        // Off-screen vertically is not this gate's business; the walk screenshots a
+        // scrolled document and plenty is below the fold.
+        if (inScroller(el)) continue;
+
+        const left = Math.round(box.left * 10) / 10;
+        const right = Math.round((W - box.right) * 10) / 10;
+        if (left < MIN || right < MIN) {
+          out.push({
+            what: control && !text ? `<${tag.toLowerCase()}>` : text.slice(0, 40),
+            left,
+            right,
+            kind: control ? 'control' : 'text',
+          });
+        }
+      }
+      return out;
+    },
+    { W: viewportWidth, MIN: GUTTER_MIN },
+  );
+}
+
+const gutter = [];
 const contrast = [];
 
 const browser = await chromium.launch();
@@ -189,6 +265,7 @@ for (const scheme of ['dark', 'light']) {
     await page.screenshot({ path: file });
     shots.push({ file, scheme, name });
     contrast.push(...(await auditContrast(page)).map((f) => ({ ...f, scheme, name })));
+    gutter.push(...(await auditGutter(page, VIEWPORT.width)).map((f) => ({ ...f, scheme, name })));
     wrote++; console.log('  wrote', `${name}.${scheme}`);
   };
 
@@ -238,6 +315,21 @@ for (const scheme of ['dark', 'light']) {
   await page.click('[data-testid="join-create-event"]');
   await page.waitForSelector('[data-testid="create-event"]', { timeout: 30_000 });
   await shot('00-create-event');
+
+  // 00b The recovery key, which is the screen in this app where a layout defect costs
+  // the most: it renders the ONE copy of a string that `create_event` returns once and
+  // never again -- only a bcrypt hash is stored, so a screen that clips or hides it has
+  // destroyed it. It was not in this walk, which meant nothing in any lane had ever
+  // looked at it. The gutter gate can only see screens the walk visits.
+  await page.fill('[data-testid="create-host-name"]', 'Ruth');
+  await page.fill('[data-testid="create-name"]', "Ruth's 40th");
+  await page.fill('[data-testid="create-date"]', '2026-09-11');
+  await page.fill('[data-testid="create-time"]', '19:00');
+  await page.fill('[data-testid="create-venue"]', 'The garden');
+  await page.fill('[data-testid="create-doors"]', 'Doors 7:00 PM');
+  await page.click('[data-testid="create-submit"]');
+  await page.waitForSelector('[data-testid="created-key"]', { timeout: 30_000 });
+  await shot('00-create-key');
 
   // 04 Pricing -- REMOVED with the /pricing route itself in v1. The screen listed
   // $19/$79/$599 and contained no Pressable at all, which is a Guideline 3.1.1 and
@@ -321,3 +413,23 @@ if (fails.length) {
   process.exit(1);
 }
 console.log(`contrast gate: every rendered text pair clears WCAG AA across ${shots.length} screens`);
+
+// GUTTER GATE. Deduped the same way: one string in one place is one defect, not two
+// because there are two colour schemes.
+const gseen = new Map();
+for (const g of gutter) {
+  gseen.set(`${g.scheme}|${g.name}|${g.what}|${g.left}|${g.right}`, g);
+}
+const gfails = [...gseen.values()];
+if (gfails.length) {
+  console.error(`\nFAIL: ${gfails.length} element(s) sit within ${GUTTER_MIN}px of a screen edge:`);
+  for (const g of gfails.sort((a, b) => Math.min(a.left, a.right) - Math.min(b.left, b.right))) {
+    console.error(
+      `  left ${g.left}px / right ${g.right}px  ${g.scheme}/${g.name}  ${g.kind}  "${g.what}"`,
+    );
+  }
+  console.error('\n  A content container is missing paddingHorizontal. <Screen> sets VERTICAL');
+  console.error('  insets only -- the gutter is each screen\'s own to declare.');
+  process.exit(1);
+}
+console.log(`gutter gate: nothing readable sits within ${GUTTER_MIN}px of an edge across ${shots.length} screens`);
