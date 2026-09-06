@@ -204,6 +204,14 @@ create table public.photos (
   hue                   integer not null default 0 check (hue between 0 and 359),
   -- The bucket key. NOT the device path -- see decision 2.
   storage_path          text,
+  -- The 400px copy the app actually RENDERS (#10). Nullable: a photo uploaded before
+  -- thumbnails existed has none, and the full-size object stands in for it.
+  --
+  -- A SEPARATE OBJECT, not a transform. Supabase can resize on the fly, but that is a
+  -- paid add-on; generating it on the phone at capture costs a little storage and nothing
+  -- else. The album grid is ~120pt tiles and the host queue is 64pt, so 400px covers both
+  -- at 3x and a tile downloads ~15KB instead of ~300KB.
+  thumb_path            text,
   created_at            timestamptz not null default now()
 );
 
@@ -977,12 +985,18 @@ create policy event_photos_insert on storage.objects for insert to authenticated
 -- SELECT mirrors public.photos.photos_read exactly, by joining on storage_path. Photo ids
 -- are uuids and so unguessable, but "unguessable" is not an access control -- a pending
 -- photo must be unreadable to the room even by someone who learns its path.
+--
+-- IT MATCHES `thumb_path` TOO, and that is not a nicety (#10). This policy admits an
+-- object by joining its NAME back to a photos row. A thumbnail's name matches no
+-- `storage_path`, so before this clause the 400px object every screen actually renders
+-- was unreadable to EVERYONE -- including its own uploader and the host. Silent, total,
+-- and indistinguishable from "signing is broken".
 create policy event_photos_select on storage.objects for select to authenticated
   using (
     bucket_id = 'event-photos'
     and exists (
       select 1 from public.photos p
-       where p.storage_path = storage.objects.name
+       where (p.storage_path = storage.objects.name or p.thumb_path = storage.objects.name)
          and (
               (p.status = 'approved' and public.my_guest_id(p.event_id) is not null)
            or  p.uploaded_by_guest_id = public.my_guest_id(p.event_id)

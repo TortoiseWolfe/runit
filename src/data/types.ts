@@ -223,6 +223,23 @@ export interface Photo {
    * they are resolved by completely different machinery.
    */
   storagePath: string | null;
+  /**
+   * The 400px copy's bucket key (#10). Null for photos taken before thumbnails existed,
+   * and for one whose thumbnail could not be produced -- the full-size stands in for both.
+   */
+  thumbPath: string | null;
+  /**
+   * A SIGNED, EXPIRING URL the app can actually render -- resolved from `thumbPath` when
+   * there is one and `storagePath` when there is not.
+   *
+   * Null until it has been resolved, and null forever in `MemoryRepository`, whose photos
+   * have no bucket behind them. The hue tile is the layer underneath in both cases.
+   *
+   * Distinct from `localUri`, which is bytes on THIS device. The two are resolved by
+   * completely different machinery and collapsing them is the mistake `storagePath`'s own
+   * docblock has warned about since before an adapter existed.
+   */
+  displayUrl: string | null;
   createdAt: Instant;
 }
 

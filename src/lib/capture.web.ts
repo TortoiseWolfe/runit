@@ -1,6 +1,6 @@
 import type { CapturedPhoto } from './capture';
 
-import { MAX_EDGE, QUALITY } from './captureConstants';
+import { MAX_EDGE, MAX_THUMB, QUALITY } from './captureConstants';
 
 /**
  * Web implementation. Metro picks this file over `capture.ts` for the web bundle,
@@ -54,6 +54,8 @@ export async function shrink(
       toBlob: (type: string, quality: number) => Promise<Blob | null>;
     };
   },
+  /** Long edge to clamp to. Defaults to the full-size limit; the thumbnail passes MAX_THUMB. */
+  maxEdge: number = MAX_EDGE,
 ): Promise<{ blob: Blob; width: number; height: number }> {
   const bitmap = await deps.decode(file);
   const longEdge = Math.max(bitmap.width, bitmap.height);
@@ -66,7 +68,7 @@ export async function shrink(
     return { blob: file, width: 0, height: 0 };
   }
 
-  const scale = longEdge > MAX_EDGE ? MAX_EDGE / longEdge : 1;
+  const scale = longEdge > maxEdge ? maxEdge / longEdge : 1;
   const width = Math.max(1, Math.round(bitmap.width * scale));
   const height = Math.max(1, Math.round(bitmap.height * scale));
 
@@ -110,7 +112,9 @@ const browserDeps = {
 
 export async function capturePhoto(): Promise<CapturedPhoto | null> {
   if (process.env.EXPO_PUBLIC_FIDELITY === '1') {
-    return { uri: FIDELITY_PIXEL, width: 1, height: 1 };
+    // The same synthetic pixel for both, so `guest-photos.spec.ts`'s literal data-URI
+    // assertion still proves the value came out of the capture path.
+    return { uri: FIDELITY_PIXEL, width: 1, height: 1, thumbUri: FIDELITY_PIXEL };
   }
 
   return new Promise((resolve) => {
@@ -136,15 +140,29 @@ export async function capturePhoto(): Promise<CapturedPhoto | null> {
       if (!file) return done(null);
       // Compress BEFORE minting the URL the caller will upload, so the object URL that
       // escapes this function always points at the shrunk bytes.
-      void shrink(file, browserDeps)
-        .then(({ blob, width, height }) =>
-          done({ uri: URL.createObjectURL(blob), width, height }),
-        )
-        .catch(() =>
-          // A decode failure is not a cancellation. Hand back the original rather than
-          // null, which `actions.ts` would swallow as "they backed out".
-          done({ uri: URL.createObjectURL(file), width: 0, height: 0 }),
-        );
+      void (async () => {
+        const full = await shrink(file, browserDeps);
+        // The thumbnail is derived from the ORIGINAL, not from the already-compressed
+        // full-size: re-encoding a JPEG twice compounds its artefacts, and on a 400px
+        // copy that shows.
+        let thumbUri: string | null = null;
+        try {
+          const t = await shrink(file, browserDeps, MAX_THUMB);
+          thumbUri = URL.createObjectURL(t.blob);
+        } catch {
+          // Not fatal. The full-size stands in, same as on native.
+        }
+        done({
+          uri: URL.createObjectURL(full.blob),
+          width: full.width,
+          height: full.height,
+          thumbUri,
+        });
+      })().catch(() =>
+        // A decode failure is not a cancellation. Hand back the original rather than
+        // null, which `actions.ts` would swallow as "they backed out".
+        done({ uri: URL.createObjectURL(file), width: 0, height: 0, thumbUri: null }),
+      );
     });
 
     window.addEventListener('focus', onFocus, { once: true });

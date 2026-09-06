@@ -32,7 +32,7 @@ type Result = { data: unknown; error: unknown };
 
 /** One recorded operation, so a test can assert on WHAT was sent, not only the reply. */
 export interface Op {
-  kind: 'select' | 'insert' | 'update' | 'delete' | 'rpc' | 'upload';
+  kind: 'select' | 'insert' | 'update' | 'delete' | 'rpc' | 'upload' | 'sign';
   table: string;
   payload?: unknown;
   filters: [string, unknown][];
@@ -191,8 +191,44 @@ export class FakeClient {
   /** Channel names (`runit:<table>`) whose next subscribe must fail. */
   failSubscribeFor = new Set<string>();
 
+  /** Paths whose next signing must come back refused, as RLS would refuse a pending photo. */
+  refuseSignFor = new Set<string>();
+
   storage = {
     from: (bucket: string) => ({
+      /**
+       * THE MINIMUM HONEST MODEL of `createSignedUrls` (#10).
+       *
+       * It records the call and fabricates a URL per path. It does NOT evaluate the
+       * storage policies -- nothing here could, and pretending to would be worse than
+       * not modelling it, because a test would then be asserting this file's opinion of
+       * `event_photos_select` rather than Postgres's. That policy is Lane E's job and
+       * Lane E now covers it.
+       *
+       * What it DOES model faithfully is the response shape, which is the part an adapter
+       * gets wrong: per-path failures arrive INSIDE a 200 as `{ error, path, signedUrl }`
+       * entries, not as a top-level error.
+       */
+      createSignedUrls: async (paths: string[], expiresIn: number) => {
+        this.ops.push({
+          kind: 'sign', table: bucket, payload: { paths, expiresIn },
+          filters: [], selected: false,
+        });
+        // RETURNED IN A DIFFERENT ORDER THAN REQUESTED, deliberately. The API promises no
+        // correspondence between the request array and the response array -- every entry
+        // carries its own `path` for exactly that reason. Returning them in order would
+        // make an adapter that zips by INDEX pass this fake and hand one photo's URL to
+        // another photo's tile in production. Reversing is the cheapest way to make the
+        // fake refuse to hide that bug.
+        return {
+          data: [...paths].reverse().map((path) =>
+            this.refuseSignFor.has(path)
+              ? { path, signedUrl: null, error: 'Object not found' }
+              : { path, signedUrl: `https://fake.test/${path}?token=${paths.length}`, error: null },
+          ),
+          error: null,
+        };
+      },
       upload: async (path: string, body: unknown, opts?: { contentType?: string }) => {
         this.ops.push({
           kind: 'upload', table: bucket, payload: { path, body, opts },

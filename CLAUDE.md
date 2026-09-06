@@ -275,7 +275,7 @@ would hit.
 see row-level security behave. It runs `supabase/verify-policies.sql`, which seeds an
 event, a guest and a host inside a `DO` block, switches
 role with `set local role authenticated` and a forged `request.jwt.claims`, asserts
-**a hundred and one** behaviours, and RAISES at the end so nothing commits -- the "error" it
+**a hundred and eight** behaviours, and RAISES at the end so nothing commits -- the "error" it
 prints IS the report.
 
 **It did not run at all until 2026-09-05, and nothing said so.** A setup line inserted
@@ -292,7 +292,7 @@ photo insert had.
 RAISE never runs, so there is no report to parse, and the unparseable case is a red gate
 that says so. And a **coverage floor** (`EXPECTED_ASSERTIONS`, the same doctrine as lanes
 A and A2) fails a run that measures less than the last one -- because "0 FAILURE(S)" over
-forty assertions and over a hundred are the same sentence. Raise the number when you
+forty assertions and over a hundred and eight are the same sentence. Raise the number when you
 add assertions; that friction is the feature. What is still open in #31 is that **nothing
 re-runs it in CI** -- there is no secret store for the URL, so the lane skips there.
 
@@ -422,6 +422,11 @@ that lives in a button handler is bypassed by the second caller.
   brand-new anonymous auth user on every reload. Any other Expo native module reached from
   shared code needs the same check — the web build being a stub is the default, not the
   exception. FIDELITY note AB.
+- **`storage.protect_delete()` REFUSES EVERY DIRECT SQL DELETE** on `storage.objects`,
+  before RLS is consulted, for the owner as much as for a guest. So `event_photos_delete`
+  cannot be exercised from SQL and the retention sweep cannot be built with it — that has
+  to go through the Storage API with a service role. Asserted in Lane E so the constraint
+  is discovered by a test rather than by a half-written sweep.
 - **A CLIENT `UPDATE` ON `guests` MATCHES NOTHING, SILENTLY.** The table has no SELECT
   policy, and Postgres applies SELECT policies to the rows an `UPDATE ... WHERE` must read
   to evaluate its WHERE. PostgREST always emits a WHERE, so `from('guests').update(...)`

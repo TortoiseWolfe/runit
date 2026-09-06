@@ -22,6 +22,8 @@ import { capturePhoto } from './capture';
  */
 const mockResizes: { width?: number | null; height?: number | null }[] = [];
 let mockSaved = 0;
+/** Makes the SECOND render (the thumbnail) throw, leaving the full-size intact. */
+let mockThumbThrows = false;
 
 /** What the DECODER reports. Deliberately independent of what the picker claims. */
 let mockDecoded = { width: 4000, height: 3000 };
@@ -61,7 +63,13 @@ jest.mock('expo-image-manipulator', () => {
       mockResizes.push(size);
       return this;
     },
-    renderAsync: async () => ref(),
+    renderAsync: async () => {
+      // The thumbnail is the only render that follows a resize to MAX_THUMB.
+      if (mockThumbThrows && mockResizes.some((r) => r.width === 400 || r.height === 400)) {
+        throw new Error('thumbnail render failed');
+      }
+      return ref();
+    },
   });
   return {
     ImageManipulator: { manipulate: () => context() },
@@ -72,6 +80,7 @@ jest.mock('expo-image-manipulator', () => {
 beforeEach(() => {
   mockResizes.length = 0;
   mockSaved = 0;
+  mockThumbThrows = false;
   mockDecoded = { width: 4000, height: 3000 };
   mockPickerAsset = { uri: 'file:///tmp/shot.jpg', width: 4000, height: 3000 };
 });
@@ -85,7 +94,7 @@ describe('the resize decision reads the DECODER, never the picker', () => {
   it('resizes a large photo even when the picker reports 0 x 0', async () => {
     mockPickerAsset = { ...mockPickerAsset, width: 0, height: 0 };
     await capturePhoto();
-    expect(mockResizes).toEqual([{ width: 1600 }]);
+    expect(mockResizes[0]).toEqual({ width: 1600 });
   });
 
   it('resizes even when the picker reports undefined dimensions', async () => {
@@ -93,7 +102,7 @@ describe('the resize decision reads the DECODER, never the picker', () => {
     // so the old `NaN > MAX_EDGE` was false and the resize was skipped.
     mockPickerAsset = { ...mockPickerAsset, width: undefined as unknown as number, height: undefined as unknown as number };
     await capturePhoto();
-    expect(mockResizes).toEqual([{ width: 1600 }]);
+    expect(mockResizes[0]).toEqual({ width: 1600 });
   });
 
   /**
@@ -105,7 +114,7 @@ describe('the resize decision reads the DECODER, never the picker', () => {
   it('never asks for a zero-width resize when the picker reports one axis as 0', async () => {
     mockPickerAsset = { ...mockPickerAsset, width: 0, height: 4000 };
     await capturePhoto();
-    expect(mockResizes).toEqual([{ width: 1600 }]);
+    expect(mockResizes[0]).toEqual({ width: 1600 });
     expect(mockResizes.some((r) => r.width === 0 || r.height === 0)).toBe(false);
   });
 });
@@ -114,7 +123,7 @@ describe('what it asks for', () => {
   it('clamps the LONG edge on a landscape photo', async () => {
     mockDecoded = { width: 4000, height: 3000 };
     await capturePhoto();
-    expect(mockResizes).toEqual([{ width: 1600 }]);
+    expect(mockResizes[0]).toEqual({ width: 1600 });
   });
 
   it('clamps the HEIGHT on a portrait photo', async () => {
@@ -122,21 +131,23 @@ describe('what it asks for', () => {
     // accident. Clamping the edge directly makes the orientation branch load-bearing.
     mockDecoded = { width: 3000, height: 4000 };
     await capturePhoto();
-    expect(mockResizes).toEqual([{ height: 1600 }]);
+    expect(mockResizes[0]).toEqual({ height: 1600 });
   });
 
   it('does not resize a photo already under the limit', async () => {
     mockDecoded = { width: 1200, height: 900 };
     await capturePhoto();
-    expect(mockResizes).toEqual([]);
-    // ...but still re-encodes at QUALITY, which is the other half of the size win.
-    expect(mockSaved).toBe(1);
+    // Only the THUMBNAIL resize -- the full-size decision correctly declined to enlarge.
+    expect(mockResizes).toEqual([{ width: 400 }]);
+    // ...but still re-encodes at QUALITY, which is the other half of the size win --
+    // twice now: once for the full-size and once for the thumbnail.
+    expect(mockSaved).toBe(2);
   });
 
   it('leaves a photo exactly at the limit alone', async () => {
     mockDecoded = { width: 1600, height: 1200 };
     await capturePhoto();
-    expect(mockResizes).toEqual([]);
+    expect(mockResizes).toEqual([{ width: 400 }]);
   });
 });
 
@@ -147,5 +158,32 @@ describe('when the decoder itself returns nonsense', () => {
     // new hat.
     mockDecoded = { width: 0, height: 0 };
     await expect(capturePhoto()).rejects.toThrow(/reported no size/);
+  });
+});
+
+describe('the thumbnail (#10)', () => {
+  it('is produced at 400px, clamping the long edge like the full-size does', async () => {
+    // The album grid renders ~120pt tiles and the host queue 64pt, with no full-size
+    // viewer anywhere -- so this is the ONLY size the app ever displays.
+    mockDecoded = { width: 4000, height: 3000 };
+    const shot = await capturePhoto();
+    expect(mockResizes).toEqual([{ width: 1600 }, { width: 400 }]);
+    expect(shot?.thumbUri).toBeTruthy();
+  });
+
+  it('clamps the HEIGHT on a portrait photo, same as the full-size', async () => {
+    mockDecoded = { width: 3000, height: 4000 };
+    await capturePhoto();
+    expect(mockResizes).toEqual([{ height: 1600 }, { height: 400 }]);
+  });
+
+  it('does not cost the photo when it cannot be made', async () => {
+    // A guest who just took a picture must not lose it because a DERIVED copy failed.
+    // The full-size stands in, exactly as it does for photos predating thumbnails.
+    mockThumbThrows = true;
+    const shot = await capturePhoto();
+    expect(shot).not.toBeNull();
+    expect(shot?.uri).toBeTruthy();
+    expect(shot?.thumbUri).toBeNull();
   });
 });

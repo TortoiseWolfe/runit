@@ -35,8 +35,14 @@ export function PhotoApprovalsPanel() {
           style={[s.row, { borderColor: tokens.base300, backgroundColor: tokens.base200 }]}
         >
           <View style={[s.thumb, { backgroundColor: pendingPhotoColor(p.hue, isDark) }]}>
-            {p.localUri ? (
-              <Image source={{ uri: p.localUri }} style={s.thumbImage} resizeMode="cover" />
+            {/* Same order as the album: own bytes, then the signed copy, then hue. A host
+                judging a photo she cannot see is the whole point of this queue. */}
+            {p.localUri ?? p.displayUrl ? (
+              <Image
+                source={{ uri: (p.localUri ?? p.displayUrl)! }}
+                style={s.thumbImage}
+                resizeMode="cover"
+              />
             ) : null}
           </View>
           <View style={s.rowBody}>
