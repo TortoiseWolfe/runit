@@ -110,7 +110,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * was waiting for AND what it saw -- a timeout that says only "not found" sends you
  * looking at the app when the answer is usually that the selector moved.
  */
-async function waitFor(what, predicate, { timeoutMs = 30_000, everyMs = 1_000 } = {}) {
+async function waitFor(what, predicate, { timeoutMs = 30_000, everyMs = 1_000, hints = [] } = {}) {
   const deadline = Date.now() + timeoutMs;
   let last = [];
   for (;;) {
@@ -123,6 +123,7 @@ async function waitFor(what, predicate, { timeoutMs = 30_000, everyMs = 1_000 } 
         `timed out after ${timeoutMs / 1000}s waiting for ${what}`,
         `the hierarchy currently holds ${last.length} nodes`,
         `resource-ids seen: ${ids.slice(0, 25).join(', ') || '(none)'}`,
+        ...hints,
       );
     }
     await sleep(everyMs);
@@ -493,7 +494,24 @@ const { hit: field } = await waitFor(
     // somebody rewords the placeholder.
     return f && f.text.trim() && f.text.trim() !== f.hint.trim() ? f : null;
   },
-  { timeoutMs: 90_000, everyMs: 1_500 },
+  {
+    timeoutMs: 90_000,
+    everyMs: 1_500,
+    // THE FAILURE SOMEBODY WILL ACTUALLY HIT, so it names its causes instead of printing a
+    // node count. The first one is the quiet one: `virtualscene-image` answers OK even when
+    // the back camera is `emulated`, so a wrongly-started emulator reaches this line looking
+    // exactly like a broken scanner. The AVD ships `hw.camera.back = emulated`.
+    hints: [
+      '',
+      'the camera IS running by this point — the sheet passed its paint check — so the',
+      'question is what it is looking at:',
+      '  · was the emulator started with `-camera-back virtualscene`? The AVD default is',
+      '    `emulated`, and `virtualscene-image` answers OK anyway.',
+      '  · did the walk macro run? `design/device/android-qr-04-live-preview.dark.png` shows',
+      '    the last frame this lane saw.',
+      '  · is the poster still the one this app would print? `pnpm export:web && pnpm qr:poster`.',
+    ],
+  },
 );
 
 if (field.text.trim().toUpperCase() !== EXPECTED_CODE) {
