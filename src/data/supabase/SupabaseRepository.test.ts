@@ -1109,6 +1109,77 @@ describe('creating an event', () => {
   });
 });
 
+describe('a founder leaving her own console (#37)', () => {
+  /** creatable(), plus the join_event the switch now makes. */
+  const withSeat = (guest = 'g0000000-0000-0000-0000-0000000000aa') =>
+    creatable((op) =>
+      op.kind === 'rpc' && op.table === 'join_event' ? { data: guest, error: null } : undefined,
+    );
+
+  it('takes a guest seat, because create_event never gave her one', async () => {
+    const c = withSeat();
+    const repo = build(c);
+    await repo.event.create(NEW_EVENT);
+    await repo.session.becomeGuest();
+
+    // THE BUG THIS REPLACES: `becomeGuest` opened with `requireGuest()`, which throws on
+    // a null guest id -- and a founder's is always null. The console's only non-segment
+    // control is this one, so she was stranded, and the catch-all told the host that the
+    // host console belongs to the host.
+    //
+    // The code comes from the EVENT, not from create's return value: the two agree in
+    // production and deliberately disagree in this fixture, so the assertion says which
+    // one the adapter actually reads.
+    expect(c.find('rpc', 'join_event')[0]!.payload).toEqual({
+      p_code: 'TEST01',
+      p_nickname: 'Ruth',
+    });
+  });
+
+  it('carries her host name onto the floor rather than arriving nameless', async () => {
+    const repo = build(withSeat());
+    await repo.event.create(NEW_EVENT);
+    await repo.session.becomeGuest();
+
+    // A blank nickname would be the one identity in the room with no name on it, and
+    // `join_event` upserts it -- so this is what her song request is signed with.
+    expect(repo.session.current.get()).toEqual({
+      kind: 'guest',
+      guestId: 'g0000000-0000-0000-0000-0000000000aa',
+      nickname: 'Ruth',
+    });
+  });
+
+  it('does not mint a second seat for someone who already has one', async () => {
+    // A CO-HOST, which is the other way into this control: she joined as a guest first,
+    // then claimed a seat. She already has a guest row, so the switch must not join again.
+    const c = ready((cl) => cl.seed('hosts', [hostRow]));
+    const repo = await join(c);
+    await repo.session.becomeHost(CREATED.host_id);
+    await repo.session.becomeGuest();
+
+    // `join_event` is idempotent on (event_id, auth_user_id), so a second call would be
+    // harmless -- and a request per role switch, for a row that is already there. The
+    // guard is `myGuestId === null`, and this is what proves it is the guard rather
+    // than a comment.
+    expect(c.find('rpc', 'join_event')).toHaveLength(1);
+  });
+
+  it('keeps her seat when she goes back and forth', async () => {
+    const c = withSeat();
+    const repo = build(c);
+    await repo.event.create(NEW_EVENT);
+    await repo.session.becomeGuest();
+    await repo.session.becomeHost(CREATED.host_id);
+    await repo.session.becomeGuest();
+
+    // Two trips to the floor, one seat. A second join here would be the shape that
+    // burns a seat against the cap every time a host looks at her own party.
+    expect(c.find('rpc', 'join_event')).toHaveLength(1);
+    expect(repo.session.current.get()).toMatchObject({ kind: 'guest', nickname: 'Ruth' });
+  });
+});
+
 describe('rotating the host key', () => {
   it('asks for a new key for the open event and hands back the plaintext', async () => {
     const c = creatable((op) =>

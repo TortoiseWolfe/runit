@@ -206,6 +206,17 @@ export class MemoryRepository implements RunitRepository {
     if (!this.ev) throw new Error('Not joined to an event yet.');
     return this.ev;
   }
+
+  /**
+   * Mirrors `SupabaseRepository.requireGuest()`, and exists for the same reason: some
+   * actions are structurally a guest's. A host holds no guest row, so this is a real
+   * refusal and not a fallback -- the paths that have an honest empty answer (votes,
+   * blocks, "my reports") check for null instead of calling this.
+   */
+  private requireGuest(): string {
+    if (this.myGuestId === null) throw new Error('Not joined as a guest yet.');
+    return this.myGuestId;
+  }
   private hostList: Host[];
   private inviteeList: Invitee[];
   private sigInvitees: Signal<Invitee[]>;
@@ -221,7 +232,15 @@ export class MemoryRepository implements RunitRepository {
   private folderList: Folder[];
   private photoList: Photo[];
   private votes: Set<SongRequestId>;
-  private myGuestId: string;
+  /**
+   * NULL IS A REAL STATE HERE, and it has to be, or the suite cannot see #37. A founder
+   * holds a host seat and no guest row -- `create_event` deliberately mints none -- so
+   * `becomeGuest` had nothing to switch to and the one door out of the host console
+   * raised. Seeding this as a plain string made that state unreachable in the fixture,
+   * which is why all 228 journeys were green over a console a real founder could not
+   * leave. Same shape as `Seed.event` being non-nullable until `?empty=1`.
+   */
+  private myGuestId: string | null;
   private blockList: BlockedGuest[] = [];
   private reportList: Report[] = [];
   private nextPhotoSeq: number;
@@ -452,6 +471,10 @@ export class MemoryRepository implements RunitRepository {
         .filter(
           (p) =>
             (p.status === 'uploading' || p.status === 'failed') &&
+            // The null check is load-bearing, not defensive: a host's upload carries
+            // `uploadedByGuestId: null`, so without it a founder with no seat would find
+            // every host photo in her own transfer list.
+            this.myGuestId !== null &&
             p.uploadedByGuestId === this.myGuestId,
         )
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
@@ -482,7 +505,7 @@ export class MemoryRepository implements RunitRepository {
     this.sigMyReports.set(
       new Set(
         this.reportList
-          .filter((r) => r.reporterGuestId === this.myGuestId)
+          .filter((r) => this.myGuestId !== null && r.reporterGuestId === this.myGuestId)
           .map((r) => subjectKey(r.subject)),
       ),
     );
@@ -508,6 +531,9 @@ export class MemoryRepository implements RunitRepository {
 
       const ev = this.requireEvent();
       this.ev = { ...ev, guestCount: ev.guestCount + 1 };
+      // A seeded world already knows who you are; a created one does not, and
+      // `join_event` mints the row either way.
+      this.myGuestId ??= this.id('gst');
       this.sigSession.set({
         kind: 'guest',
         guestId: this.myGuestId,
@@ -546,13 +572,24 @@ export class MemoryRepository implements RunitRepository {
       });
     },
 
+    /**
+     * Parity with the adapter's own `becomeGuest`: a founder takes a seat on demand.
+     *
+     * `guestCount` DELIBERATELY DOES NOT MOVE. Staff are not guests -- in SQL that is
+     * `public.guest_seats()` excluding anyone holding a host seat at the event, from both
+     * the headcount and `tier_limits.max_guests`. Incrementing here would make the
+     * fixture disagree with the backend about a number printed on the join screen, and
+     * Lane B would go green on the wrong one.
+     */
     becomeGuest: async () => {
       const s = this.sigSession.get();
+      this.myGuestId ??= this.id('gst');
       this.sigSession.set({
         kind: 'guest',
         guestId: this.myGuestId,
-        nickname: s.kind === 'guest' ? s.nickname : 'you',
+        nickname: s.kind === 'host' ? s.displayName : s.kind === 'guest' ? s.nickname : 'you',
       });
+      this.recompute();
     },
     /**
      * Parity with the Supabase adapter, and the parity is the point.
@@ -707,6 +744,11 @@ export class MemoryRepository implements RunitRepository {
       // The minted key becomes THIS fixture's key, so claimHost here behaves the way
       // claim_host does against Postgres: the key you were handed is the key that works.
       this.hostKey = key;
+      // SHE HOLDS NO GUEST SEAT, exactly as `create_event` leaves her (#37). The fixture
+      // used to carry the seeded guest id straight through a create, which made a founder
+      // indistinguishable from someone who had joined -- so the console's one exit worked
+      // here and raised against Postgres, and no lane could tell.
+      this.myGuestId = null;
       this.sigSession.set({
         kind: 'host', hostId, displayName: this.hostList[0]!.displayName,
         role: 'host', roleLabel: 'Host',
@@ -1110,8 +1152,9 @@ export class MemoryRepository implements RunitRepository {
       // Already reported by this guest? Nothing to do. Matching file_report()'s
       // ON CONFLICT DO NOTHING rather than raising: a double tap is not a failure.
       const key = subjectKey(subject);
+      const reporter = this.requireGuest();
       const mine = this.reportList.some(
-        (r) => r.reporterGuestId === this.myGuestId && subjectKey(r.subject) === key,
+        (r) => r.reporterGuestId === reporter && subjectKey(r.subject) === key,
       );
       if (mine) return;
 
@@ -1129,7 +1172,7 @@ export class MemoryRepository implements RunitRepository {
         {
           id: this.id('rep'),
           subject,
-          reporterGuestId: this.myGuestId,
+          reporterGuestId: reporter,
           reporterName: this.myNickname(),
           subjectLabel: label,
           reason,
@@ -1204,7 +1247,8 @@ export class MemoryRepository implements RunitRepository {
 
   private myNickname(): string {
     const session = this.sigSession.get();
-    return session.kind === 'guest' ? session.nickname : this.nicknameFor(this.myGuestId);
+    if (session.kind === 'guest') return session.nickname;
+    return this.myGuestId === null ? '' : this.nicknameFor(this.myGuestId);
   }
 
   private bumpFolder(id: FolderId, by: number): void {

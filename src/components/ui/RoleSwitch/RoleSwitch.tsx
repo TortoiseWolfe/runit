@@ -48,9 +48,20 @@ export function RoleSwitch() {
       await repo.session.becomeHost(first.id);
       router.replace('/host/broadcast');
     } catch {
-      // Deliberately not the raw error: it names auth_user_id and a policy, which
-      // is the right message for a log and the wrong one for a guest at a party.
-      show('The host console is only available to this event\u2019s host.');
+      // ONE CATCH, TWO DIRECTIONS, and it used to say the same sentence for both. A
+      // founder tapping "Guest view" was told the console belongs to this event's host,
+      // which she is -- the wrong sentence for the wrong failure, and the console has no
+      // other door (#37). Going that way cannot fail for a seat reason any more:
+      // `becomeGuest` takes a seat if she holds none. So the guest-direction message is
+      // about the thing that CAN still fail, which is the request itself.
+      //
+      // Deliberately not the raw error either way: it names auth_user_id and a policy,
+      // which is the right message for a log and the wrong one for a guest at a party.
+      show(
+        isHost
+          ? 'Could not open the guest view. Check your connection and try again.'
+          : 'The host console is only available to this event\u2019s host.',
+      );
     }
   };
 

@@ -1782,3 +1782,85 @@ its own care.
 **`eventTtlHours` is untouched** and still has no reader. It is a different decision from
 retention — TTL is enforcement (an event past its TTL refuses writes; no bytes at stake),
 retention is destruction — and #23 was right that they are two issues wearing one number.
+
+## AJ. The founder could not leave her own console
+`HostConsoleChrome` renders exactly one non-segment control, `RoleSwitch`, and for the
+person most likely to be standing there it raised. `becomeGuest` opened with
+`const guestId = this.requireGuest()`, which throws on a null guest id — **and a founder's
+is always null.** `create_event` binds her host seat and deliberately mints no `guests`
+row, for a reason that is still right: a brand-new party reading *"1 already here"* before
+anyone arrives is worse than the gap.
+
+So she tapped "Guest view →", the throw hit `RoleSwitch`'s catch-all, and the app told her:
+
+> The host console is only available to this event's host.
+
+She **is** the host. Wrong sentence, wrong failure, and the five segments all stay inside
+`/host/*` — there was nothing else to tap. `LeaveSheet` is mounted on `ChatScreen`, which
+is on the other side of the door that would not open.
+
+### Hiding the control was the cheap fix, and it is the wrong one
+
+The tidy version is to draw `RoleSwitch` only where a guest seat exists. It closes the
+issue, ships in one line, and leaves a host permanently unable to see what her guests see —
+having deleted the promise rather than kept it. `RoleSwitch` being drawn in the console
+**is** that promise.
+
+**So she takes a seat.** `becomeGuest` calls `join_event` when `myGuestId` is null: the
+same call a guest makes, idempotent on `(event_id, auth_user_id)`, so this is not a second
+route into `guests` that could drift from the first. Her nickname is her host name, because
+a blank one would be the only identity in the room with nothing on it.
+
+### What makes the seat free is in SQL, where a client cannot bypass it
+
+`public.guest_seats(event)` counts guests **excluding anyone holding a host seat at that
+event**, and both places that ask the question now ask it there:
+
+- `fold_guest_count`, so "N already here" counts guests rather than staff;
+- `join_event`'s cap check, so a free party still fits ten friends instead of nine because
+  the host looked at it — and nothing anywhere would have explained the missing one.
+
+The founder also skips the cap gate entirely (`not exists (select 1 from hosts …)`), which
+is why she is not refused at a full event.
+
+**`hosts` folds too, and that trigger is not belt-and-braces.** `claim_host` binds
+`auth_user_id` on a seat that already exists, so a guest promoted to co-host changes the
+answer without inserting or deleting a single `guests` row. Without
+`hosts_fold_guests`, the stored count is simply wrong from that moment until the next
+arrival. It is `after insert or delete or update of auth_user_id` — a display-name edit
+must not re-count every guest.
+
+### Which lane saw what, which is the part worth keeping
+
+**Lane B could not see this and still cannot.** MemoryRepository never had the bug: its
+fixture seeds a host *and* a guest, so `becomeGuest` always had something to switch to.
+All 228 journeys were green over a console a real founder could not leave — #20 in one
+sentence.
+
+The fixture models it now (`create` leaves `myGuestId` null, exactly as `create_event`
+does), and that is worth doing for its own sake — it is the same move as `?empty=1` making
+`Seed.event` nullable. But it does **not** make the e2e able to catch this: with the fix
+removed, all three new journeys still pass, because Memory's `becomeGuest` never called
+`requireGuest`. They are regression guards for the screens, and `create-event.spec.ts`
+says so in its docblock rather than implying more.
+
+**The fix is tested at the seam instead**, where it lives: four adapter tests over
+`FakeClient` assert that a founder's switch calls `join_event` with the event's own code
+and her host name, that someone who already holds a seat does not call it again, and that
+two trips to the floor mint one seat. All four fail under mutation — the first three under
+"never join", two under "always join", one under a blank nickname.
+
+**And the half in SQL is Lane E's**, which is the only lane that can watch a policy and a
+trigger behave: seven assertions, run in context against the live database, that the room
+is full at ten, that the host is admitted anyway, that her seat does not appear in
+`guest_count` (10 over 11 rows), that a stranger is **still** refused with 54023 afterwards,
+that `guest_seats` is revoked from `authenticated`, and that binding and unbinding a host
+seat moves the count both ways. Mutating `guest_seats` to a naive count fails three of
+them. The stranger's 54023 is the control for the host's admission: the same call, the same
+full event, the opposite outcome.
+
+### The copy, which was the smaller half of the same bug
+
+One catch, two directions, one sentence. Going to the guest side cannot fail for a seat
+reason any more, so that direction now names what can still fail — the request — and the
+host-direction message is left alone, because for a guest it was always true.

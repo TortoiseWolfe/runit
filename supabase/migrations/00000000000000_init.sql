@@ -241,17 +241,55 @@ create trigger song_votes_fold
   after insert or delete on public.song_votes
   for each row execute function public.fold_vote_count();
 
+-- STAFF ARE NOT GUESTS (#37). A seat held by someone who also holds a host seat at this
+-- event is not counted here and is not counted against `tier_limits.max_guests`.
+--
+-- WHY THERE IS A HOST SITTING IN `guests` AT ALL. `create_event` binds a host seat and
+-- deliberately mints no guest row -- a brand-new party reading "1 already here" before
+-- anyone arrives is worse than the gap. The cost of that decision was that a founder
+-- could not use her own event: `becomeGuest` needs a guest id, so the one control on the
+-- host console raised, and the console has no other door. She can take a seat on demand
+-- now, and this is what stops that seat lying to the room.
+--
+-- The rule is the same in both places it is asked, which is the whole reason it lives in
+-- one function: "N already here" counts GUESTS, and the cap sells GUEST seats. A free
+-- party would otherwise fit nine friends instead of ten because the host looked at it,
+-- and nothing anywhere would explain the missing one.
+--
+-- A GUEST WHO IS LATER PROMOTED STOPS COUNTING, and that is why `hosts` folds too:
+-- `claim_host` binds `auth_user_id` on an existing seat, which changes this answer
+-- without touching `guests`. An UPDATE trigger there is not belt-and-braces; without it
+-- the stored count is simply wrong from that moment until the next arrival.
+create or replace function public.guest_seats(p_event uuid) returns integer
+language sql stable set search_path = public as $$
+  select count(*)::integer
+    from public.guests g
+   where g.event_id = p_event
+     and not exists (
+       select 1 from public.hosts h
+        where h.event_id = g.event_id
+          and h.auth_user_id = g.auth_user_id
+     );
+$$;
+
 create or replace function public.fold_guest_count() returns trigger
 language plpgsql security definer set search_path = public as $$
 begin
   update public.events e
-     set guest_count = (select count(*) from public.guests g where g.event_id = e.id)
+     set guest_count = public.guest_seats(e.id)
    where e.id = coalesce(new.event_id, old.event_id);
   return null;
 end $$;
 
 create trigger guests_fold
   after insert or delete on public.guests
+  for each row execute function public.fold_guest_count();
+
+-- `of auth_user_id` and not a bare update: `invite_host` mints a seat with a null
+-- auth_user_id and `claim_host` fills it in, so binding is the only host change that can
+-- move a guest count. A display_name edit must not re-run a count over every guest row.
+create trigger hosts_fold_guests
+  after insert or delete or update of auth_user_id on public.hosts
   for each row execute function public.fold_guest_count();
 
 create or replace function public.fold_seen_count() returns trigger
@@ -334,9 +372,17 @@ begin
   -- ONLY A NEW SEAT IS CAPPED. This function is idempotent on (event_id, auth_user_id)
   -- and that is the whole reason the session is persisted: a reinstall must land on the
   -- same row. Refusing a REJOIN at a full event would lock out the people already in it.
+  --
+  -- NEITHER IS A HOST'S OWN SEAT (#37). A founder taking a seat at her own party is not
+  -- a guest arriving, so she is not refused at a full event and does not consume one of
+  -- the seats the tier sells. `public.guest_seats` is the same rule the guest count uses;
+  -- it is asked in one place so the two can never drift apart.
   if not exists (
     select 1 from public.guests g
      where g.event_id = v_event and g.auth_user_id = auth.uid()
+  ) and not exists (
+    select 1 from public.hosts h
+     where h.event_id = v_event and h.auth_user_id = auth.uid()
   ) then
     -- Serialise joins for THIS event. Two guests arriving in the same millisecond would
     -- otherwise both read 9-of-10 and both insert. A row lock on the event is the cheap
@@ -348,7 +394,7 @@ begin
       join public.events e on e.tier = tl.tier
      where e.id = v_event;
 
-    select count(*) into v_seats from public.guests g where g.event_id = v_event;
+    v_seats := public.guest_seats(v_event);
 
     -- NULL is unlimited, so the comparison is skipped rather than defaulted.
     if v_cap is not null and v_seats >= v_cap then
@@ -887,6 +933,10 @@ alter publication supabase_realtime add table public.photos;
 
 revoke execute on function public.fold_vote_count()  from public, anon, authenticated;
 revoke execute on function public.fold_guest_count() from public, anon, authenticated;
+-- Not a secret, but not a client's business either: it answers a headcount for any event
+-- id, and `event_preview` deliberately withholds exactly that (see its docblock). The
+-- callers are a trigger and a SECURITY DEFINER function, both of which run as the owner.
+revoke execute on function public.guest_seats(uuid) from public, anon, authenticated;
 revoke execute on function public.fold_seen_count()  from public, anon, authenticated;
 revoke execute on function public.fold_photo_count() from public, anon, authenticated;
 
