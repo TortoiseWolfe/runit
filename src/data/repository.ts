@@ -249,6 +249,25 @@ export interface RunitRepository {
     closeEvent(): Promise<void>;
     /** Leave the event AND forget who you are. Currently has no UI caller, deliberately. */
     leave(): Promise<void>;
+    /**
+     * Record this device's push address against the caller's own seat (#27).
+     *
+     * The token is an OPAQUE STRING here on purpose. Getting it is a device concern and
+     * lives in `src/lib/push.ts` beside `capture.ts`, for the same reason: an adapter
+     * should store a routable address without ever learning what an Expo token is.
+     *
+     * `null` CLEARS IT, and that is the whole off switch -- a guest who declines the OS
+     * prompt, and a guest who leaves. One call in both directions rather than a second
+     * method that could drift from this one.
+     *
+     * Scoped to ONE event, because a person at two events has two seats and revoking at
+     * one must not silence the other.
+     *
+     * IT RESOLVES FOR A HOST AND DOES NOTHING. A host has no `guests` row at all, and
+     * this is called on open, so throwing would break the console for the founder of
+     * every event.
+     */
+    setPushToken(token: string | null): Promise<void>;
   };
 
   event: {

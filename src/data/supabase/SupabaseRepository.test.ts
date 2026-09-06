@@ -673,6 +673,68 @@ describe('un-pinning an announcement (#26)', () => {
   });
 });
 
+describe('registering for push (#27)', () => {
+  const asHost = async (c: FakeClient) => {
+    const repo = build(c);
+    await repo.event.create(NEW_EVENT);
+    return repo;
+  };
+
+  it('goes through the RPC, never through an UPDATE on guests', async () => {
+    // NOT a stylistic preference. `guests` has no SELECT policy, and Postgres applies
+    // SELECT policies to the rows an `UPDATE ... WHERE` must read to evaluate its WHERE.
+    // PostgREST always emits a WHERE, so a direct update matches ZERO ROWS and raises
+    // NOTHING -- on every device, forever (#36).
+    const c = creatable();
+    const repo = await asHost(c);
+    await repo.session.setPushToken('ExponentPushToken[xxx]');
+
+    expect(c.find('rpc', 'set_push_token')).toHaveLength(1);
+    // The assertion that would have caught the original design.
+    expect(c.find('update', 'guests')).toHaveLength(0);
+  });
+
+  it('sends the event id, because a token is scoped to one seat', async () => {
+    // A person at two events has two guest rows. A token that was not scoped would let
+    // revoking at one party silence the other.
+    const c = creatable();
+    const repo = await asHost(c);
+    await repo.session.setPushToken('ExponentPushToken[xxx]');
+    expect(c.find('rpc', 'set_push_token')[0]!.payload).toEqual({
+      p_event: EVENT,
+      p_token: 'ExponentPushToken[xxx]',
+    });
+  });
+
+  it("sends '' rather than null to clear, because the RPC normalises it", async () => {
+    // Postgres does not express argument nullability, so the generated type is `string`.
+    // `set_push_token` turns '' into NULL with nullif(btrim(coalesce(...))). Casting to
+    // sneak a null past the type would describe the schema wrongly to save a character.
+    const c = creatable();
+    const repo = await asHost(c);
+    await repo.session.setPushToken(null);
+    expect(c.find('rpc', 'set_push_token')[0]!.payload).toMatchObject({ p_token: '' });
+  });
+
+  it('does not throw when registration fails, because push is a courtesy', async () => {
+    // The guest never asked for this call. A failed registration must not take down the
+    // screen that made it -- the app is completely usable without notifications.
+    const c = creatable();
+    c.on((op) => (op.kind === 'rpc' && op.table === 'set_push_token' ? refusedLoudly() : undefined));
+    const repo = await asHost(c);
+    await expect(repo.session.setPushToken('ExponentPushToken[xxx]')).resolves.toBeUndefined();
+  });
+
+  it('does nothing at all when there is no event open', async () => {
+    // Registration runs on open, and a host who has not opened an event yet is a real
+    // state. There is nothing to scope a token to, so there is nothing to send.
+    const c = ready();
+    const repo = build(c);
+    await repo.session.setPushToken('ExponentPushToken[xxx]');
+    expect(c.find('rpc', 'set_push_token')).toHaveLength(0);
+  });
+});
+
 describe('blocking, against a real backend', () => {
   it('re-reads the blocks after a write rather than patching a local set', async () => {
     // song_votes taught this lesson the hard way: a local set with no realtime feed

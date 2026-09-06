@@ -785,6 +785,113 @@ begin
     out := out || format('FAIL a rejoin at a full event was refused (%s) -- a reinstall locks them out', sqlstate);
   end;
 
+  -- ==================================================================
+  -- PUSH (#27)
+  -- ==================================================================
+  -- ce2 is back on the `event` tier here, which is the one that carries push.
+  execute 'reset role';
+  update public.events set tier = 'event' where id = ce2.event_id;
+  perform set_config('request.jwt.claims', json_build_object('sub',auid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+
+  perform public.set_push_token(ce2.event_id, '  ExponentPushToken[ADA]  ');
+  execute 'reset role';
+  select g.push_token into lbl from public.guests g where g.id = gcap;
+  out := out || format('%s set_push_token stores a trimmed token (%s)',
+                       case when lbl = 'ExponentPushToken[ADA]' then 'PASS' else 'FAIL' end,
+                       coalesce(lbl,'null'));
+
+  -- THE ONE THAT MATTERS. A token is a routable address for somebody's device. `guests`
+  -- has no SELECT policy and this is the assertion that keeps it that way now that the
+  -- table holds something worth stealing.
+  perform set_config('request.jwt.claims', json_build_object('sub',buid2,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  select count(*) into n from public.guests;
+  out := out || format('%s a guest reads %s rows from guests, so no token is readable (want 0)',
+                       case when n = 0 then 'PASS' else 'FAIL' end, n);
+
+  -- ...and cannot write over somebody else's, because the RPC scopes to auth.uid().
+  perform public.set_push_token(ce2.event_id, 'ExponentPushToken[BO]');
+  execute 'reset role';
+  select g.push_token into lbl from public.guests g where g.id = gcap;
+  out := out || format('%s another guest''s call did not overwrite it (%s)',
+                       case when lbl = 'ExponentPushToken[ADA]' then 'PASS' else 'FAIL' end,
+                       coalesce(lbl,'null'));
+
+  -- A HOST HAS NO `guests` ROW, and the app calls this on open. It must be a quiet no-op
+  -- or the console breaks for the founder of every event -- the same trap `loadFetchOnce`
+  -- fell into with requireGuest().
+  perform set_config('request.jwt.claims', json_build_object('sub',cuid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  begin
+    perform public.set_push_token(ce2.event_id, 'ExponentPushToken[HOST]');
+    out := out || format('PASS a host calling set_push_token is a no-op, not an error');
+  exception when others then
+    out := out || format('FAIL set_push_token raised for a host with no guests row (%s)', sqlstate);
+  end;
+
+  -- Clearing is the off switch, and it is the same call rather than a second one.
+  perform set_config('request.jwt.claims', json_build_object('sub',auid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  perform public.set_push_token(ce2.event_id, null);
+  execute 'reset role';
+  select g.push_token into lbl from public.guests g where g.id = gcap;
+  out := out || format('%s a null clears the token (%s)',
+                       case when lbl is null then 'PASS' else 'FAIL' end, coalesce(lbl,'null'));
+
+  -- The fan-out must NEVER cost the host her announcement. Secrets are absent here, which
+  -- is the state before anyone wires credentials, and the insert must still land.
+  perform set_config('request.jwt.claims', json_build_object('sub',cuid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  begin
+    insert into public.broadcasts (event_id, author_host_id, author_name, author_role_label, kind, body, pinned)
+    values (ce2.event_id, ce2.host_id, 'Ruth', 'Host', 'announcement', 'Push is wired', false);
+    out := out || format('PASS an announcement lands even with the push secrets absent');
+  exception when others then
+    out := out || format('FAIL the fan-out broke the INSERT (%s)', sqlstate);
+  end;
+
+  -- Both triggers exist, and the song one is on UPDATE rather than INSERT -- a request is
+  -- accepted by being updated, so an insert-side trigger would notify nobody, ever.
+  execute 'reset role';
+  select count(*) into n from pg_trigger
+   where tgrelid = 'public.broadcasts'::regclass and tgname = 'broadcasts_fan_out_push';
+  out := out || format('%s the room fan-out is on broadcasts (%s, want 1)',
+                       case when n = 1 then 'PASS' else 'FAIL' end, n);
+  select count(*) into n from pg_trigger
+   where tgrelid = 'public.song_requests'::regclass and tgname = 'song_requests_fan_out_push'
+     and (tgtype & 16) <> 0;
+  out := out || format('%s the song fan-out is on song_requests UPDATE (%s, want 1)',
+                       case when n = 1 then 'PASS' else 'FAIL' end, n);
+
+  -- The tier gate lives in the table, not in a client.
+  select tl.push_notifications::text into lbl from public.tier_limits tl where tl.tier = 'house_party';
+  out := out || format('%s house_party does not carry push (%s)',
+                       case when lbl = 'false' then 'PASS' else 'FAIL' end, lbl);
+  select tl.push_notifications::text into lbl from public.tier_limits tl where tl.tier = 'event';
+  out := out || format('%s the event tier does (%s)',
+                       case when lbl = 'true' then 'PASS' else 'FAIL' end, lbl);
+
+  -- Neither fan-out is callable by a client. They hold a Vault secret and address every
+  -- device in the room; a reachable one is a spam cannon with a service key.
+  perform set_config('request.jwt.claims', json_build_object('sub',auid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  begin
+    perform public.fan_out_push();
+    out := out || format('FAIL a client can call fan_out_push');
+  exception when others then
+    out := out || format('%s fan_out_push is not callable by a client (%s)',
+                         case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+  begin
+    perform public.fan_out_song_push();
+    out := out || format('FAIL a client can call fan_out_song_push');
+  exception when others then
+    out := out || format('%s fan_out_song_push is not callable by a client (%s)',
+                         case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+  execute 'reset role';
+
   select count(*) into fails from unnest(out) x where x like 'FAIL%';
   raise exception using message =
     format('%s FAILURE(S). %s', fails, array_to_string(out, E'\n  '));

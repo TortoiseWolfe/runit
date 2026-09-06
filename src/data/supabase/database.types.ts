@@ -92,9 +92,9 @@ export type Database = {
         Relationships: [];
       };
       guests: {
-        Row: { id: string; event_id: string; auth_user_id: string; nickname: string; created_at: string };
-        Insert: { id?: string; event_id: string; auth_user_id: string; nickname: string; created_at?: string };
-        Update: { id?: string; event_id?: string; auth_user_id?: string; nickname?: string; created_at?: string };
+        Row: { id: string; event_id: string; auth_user_id: string; nickname: string; push_token: string | null; created_at: string };
+        Insert: { id?: string; event_id: string; auth_user_id: string; nickname: string; push_token?: string | null; created_at?: string };
+        Update: { id?: string; event_id?: string; auth_user_id?: string; nickname?: string; push_token?: string | null; created_at?: string };
         Relationships: [];
       };
       hosts: {
@@ -271,6 +271,10 @@ export type Database = {
         Returns: { event_id: string; code: string; host_id: string; host_key: string }[];
       };
       rotate_host_key: { Args: { p_event: string }; Returns: string };
+      // `p_token` is NOT nullable here even though the SQL accepts null: Postgres does not
+      // express argument nullability, so the generator emits `string`. The adapter passes
+      // '' to clear, and `set_push_token` normalises '' to NULL with nullif(btrim(...)).
+      set_push_token: { Args: { p_event: string; p_token: string }; Returns: undefined };
       /** Returns exactly one row. host_key is the only copy that will ever exist. */
       invite_host: {
         Args: {

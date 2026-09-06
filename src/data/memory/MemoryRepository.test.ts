@@ -413,6 +413,15 @@ describe('chat', () => {
     expect(r.chat.feed.get().find((x) => x.id === b.id)?.pinned).toBe(false);
   });
 
+  it('accepts a push token and resolves, because 208 journeys run through here', async () => {
+    // A REAL NO-OP THAT RESOLVES, never a throw. The app registers on open, so a throw
+    // in this adapter would redden the whole Playwright suite for a reason unrelated to
+    // whatever is under test.
+    const r = make();
+    await expect(r.session.setPushToken('ExponentPushToken[xxx]')).resolves.toBeUndefined();
+    await expect(r.session.setPushToken(null)).resolves.toBeUndefined();
+  });
+
   it('ignores an empty draft', async () => {
     const r = make();
     await r.chat.send({ body: '   ', pinned: false });

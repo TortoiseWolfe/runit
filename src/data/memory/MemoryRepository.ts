@@ -205,6 +205,12 @@ export class MemoryRepository implements RunitRepository {
   }
   private hostList: Host[];
   private broadcastList: Broadcast[];
+  /**
+   * The last push token handed to `session.setPushToken` (#27). It is stored rather than
+   * discarded so a test can prove the registration path reached the seam -- the only
+   * claim about push any lane in this environment can honestly make.
+   */
+  private pushToken: string | null = null;
   private scheduleList: ScheduleItem[];
   private requestList: SongRequest[];
   private folderList: Folder[];
@@ -545,7 +551,26 @@ export class MemoryRepository implements RunitRepository {
     },
 
     leave: async () => {
+      // Mirrors the Supabase adapter: the address dies with the session, not with the
+      // event. `closeEvent` deliberately keeps it.
+      await this.session.setPushToken(null);
       await this.session.closeEvent();
+    },
+
+    /**
+     * A REAL NO-OP THAT RESOLVES, never a throw.
+     *
+     * All 208 Playwright journeys boot this adapter, and the app registers on open, so a
+     * throw here would redden the whole suite for a reason unrelated to whatever is under
+     * test. This is the opposite direction from `hosts.invite`/`event.setTier` in the
+     * Supabase adapter, which throw because the SCHEMA refuses them -- there is nothing
+     * for a fixture to refuse here.
+     *
+     * The token is kept so a test can assert the registration path RAN and reached the
+     * seam, which is the only thing any lane in this environment can prove about push.
+     */
+    setPushToken: async (token: string | null) => {
+      this.pushToken = token;
     },
   };
 

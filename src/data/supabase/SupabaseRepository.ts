@@ -942,12 +942,54 @@ export class SupabaseRepository implements RunitRepository {
      * and host sign-in will need (docs/design-host-accounts.md).
      */
     leave: async () => {
+      // CLEAR THE TOKEN FIRST, because `closeEvent` drops `this.eventId` and
+      // `setPushToken` has nothing to scope to afterwards. Left behind, the row keeps a
+      // live address and the phone goes on buzzing for a party its owner walked out of.
+      //
+      // Only on `leave`, never on `closeEvent`: that one keeps the seat and the identity
+      // on purpose (a host switching events), so the token should survive it.
+      await this.session.setPushToken(null);
       await this.session.closeEvent();
       // The socket goes NOW, unlike in closeEvent. Nobody re-joins after a sign-out, so
       // there is no re-subscribe to race -- and waiting ~50s for the deferred disconnect
       // would leave a heartbeat running for a session that has ended.
       await this.db.realtime.disconnect();
       await this.db.auth.signOut();
+    },
+
+    /**
+     * #27. Through the RPC, and NEVER through `from('guests').update(...)`.
+     *
+     * `guests` has no SELECT policy. Postgres applies SELECT policies to the rows an
+     * `UPDATE ... WHERE` must read to evaluate its WHERE, and PostgREST always emits a
+     * WHERE -- so a direct update matches ZERO ROWS AND RAISES NOTHING, on every device,
+     * forever. Issue #36 has the measurement.
+     *
+     * `assertWrote()` cannot rescue it either, and that is the sharper half: `.select()`
+     * after an update returns rows only if a SELECT policy admits them, so on this one
+     * table a SUCCESSFUL write comes back empty too. The guard would fire on the good
+     * path and stay silent on the bad one -- inverted, which is worse than absent.
+     *
+     * The RPC is SECURITY DEFINER, so it sidesteps both, and `set_push_token` resolves
+     * quietly when the caller has no seat (a host).
+     */
+    setPushToken: async (token: string | null) => {
+      const eventId = this.eventId;
+      // Registration runs on open, and a host who has not opened an event yet is a real
+      // state rather than a bug. Nothing to scope the token to, so nothing to do.
+      if (!eventId) return;
+      const { error } = await this.db.rpc('set_push_token', {
+        p_event: eventId,
+        // '' RATHER THAN null, and the two mean the same thing here. Postgres does not
+        // express argument nullability, so the generated type is `string`; the function
+        // normalises '' to NULL with `nullif(btrim(coalesce(...)))`. Casting to sneak a
+        // null past the type would be describing the schema wrongly to save a character.
+        p_token: token ?? '',
+      });
+      // A NOTIFICATION IS A COURTESY. Failing to register must not take down the screen
+      // that called it -- the app is fully usable without push, and the guest never asked
+      // for this call. Logged, not thrown.
+      if (error) console.warn('push: could not register this device', error);
     },
   };
 

@@ -120,12 +120,12 @@ export const TIERS: Record<TierId, Tier> = {
       'Up to 300 guests',
       '5 hosts with roles (host, DJ, planner)',
       'Unlimited photos · 10 folders',
-      'Pinned announcements',
+      'Pinned announcements + push',
     ],
     limits: { maxGuests: 300, maxHosts: 5, maxPhotos: INF, maxFolders: 10, eventTtlHours: null, albumRetentionDays: 365 },
     features: {
       photoModeration: true, hostRoles: true, customBranding: false,
-      venueBranding: false, pinnedAnnouncements: true, pushNotifications: false,
+      venueBranding: false, pinnedAnnouncements: true, pushNotifications: true,
       zipExport: false, requestCaps: false, multiDjQueues: false, folderTemplates: false,
       bulkQrPrinting: false, prioritySupport: false,
     },
@@ -146,7 +146,7 @@ export const TIERS: Record<TierId, Tier> = {
     limits: { maxGuests: 3000, maxHosts: INF, maxPhotos: INF, maxFolders: INF, eventTtlHours: null, albumRetentionDays: null },
     features: {
       photoModeration: true, hostRoles: true, customBranding: false,
-      venueBranding: false, pinnedAnnouncements: true, pushNotifications: false,
+      venueBranding: false, pinnedAnnouncements: true, pushNotifications: true,
       zipExport: false, requestCaps: false, multiDjQueues: false, folderTemplates: false,
       bulkQrPrinting: false, prioritySupport: false,
     },

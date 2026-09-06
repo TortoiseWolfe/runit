@@ -1217,3 +1217,88 @@ the copy is a promise waiting for a screen, and #30 would have shipped it.
 The pill itself was already gone (note O). What survived that pass was the argument and
 the price list behind it — the same shape as the six capabilities that hid inside one line
 of prose until they were made into issues.
+
+## AA. Push exists, and the price list stopped lying by becoming true
+Note Z removed "+ push" from the $79 card because the app could not send a notification.
+This builds the capability and puts the line back. The promise is the same words; the
+difference is that something now happens.
+
+**What existed before: nothing.** `expo-notifications` was not a dependency, there was no
+token anywhere, no server function, and `chat.send`'s `push: boolean` was discarded by both
+adapters (`void canPush`).
+
+### The token cannot be written by an UPDATE, and that is not a style choice
+
+`guests` has **no SELECT policy** — deliberate, and load-bearing for the anonymity promise
+on the join screen. Postgres applies SELECT policies to the rows an `UPDATE ... WHERE`
+must read in order to evaluate its WHERE, and **PostgREST always emits a WHERE.** So the
+obvious implementation —
+
+    await db.from('guests').update({ push_token }).eq('id', myGuestId)
+
+— matches **zero rows and raises nothing**, on every device, forever. Measured, not
+reasoned: issue #36 has the run, and it also proves the sibling policy `guests_update_self`
+is unreachable for the same reason.
+
+**`assertWrote()` cannot rescue it, which is the sharper half.** `.select()` after an
+update returns rows only if a SELECT policy admits them — so on this one table a
+*successful* write comes back empty too. The guard would fire on the good path and stay
+silent on the bad one. Inverted is worse than absent.
+
+So the write goes through `set_push_token`, SECURITY DEFINER, scoped to the caller's own
+seat at one event. A person at two parties has two rows, and revoking at one must not
+silence the other.
+
+### The send is a trigger, because a client-invoked send is a second authority
+
+A device cannot reach 180 others, so something server-side has to fan out. Doing it from
+the app fails in both directions: a caller can insert a broadcast and never call the
+function (announcement sent, nobody buzzed, silently), and a caller can call the function
+*without* inserting — which would make the sender a second authority on who may address the
+room, holding a service key and re-implementing `is_host` outside the schema.
+
+`after insert on broadcasts` → `pg_net` → an Edge Function that reads tokens as the service
+role. The trigger fires on a row RLS has already admitted, so authorisation is settled
+before the request is built. **One trigger covers two of the three cues**, because
+`start_schedule_item` already posts a `schedule_started` broadcast rather than notifying
+separately. "Your song is next" needs its own, on `song_requests` UPDATE — a request is
+accepted by being *updated*, so an insert-side trigger would notify nobody, ever.
+
+**It must never fail the insert.** Losing a host's announcement because a notification
+could not be queued is exactly backwards; every failure path returns normally, and Lane E
+asserts an announcement lands on both tiers with the Vault secrets absent.
+
+### The tier gate is a column now, and that is what makes it a gate
+
+`tier_limits.push_notifications` did not exist while push did not exist — note Z's own
+reasoning, that a column claiming to gate a capability nothing has is a second fiction. It
+exists now because **`fan_out_push` reads it**. `pnpm audit:tiers` reports
+`pushNotifications — SQL`, which is the same standing `hostRoles` and `pinnedAnnouncements`
+have.
+
+### What is proven, and what is not
+
+Lane E, live: **95 assertions, 0 failures.** A guest's token is stored trimmed and scoped;
+another guest's call cannot overwrite it; **no client can read any token, their own
+included**; `null` clears it; a host calling it is a quiet no-op (a host has no `guests`
+row); both triggers exist and the song one is on UPDATE; neither fan-out is callable by a
+client; and an announcement lands with push unconfigured. jest covers the adapter, mutation
+checked — swapping the RPC for a direct update fails three tests.
+
+**Nothing here proves a phone buzzes.** Not one lane in this environment can:
+
+- Lane B has no push API *and* boots `MemoryRepository`, so it sees a stub returning `null`.
+- Lane C could witness an Android notification, but only once FCM credentials are wired.
+- **iOS is unprovable here at all** — no Mac, no device. A wrong APNs key produces "no
+  notification arrived", which is indistinguishable from "nobody sent one."
+- `pg_net` is fire-and-forget: the outcome lands in `net._http_response`, outside the
+  transaction. **A failed push is silent.** That is the shape `assertWrote` exists to make
+  loud, with no equivalent available.
+
+**`push.web.ts` returns `null` and touches nothing.** `getExpoPushTokenAsync` does a round
+trip to `exp.host` that never resolves behind Playwright's static server — the same trap
+`capture.web.ts` documents for the file chooser. It deliberately does *not* return a
+sentinel the way capture does: a fake token would be stored as a real routable address that
+routes nowhere, and every assertion built on it would be measuring the stub.
+
+Do not let a green board be read as push coverage.

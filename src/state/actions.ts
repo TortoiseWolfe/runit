@@ -14,6 +14,7 @@ import {
   type UploadOutcome,
 } from '@/data/repository';
 import { capturePhoto } from '@/lib/capture';
+import { registerForPush } from '@/lib/push';
 import { checkLimit } from '@/domain/entitlements';
 import { useEntitlements } from './hooks';
 import type {
@@ -78,6 +79,18 @@ export function useJoinActions() {
           show(e instanceof JoinError ? e.message : 'Could not join. Try again.');
           return false;
         }
+
+        // REGISTER FOR PUSH AFTER THE SEAT EXISTS, never before: `set_push_token` scopes
+        // the token to a `guests` row, and there is no row until the join lands.
+        //
+        // NOT AWAITED INTO THE HAPPY PATH, and never allowed to fail it. The OS prompt
+        // can sit on screen for as long as the person likes, and a guest who says no is
+        // in a completely normal state -- `registerForPush` returns null and the seam
+        // stores null. Blocking the welcome on a permission dialog would make the app
+        // feel broken to the one person who declined it.
+        void registerForPush()
+          .then((token) => repo.session.setPushToken(token))
+          .catch((e) => console.warn('push: registration did not complete', e));
 
         const key = hostKey?.trim();
         if (key) {
