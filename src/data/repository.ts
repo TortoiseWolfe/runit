@@ -403,6 +403,32 @@ export interface RunitRepository {
      * only `if new.pinned`.
      */
     setPinned(id: BroadcastId, pinned: boolean): Promise<void>;
+    /**
+     * Mark announcements as read -- #24.
+     *
+     * `broadcast_reads` had a policy and a fold trigger from the first migration and NO
+     * WRITER, so `seen_count` summed an empty table and every announcement read "seen by
+     * 0" forever, under a host's own eyes, no matter how many people opened it. The
+     * migration's debt note offered two exits -- write this, or stop rendering the number.
+     * A number that is always zero is worse than no number, but deleting it is deleting
+     * the thing the host actually wants to know.
+     *
+     * A LIST, NOT ONE ID, because a screenful arrives at once: scrolling a feed of six
+     * announcements past the fold would otherwise be six round trips. The insert is
+     * `on conflict do nothing` at the database and deduplicated in the adapter, so calling
+     * it with something already read costs nothing.
+     *
+     * IT IS FIRE-AND-FORGET BY CONTRACT. A read that fails to record is a wrong number,
+     * not a broken screen, and the caller is a scroll handler with nowhere to put an
+     * error. Adapters un-mark on failure so the next sweep retries rather than dropping it
+     * silently forever.
+     *
+     * SOMEONE WHO HOLDS A HOST SEAT DOES NOT COUNT AS A READER. She can reach this screen
+     * -- #37 gives her a guest seat on demand -- and an announcement reading "seen by 1"
+     * the moment its author looks at it is the same lie as a brand-new party reading "1
+     * already here". `fold_seen_count` enforces it in SQL; the adapters mirror it.
+     */
+    markRead(ids: BroadcastId[]): Promise<void>;
   };
 
   schedule: {

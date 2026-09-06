@@ -1087,6 +1087,63 @@ begin
   end;
   execute 'reset role';
 
+  -- ==================================================================
+  -- SEEN BY N (#24)
+  -- ==================================================================
+  -- `broadcast_reads` had a policy and a fold trigger and NO WRITER for the whole life of
+  -- this schema, so `seen_count` summed an empty table and every announcement read
+  -- "seen by 0" forever. `chat.markRead()` writes it now, and these are the two halves no
+  -- client-side test can see: that the policy admits a guest's OWN read and refuses one
+  -- forged for somebody else, and that the fold does not count staff.
+  execute 'reset role';
+  insert into public.broadcasts (event_id, author_host_id, author_name, author_role_label, kind, body)
+       values (ce2.event_id, ce2.host_id, 'Ruth', 'Host', 'announcement', 'seen-by fixture')
+    returning id into bc;
+
+  perform set_config('request.jwt.claims', json_build_object('sub',auid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  insert into public.broadcast_reads (broadcast_id, guest_id) values (bc, gcap);
+  execute 'reset role';
+  select b.seen_count into n from public.broadcasts b where b.id = bc;
+  out := out || format('%s a guest reading an announcement moves seen_count (%s, want 1)',
+                       case when n = 1 then 'PASS' else 'FAIL' end, n);
+
+  -- FORGING SOMEBODY ELSE'S READ. `reads_own` checks the row's guest_id against
+  -- my_guest_id() for that broadcast's event, so this is a WITH CHECK violation and
+  -- raises -- unlike a refused UPDATE, which returns zero rows and says nothing.
+  perform set_config('request.jwt.claims', json_build_object('sub',buid2,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  begin
+    insert into public.broadcast_reads (broadcast_id, guest_id) values (bc, gcap);
+    out := out || format('FAIL a guest marked an announcement read AS SOMEBODY ELSE');
+  exception when others then
+    out := out || format('%s a read cannot be filed under another guest (%s)',
+                         case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  -- STAFF ARE NOT READERS, which is `guest_seats` one level down. The host takes a seat at
+  -- her own event -- the thing #37 makes possible -- and reads her own announcement. The
+  -- row is stored; it is simply not counted, because "seen by 1" the moment its author
+  -- looks at it is the same lie as a brand-new party reading "1 already here".
+  execute 'reset role';
+  perform set_config('request.jwt.claims', json_build_object('sub',cuid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  hst := public.join_event(ce2.code, 'Ruth');
+  insert into public.broadcast_reads (broadcast_id, guest_id) values (bc, hst);
+  execute 'reset role';
+  select b.seen_count into n from public.broadcasts b where b.id = bc;
+  select count(*) into m from public.broadcast_reads r where r.broadcast_id = bc;
+  out := out || format('%s the host reading her own announcement is stored and not counted (seen_count=%s over %s rows, want 1 over 2)',
+                       case when n = 1 and m = 2 then 'PASS' else 'FAIL' end, n, m);
+
+  -- ...and the fold is a recount, not an increment, so removing a read puts it back.
+  delete from public.broadcast_reads where broadcast_id = bc and guest_id = gcap;
+  select b.seen_count into n from public.broadcasts b where b.id = bc;
+  out := out || format('%s and taking a read away recounts rather than decrements (%s, want 0)',
+                       case when n = 0 then 'PASS' else 'FAIL' end, n);
+
+  delete from public.guests where event_id = ce2.event_id and auth_user_id = cuid;
+
   select count(*) into fails from unnest(out) x where x like 'FAIL%';
   raise exception using message =
     format('%s FAILURE(S). %s', fails, array_to_string(out, E'\n  '));

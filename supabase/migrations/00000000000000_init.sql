@@ -292,11 +292,26 @@ create trigger hosts_fold_guests
   after insert or delete or update of auth_user_id on public.hosts
   for each row execute function public.fold_guest_count();
 
+-- STAFF ARE NOT READERS, which is `guest_seats` one level down (#24, #37). A host can
+-- reach the guest feed -- she takes a seat on demand -- and an announcement reading
+-- "seen by 1" the moment its own author looks at it is the same lie as a brand-new party
+-- reading "1 already here". The row is still stored; it is simply not counted, so the
+-- number under an announcement means "guests", exactly as the headcount does.
 create or replace function public.fold_seen_count() returns trigger
 language plpgsql security definer set search_path = public as $$
 begin
   update public.broadcasts b
-     set seen_count = (select count(*) from public.broadcast_reads r where r.broadcast_id = b.id)
+     set seen_count = (
+       select count(*)
+         from public.broadcast_reads r
+         join public.guests g on g.id = r.guest_id
+        where r.broadcast_id = b.id
+          and not exists (
+            select 1 from public.hosts h
+             where h.event_id = g.event_id
+               and h.auth_user_id = g.auth_user_id
+          )
+     )
    where b.id = coalesce(new.broadcast_id, old.broadcast_id);
   return null;
 end $$;
@@ -1074,10 +1089,11 @@ create policy event_photos_delete on storage.objects for delete to authenticated
 --   It was open for a long time and the note is kept because the reasoning still applies
 --   to anything added later: src/data/supabase/README.md forbids client-only checks, so a
 --   limit with no server-side route is a debt rather than a decision.
--- * `broadcast_reads` has a policy AND a fold trigger, but nothing in RunitRepository ever
---   marks a broadcast read -- so seen_count folds a table nobody writes to and stays 0.
---   Either add chat.markRead(), or stop rendering the count. "Seen by 0" under every
---   announcement is worse than no number.
+-- * CLOSED (#24). `chat.markRead()` exists and `ChatScreen` calls it for whatever is
+--   actually in the viewport, so seen_count folds a table that is written to. The note is
+--   kept because its reasoning generalises: a table with a policy and a fold and no writer
+--   renders a number that is always zero, and "seen by 0" under every announcement is
+--   worse than no number at all.
 
 -- ========================================================================
 -- HOST CLAIM -- the missing half of join_event

@@ -1864,3 +1864,80 @@ full event, the opposite outcome.
 One catch, two directions, one sentence. Going to the guest side cannot fail for a seat
 reason any more, so that direction now names what can still fail — the request — and the
 host-direction message is left alone, because for a guest it was always true.
+
+## AK. "seen by 0", forever
+`broadcast_reads` shipped in the first migration with a policy, a fold trigger, and **no
+writer**. So `seen_count` summed an empty table and every announcement in the host console
+read *seen by 0* — under the host's own eyes, however many people had opened it. The
+migration's debt note had said so from the beginning and named both exits: write
+`chat.markRead()`, or stop rendering the number.
+
+Deleting the number is the cheap exit, and it deletes the one thing a host actually wants
+to know after posting. So the number is real now.
+
+### The caller was the hard part, which is why this was not a five-minute fix
+
+**Marking on load counts fetches.** Open the Chat tab and six announcements you never
+scrolled to are "read" — a number that is wrong in the direction that flatters, which is
+worse than one that is always zero. So `ChatScreen` measures the viewport: each bubble
+reports its box through `onLayout` (coordinates relative to the content container, which is
+the frame `contentOffset` is measured in), the ScrollView reports its own height and
+offset, and a sweep marks whatever overlaps.
+
+All three live in refs and are touched only in handlers. The React Compiler rules reject
+reading a ref during render, and none of it belongs in state anyway: it drives one network
+call and never a repaint, so `setState` here would re-render the feed on every scroll frame
+to change nothing on screen.
+
+**A list, not one id.** A screenful arrives at once; a request per bubble is what makes a
+feature like this expensive on a venue's wifi. Three layers of deduplication, and each one
+earns its place: the screen's `sent` set stops the resend, the adapter's `readMarks` stops
+a second caller, and the composite primary key makes anything that gets through a 23505 —
+which is the desired state arriving twice, exactly as it is for votes and blocks.
+
+**Fire-and-forget by contract.** A read that fails to record is a wrong number, not a
+broken screen, and a scroll handler has nowhere to put an error. The adapter un-marks on
+failure so the next sweep retries; without that, an announcement whose first write lost the
+network is "seen by 0" for the rest of the night and nothing anywhere tries again.
+
+### Staff are not readers, which is note AJ one level down
+
+A host can reach the guest feed — she takes a seat on demand — and an announcement reading
+*seen by 1* the moment its own author looks at it is the same lie as a brand-new party
+reading *1 already here*. `fold_seen_count` excludes a read whose guest seat is held by a
+host of that event. The row is still stored; it is simply not counted, so the number under
+an announcement means guests, exactly as the headcount does.
+
+### The test that had to be fixed, not accepted
+
+*"Counts a reader once, not once per glance"* passed with the deduplication removed from
+**both** the screen and the adapter. The three seeded announcements fit at 402×874, so
+`scrollTop = scrollHeight` moved nothing, fired no scroll event, and ran no second sweep —
+the test scrolled a feed that could not scroll. It posts six more announcements first now,
+and fails as it should.
+
+That is the second time in two days that a mutation ran green for a reason that had nothing
+to do with the code under test (note X: a source mutation that tripped the colour gate
+first). **A mutation test proves nothing until you have checked that the mutation reached
+the assertion.**
+
+### And the fixture caught a bug in yesterday's fix
+
+`becomeGuest` calls `loadFetchOnce`, which re-derives `holdsHostSeat` from `is_host` — and
+on the guest screen `RoleSwitch` is drawn only for someone holding a seat (#29). A
+transient failure of that RPC in the middle of a role switch would have left her on the
+guest side with **no way back**: note AJ's bug, pointing the other way. It surfaced because
+`FakeClient`'s default RPC reply is not `true`, so a test written for #24 failed for a
+reason in #37. The flag is pinned across the switch now — nobody loses a seat by walking
+through a door they could only reach by holding one.
+
+### Coverage
+
+| Claim | Lane |
+|---|---|
+| The number moves, once, for what was on screen | **B**, 8 journeys, all four mutations caught |
+| Below the fold is not read until you scroll to it | **B** — the assertion this file exists for |
+| One insert per screenful; a duplicate is absorbed; a failure retries | **jest** + FakeClient, five mutations caught |
+| `reads_own` admits your own read and refuses a forged one | **E**, live |
+| The fold does not count staff | **E**, live — a naive count fails it |
+| Two devices, two readers | **nothing here.** Memory has exactly one reader, and Lane E writes rows rather than driving the app |

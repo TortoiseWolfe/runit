@@ -129,6 +129,17 @@ export class SupabaseRepository implements RunitRepository {
 
   private eventId: string | null = null;
   private myGuestId: string | null = null;
+  /**
+   * Broadcast ids this session has already marked read (#24).
+   *
+   * The caller is a scroll handler, so the same ids arrive on every frame the feed moves.
+   * The database would absorb that -- the composite key makes a second read a 23505 -- but
+   * a request per frame per announcement is not something to hand to a phone on a venue's
+   * wifi. Session-scoped rather than persisted: a reinstall re-marking a read row is one
+   * 23505, and persisting it would be a second source of truth for something the database
+   * already knows.
+   */
+  private readonly readMarks = new Set<string>();
 
   private readonly overlay = new UploadOverlay();
   private votes = new Set<SongRequestId>();
@@ -992,7 +1003,17 @@ export class SupabaseRepository implements RunitRepository {
         // empty set while `myGuestId` is null, so without this her seat exists and the
         // guest view stays empty of anything belonging to her. It ends in `loadBlocks`,
         // which is the third of those.
+        //
+        // AND IT RE-DERIVES `holdsHostSeat` FROM `is_host`, which is the trap `claimHost`
+        // already names one method up: a flag that gates whether a control is DRAWN must
+        // not depend on call order. Here it is worse than untidy -- `RoleSwitch` is drawn
+        // on the guest screen only for someone holding a seat, so an `is_host` that failed
+        // transiently mid-switch would strand her on the guest side with no way back. That
+        // is #37 again, pointing the other way. Nobody loses a seat by walking through a
+        // door they could only reach by holding one.
+        const held = this.sigHoldsHostSeat.get();
         await this.loadFetchOnce();
+        if (held) this.sigHoldsHostSeat.set(true);
       }
 
       this.sigSession.set({
@@ -1397,6 +1418,36 @@ export class SupabaseRepository implements RunitRepository {
         .select('id');
       if (error) throw error;
       SupabaseRepository.assertWrote(data, 'chat.setPinned');
+    },
+
+    markRead: async (ids: BroadcastId[]) => {
+      const guestId = this.myGuestId;
+      // A HOST HAS NO GUEST ROW, and even when she has taken one (#37) she is staff:
+      // `fold_seen_count` excludes a seat held by a host of that event, so a row inserted
+      // here would be stored and then not counted. Returning early keeps the client from
+      // writing something the server has already decided is not a read.
+      if (guestId === null || this.sigHoldsHostSeat.get()) return;
+
+      const fresh = ids.filter((id) => !this.readMarks.has(id as unknown as string));
+      if (fresh.length === 0) return;
+      // Optimistic, and the un-mark below is what makes that safe. Without marking first,
+      // a scroll handler firing twice before the insert lands sends the same rows twice.
+      for (const id of fresh) this.readMarks.add(id as unknown as string);
+
+      const { error } = await this.db.from('broadcast_reads').insert(
+        fresh.map((id) => ({ broadcast_id: id, guest_id: guestId })),
+      );
+      if (error) {
+        // 23505 IS THE IDEMPOTENCY, exactly as it is for song_votes and blocks: the
+        // primary key (broadcast_id, guest_id) already says a read exists at most once, so
+        // a duplicate is the desired state arriving twice. Reaching for upsert here would
+        // mean naming the constraint in a string that can drift from the schema.
+        if (isPgError(error) && error.code === '23505') return;
+        // Anything else: forget the mark so the next sweep tries again. A read that never
+        // records is a wrong number forever, and the sweep is already running.
+        for (const id of fresh) this.readMarks.delete(id as unknown as string);
+        throw error;
+      }
     },
   };
 
