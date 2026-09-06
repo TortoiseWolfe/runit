@@ -58,6 +58,14 @@
         }
       ],
       [
+        "expo-media-library",
+        {
+          "savePhotosPermission": "Runit saves a photo from this event's album to your phone, so you still have it after the album is gone.",
+          "photosPermission": false,
+          "isAccessMediaLocationEnabled": false
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "image": "./assets/splash-icon.png",

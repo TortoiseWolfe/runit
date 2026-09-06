@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react';
 import { Image, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { Photo, PhotoId } from '@/data/types';
+import { savePhotoToLibrary } from '@/lib/save';
 import { useRepository } from '@/state/RepositoryProvider';
+import { useToast } from '@/state/ToastProvider';
 import { albumTileColor } from '@/theme/oklch';
 import { alpha, useTheme, weight } from '@/theme';
 
@@ -46,6 +48,8 @@ export function PhotoViewer({
    * flash under the next one's thumbnail.
    */
   const [resolved, setResolved] = useState<{ id: PhotoId; url: string } | null>(null);
+  const { show } = useToast();
+  const [saving, setSaving] = useState(false);
   const full = resolved && resolved.id === photo?.id ? resolved.url : null;
 
   useEffect(() => {
@@ -116,6 +120,44 @@ export function PhotoViewer({
           {/* Reporting stays reachable from here too. Guideline 1.2 asks that it be
               available, and a guest who has just enlarged something is the likeliest
               person to want it. */}
+          {/*
+            SAVE (#39). A RunIt photo exists nowhere else -- capture writes to the app's
+            cache, there is no share sheet, and retention is coming. This is the only way
+            anybody keeps a picture they took.
+
+            IT SAVES WHAT IS ON SCREEN, which is the full size once it has resolved. The
+            grid's 400px thumbnail would be a worse photo than the one they took, so the
+            control waits rather than saving the small copy: `shown` is the full size when
+            it is there and the thumbnail before that, and saving early is the one case
+            where a moment's patience is obviously right.
+          */}
+          <Pressable
+            onPress={async () => {
+              const uri = full ?? photo?.localUri ?? null;
+              if (!uri || saving) return;
+              setSaving(true);
+              const result = await savePhotoToLibrary(uri);
+              setSaving(false);
+              // Each outcome says something DIFFERENT and true. A refusal is not a
+              // failure: they chose it, and telling them it broke would be a lie about
+              // their own decision.
+              show(
+                result === 'saved'
+                  ? 'Saved to your photos.'
+                  : result === 'denied'
+                    ? 'Runit needs permission to add to your photos.'
+                    : 'Could not save that photo.',
+              );
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Save this photo to your phone"
+            testID="viewer-save"
+            hitSlop={10}
+          >
+            <Text style={[s.action, { color: alpha(tokens.baseContent, fade.muted) }]}>
+              {saving ? 'Saving…' : 'Save'}
+            </Text>
+          </Pressable>
           <Pressable
             onPress={() => {
               if (photo) onReport(photo);

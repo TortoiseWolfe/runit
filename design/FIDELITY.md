@@ -1662,3 +1662,54 @@ and the enclosing `<Modal>`, never on the name, because that same entry said why
 on the NAME 'backdrop' would not do — a name is not a measurement."* Mutation-checked in
 both directions: a small control still fails, and a `flex: 1` Pressable with no `<Modal>` in
 the file still fails.
+
+## AH. A way to keep a photo, before there is a deadline to keep it by
+A photo taken in RunIt lived in exactly one place: RunIt's bucket. Capture writes to the
+app's **cache** directory — which iOS may reclaim — with no `expo-media-library`, no share
+sheet, and no export (`zipExport` is `false` on every tier with zero call sites). So nobody
+had a copy, **including the person who took it**.
+
+**This ships before the retention warning, and the order is the point.** Retention is
+decided — 30 days free, 90 on $19, a year on $79, unlimited on $599 — and it comes with a
+warning. A deadline nobody can act on is not a warning, it is bad news: telling someone
+their photos go on the 14th while giving them no way to keep one is the same failure as
+selling push notifications with no push.
+
+**Add-only permission.** `requestPermissionsAsync(true)` asks for the write scope, and the
+config plugin declares only `savePhotosPermission`. RunIt writes and never reads a camera
+roll; asking for more than it needs is the fastest way to be refused by somebody who was
+willing to say yes. A test fails if the `true` is ever dropped.
+
+**A refusal is not a failure.** They chose it, and each outcome says something different
+and true — *saved*, *needs permission*, *could not save*. Collapsing the first two would be
+the app lying about the guest's own decision, which is the same rule `capture.ts` states
+for backing out of the camera.
+
+**It saves the full size.** `photos.fullUrl()` (note AG) already resolves the 1600px
+original on demand and this is its second consumer. A remote photo is downloaded first —
+`saveToLibraryAsync` takes a local path, and a signed URL expires, so it is fetched now
+rather than handed to the OS to fetch whenever it likes. **Our copy is deleted afterwards,
+in a `finally`**: the camera roll holds its own, and leaving it would grow the cache by a
+full-size photo every time anybody saved one. A test asserts the delete happens even when
+the save throws.
+
+**The web sibling downloads instead**, because a browser has no camera roll — and returns
+early under `EXPO_PUBLIC_FIDELITY=1` touching nothing at all. A real download in the
+harness either opens an OS dialog nothing answers or writes files into the Playwright
+container for the length of the run: the same class of trap `capture.web.ts` documents for
+the file chooser.
+
+### What no lane here can prove, and it is most of the point
+
+**That a file lands in anybody's camera roll.** Lane B's stub writes nothing, so the
+journey proves the control is present and does not throw — and its docblock says exactly
+that rather than implying more. Only Lane C can witness a real save, by hand, and iOS not
+at all.
+
+### Left open deliberately
+
+Whether saving should be **gated to paid tiers**. `zipExport` is a ready-made unenforced
+flag to hang it on, and gating the only way to keep your own photograph — on a product that
+deletes it after thirty days — is a pricing decision with a sharp edge. It ships available
+to everyone, because that is the honest default while retention exists, and narrowing it
+later is a deliberate choice somebody makes rather than one that arrives by accident.
