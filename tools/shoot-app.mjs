@@ -194,7 +194,7 @@ async function auditGutter(page, viewportWidth) {
         // Leaf text only, so a wrapper is not blamed for where its child sits.
         const text = el.children.length ? '' : (el.textContent || '').trim();
         if (!control && !text) continue;
-        if (el.getAttribute('data-testid') === 'scheme-probe') continue;
+        if ((el.getAttribute('data-testid') ?? '').endsWith('-probe')) continue;
 
         const st = getComputedStyle(el);
         if (st.visibility === 'hidden' || parseFloat(st.opacity) < 0.05) continue;
@@ -269,6 +269,36 @@ for (const scheme of ['dark', 'light']) {
     page.waitForSelector('[data-testid="toast"]', { state: 'detached', timeout: 6000 })
       .catch(() => {});
 
+  /**
+   * THE INSETS ACTUALLY REACHED THE SCREENS -- issue #7.
+   *
+   * `SafeAreaProvider initialMetrics` does NOT survive on web: the package's own
+   * `NativeSafeAreaProvider.web.js` appends an element padded with
+   * `env(safe-area-inset-*)`, reads it back on mount and reports it -- which in a browser
+   * is zero. So every screenshot in this directory was taken with the insets collapsed,
+   * for months, while `renders/` was drawn from artboards that pad 66/70/28 BECAUSE of the
+   * device frame. Lane D compared the two and read a systematic ~70pt offset as close
+   * enough.
+   *
+   * The probe reads `useSafeAreaInsets()` -- the same hook every screen reads -- rather
+   * than echoing the constant, which would have agreed with itself throughout.
+   */
+  const assertInsets = async () => {
+    // FIDELITY_FRAME is `WIDTHxHEIGHTxTOPxBOTTOM`; the probe reports `TOPxBOTTOM`.
+    const [, , top, bottom] = FIDELITY_FRAME.split('x');
+    const want = `${top}x${bottom}`;
+    const text = await page.textContent('[data-testid="inset-probe"]').catch(() => null);
+    if (text !== want) {
+      console.error(`\x1b[31mFAIL: useSafeAreaInsets() reports ${text}, expected ${want}.\x1b[0m`);
+      console.error('  The fidelity metrics are not reaching the screens, so every');
+      console.error('  screenshot below would be taken with the insets collapsed and');
+      console.error('  lane D would compare it against a render that has them. See #7.');
+      await browser.close();
+      server.close();
+      process.exit(1);
+    }
+  };
+
   const shot = async (name) => {
     await settled();
     await toastGone();
@@ -284,6 +314,8 @@ for (const scheme of ['dark', 'light']) {
   // 01 Join
   await page.goto(`${base}/join`, { waitUntil: 'networkidle' });
   await page.waitForSelector('[data-testid="join-submit"]', { timeout: 30_000 });
+  await settled();
+  await assertInsets();
   await shot('01-join');
 
   // Join for real, so the guarded routes are reachable.

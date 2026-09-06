@@ -2094,3 +2094,58 @@ on a phone.
 | The rename is scoped to one guest, trimmed, capped | **jest** on the fixture, two mutations caught |
 | `set_nickname` is granted, refuses a non-member, caps server-side, and moves the denormalised copy in one transaction | **E**, live, 9 assertions |
 | `guests_update_self` is gone and a direct UPDATE still touches zero rows | **E**, live |
+
+## AN. The insets that never arrived, and the comparison built on them
+`SafeAreaProvider initialMetrics={FIDELITY_METRICS}` did not reach a single screen, and
+nothing said so. Measured from the pixels before it was measured from the source: the
+402×874 preset injects a 62pt top inset and the 414×896 preset injects 44, and **both
+produced a first non-background row at 5pt** with the outermost container computing
+`padding-top: 0px`.
+
+The cause is in the package. `NativeSafeAreaProvider.web.js` appends a fixed element padded
+with `env(safe-area-inset-*)`, reads it back on mount and calls `onInsetsChange` — and in a
+browser those values are zero. So `initialMetrics` was the initial state of a `useState`
+that got overwritten a tick later, every single time.
+
+### What it cost is the reason this is a note
+
+CLAUDE.md said the injection is *"what makes the web export measurable against the
+canvas"*. **That was false.** `design/renders/` is drawn from the canvas, whose artboards
+pad 66/70/28 precisely because of the device frame; `design/screenshots/` was shot with
+those insets absent. So Lane D — the eye, the one lane that reads a screen as a person sees
+it — has been comparing two images with a systematic ~70pt vertical offset and reading the
+result as close enough. Every Lane D judgement before this rests on that.
+
+Numbers, after: the join screen's first content ink sits at 72pt in the screenshot against
+~78pt in the render, where before it was ~5pt. And the two presets now genuinely differ —
+70pt of padding at 402×874, 52pt at 414×896 — which is the pair of measurements that
+exposed the bug in the first place.
+
+### The fix is the contexts, not a wrapper
+
+The metrics are pushed straight into `SafeAreaInsetsContext` and `SafeAreaFrameContext`,
+**inside** the provider, where nothing overwrites them. `initialMetrics` stays: it is
+correct on native and it is what the first paint uses.
+
+Anything that inset the pixels instead — a CSS variable, a fidelity-only padded wrapper —
+would have made the screenshots look right while `useSafeAreaInsets()` kept returning
+zeros. Every screen that *adds* an inset to its own padding (`Screen.tsx` does exactly
+that) would then be computing from the wrong number, and the harness would be lying in a
+new direction.
+
+### And a gate, because the silence is the actual bug
+
+A hidden `inset-probe` renders `useSafeAreaInsets()` — the same hook every screen reads,
+not the constant, which would have agreed with itself throughout — and `pnpm shots` fails
+before writing anything if it does not match the frame the export was built with.
+Mutation-checked: removing the context providers gives
+
+```
+FAIL: useSafeAreaInsets() reports 0x0, expected 62x34.
+```
+
+which is the original defect, stated in one line, at the moment it happens.
+
+`pnpm shots:appstore` exists now too. The store preset needs `EXPO_PUBLIC_FIDELITY_FRAME`
+on the **export** and `SHOT_PRESET` on the **shoot**, and two env vars that must agree are
+a script's job, not a paragraph's.
