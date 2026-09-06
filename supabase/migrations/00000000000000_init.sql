@@ -615,6 +615,135 @@ begin
   return v_name;
 end $$;
 
+-- ------------------------------------------------------------------------
+-- THE SWEEP'S CREDENTIAL (#40)
+-- ------------------------------------------------------------------------
+--
+-- The sweep destroys photographs, so `verify_jwt` is not enough on its own: it proves only
+-- that the caller holds *a* project JWT, and the anon key is public -- it is compiled into
+-- the app bundle. The caller must also present `x-sweep-key`, and this is what checks it.
+--
+-- THE COMPARISON HAPPENS HERE so the secret never crosses the wire. An endpoint that can
+-- RETURN the secret is a worse thing to own than one that can only answer whether a guess
+-- matched. (Reading `vault.decrypted_secrets` from the function directly does not work
+-- anyway: PostgREST exposes `public`, not `vault`.)
+--
+-- NO SECRET AND A WRONG SECRET ANSWER THE SAME, deliberately -- telling them apart tells a
+-- prober whether the endpoint is armed.
+create or replace function public.sweep_authorised(p_key text)
+returns boolean
+language plpgsql stable security definer set search_path = public as $$
+declare
+  v_secret text;
+begin
+  select decrypted_secret into v_secret
+    from vault.decrypted_secrets where name = 'sweep_key';
+  if v_secret is null or p_key is null then
+    return false;
+  end if;
+  return v_secret = p_key;
+end $$;
+
+revoke execute on function public.sweep_authorised(text) from public, anon, authenticated;
+
+-- ------------------------------------------------------------------------
+-- THE RETENTION SWEEP'S EYES (#40)
+-- ------------------------------------------------------------------------
+--
+-- WHAT IS PAST ITS RETENTION. The rule lives HERE, in SQL, beside the `tier_limits` row it
+-- reads -- not in the Edge Function that does the deleting. Same reasoning as the caps: a
+-- number that lives only in the caller is enforced by whichever caller happens to be asking,
+-- and the sweep must not be a second opinion about what "expired" means.
+--
+-- THE CLOCK RUNS FROM `starts_at`, NOT FROM THE PHOTO. The album says "Photos here are kept
+-- for N days after THE EVENT", and that sentence is already on screen -- so a photo uploaded
+-- three days late expires with the party rather than outliving it. Building it from
+-- `created_at` would quietly break a promise the app has already made.
+--
+-- NULL IS NEVER. The $599 tier stores `null`, the album draws no line for it, and this
+-- returns nothing for it. `0` would mean the opposite and read as plausible, which is why
+-- the column has always been nullable rather than defaulted.
+--
+-- IT SELECTS, IT DOES NOT DELETE, and it cannot: `storage.protect_delete()` refuses every
+-- direct delete on `storage.objects` for the owner as much as for a guest (lane E asserts
+-- it), so the bytes can only go through the Storage API with a service role. This is the
+-- half that belongs in the database.
+create or replace function public.photos_past_retention(p_limit integer default 200)
+returns table (
+  id           uuid,
+  storage_path text,
+  thumb_path   text,
+  event_code   text,
+  expired_at   timestamptz
+)
+language sql stable security definer set search_path = public as $$
+  select p.id, p.storage_path, p.thumb_path, e.code,
+         e.starts_at + make_interval(days => tl.album_retention_days)
+    from public.photos p
+    join public.events e on e.id = p.event_id
+    join public.tier_limits tl on tl.tier = e.tier
+   where tl.album_retention_days is not null
+     and now() > e.starts_at + make_interval(days => tl.album_retention_days)
+   -- Oldest first, so a bounded run always makes progress on the worst backlog rather than
+   -- picking at whatever the planner returned.
+   order by e.starts_at
+   limit greatest(coalesce(p_limit, 200), 0);
+$$;
+
+-- NOT CALLABLE BY ANY CLIENT. It answers "which photos are about to be destroyed" across
+-- every event in the project, which is nobody's business but the sweep's. The Edge Function
+-- reaches it with the service role, which these revokes do not touch.
+revoke execute on function public.photos_past_retention(integer) from public, anon, authenticated;
+
+-- ------------------------------------------------------------------------
+-- THE SCHEDULE (#40)
+-- ------------------------------------------------------------------------
+--
+-- pg_cron calls this; this calls the Edge Function through pg_net. The same shape as the
+-- push fan-out, and for the same reason: the secrets live in Vault, never in this file.
+--
+-- ABSENT SECRETS = NOT ARMED, and it returns quietly. A fresh project has no Vault entries,
+-- and a sweep that errored every night on a project nobody had wired would train whoever
+-- reads the logs to ignore them.
+--
+-- `sweep_gateway_key` is the PUBLISHABLE key and authorises nothing -- it exists only to get
+-- past the functions gateway's `verify_jwt`. `sweep_key` is the one that matters, and the
+-- function checks it through `sweep_authorised()` so the secret never crosses the wire.
+create or replace function public.run_photo_sweep()
+returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  v_url text; v_gate text; v_key text;
+begin
+  select decrypted_secret into v_url  from vault.decrypted_secrets where name = 'sweep_url';
+  select decrypted_secret into v_gate from vault.decrypted_secrets where name = 'sweep_gateway_key';
+  select decrypted_secret into v_key  from vault.decrypted_secrets where name = 'sweep_key';
+  if v_url is null or v_gate is null or v_key is null then
+    return;
+  end if;
+
+  perform net.http_post(
+    url     := v_url,
+    headers := jsonb_build_object(
+                 'Content-Type', 'application/json',
+                 'Authorization', 'Bearer ' || v_gate,
+                 'x-sweep-key', v_key
+               ),
+    body    := '{}'::jsonb
+  );
+end $$;
+
+revoke execute on function public.run_photo_sweep() from public, anon, authenticated;
+
+-- 04:17 daily, off the hour on purpose: every cron in the world fires at :00, and a sweep
+-- has no reason to join the stampede.
+--
+-- NOT IDEMPOTENT AS WRITTEN -- `cron.schedule` on an existing name updates it, but a fresh
+-- project needs pg_cron first. Run these two by hand after applying this file:
+--   create extension if not exists pg_cron;
+--   select cron.schedule('photo-retention-sweep', '17 4 * * *', $c$select public.run_photo_sweep()$c$);
+-- and `select cron.unschedule('photo-retention-sweep')` is how you stop it.
+
 revoke execute on function public.set_nickname(uuid, text) from public, anon;
 grant  execute on function public.set_nickname(uuid, text) to authenticated;
 
