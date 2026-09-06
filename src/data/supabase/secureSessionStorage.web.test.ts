@@ -28,9 +28,11 @@ let s: Store;
 function load(): Store {
   let mod!: { secureSessionStorage: Store };
   jest.isolateModules(() => {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports -- `jest.isolateModules`
-    // needs a SYNCHRONOUS load inside its callback; a dynamic import() resolves after it
-    // returns, which defeats the isolation this whole helper exists for.
+    // `jest.isolateModules` needs a SYNCHRONOUS load inside its callback; a dynamic
+    // import() resolves after it returns, which defeats the isolation this helper exists
+    // for. Hence require, and hence the disable -- which must sit on the line directly
+    // above the offence, not above a comment.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     mod = require('./secureSessionStorage.web') as { secureSessionStorage: Store };
   });
   return mod.secureSessionStorage;

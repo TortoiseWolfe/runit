@@ -242,6 +242,13 @@ export class MemoryRepository implements RunitRepository {
   private transfer: (photo: Photo, onProgress: (fraction: number) => void) => Promise<void>;
 
   private sigSession: Signal<Session>;
+  /**
+   * Always true in this adapter, and that is deliberate rather than lazy. The fixtures
+   * ARE a host and a guest in one process -- it is what lets the screenshot harness and
+   * all 208 journeys reach the host artboards through `RoleSwitch`. Against Supabase the
+   * same flag is a real question, which is the whole point of #29.
+   */
+  private sigHoldsHostSeat: Signal<boolean>;
   private sigEvent: Signal<RunitEvent | null>;
   private sigPreview: Signal<EventPreview | null>;
   private sigFeed: Signal<Broadcast[]>;
@@ -294,6 +301,7 @@ export class MemoryRepository implements RunitRepository {
     this.seq = highestSeedSeq(seed);
 
     this.sigSession = new Signal<Session>({ kind: 'anonymous' });
+    this.sigHoldsHostSeat = new Signal<boolean>(true);
     this.sigEvent = new Signal<RunitEvent | null>(this.ev);
     // Starts null, like the adapter it stands in for. A preview is something a code
     // produced, never something the world arrived holding.
@@ -480,6 +488,7 @@ export class MemoryRepository implements RunitRepository {
 
   session = {
     current: undefined as unknown as Observable<Session>,
+    holdsHostSeat: undefined as unknown as Observable<boolean>,
     joinAsGuest: async ({ code, nickname }: { code: string; nickname: string }) => {
       // The canvas sets joined:true unconditionally -- it never validates the
       // code and never checks capacity. Both are real failure modes.
@@ -1126,6 +1135,7 @@ export class MemoryRepository implements RunitRepository {
   /** Attach the signals to the public groups. See the note in the constructor. */
   private wire(): void {
     this.session.current = this.sigSession;
+    this.session.holdsHostSeat = this.sigHoldsHostSeat;
     this.event.current = this.sigEvent;
     this.event.preview = this.sigPreview;
     this.chat.feed = this.sigFeed;

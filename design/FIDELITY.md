@@ -1418,3 +1418,44 @@ The fidelity branch is untouched and still the first statement in the function.
 `guest-photos.spec.ts` asserts the literal `data:image/png;base64,iVBOR…` prefix, and
 routing the synthetic pixel through the compressor would turn it into a `blob:` URI and
 fail — that assertion is the only thing proving the URI came out of the capture path.
+
+## AD. A door painted on the guest screen
+`RoleSwitch` — "Host view →" — was drawn for **every guest at every event**. Against the
+shipping adapter its only possible outcome for them is a toast saying the host console is
+not theirs: `becomeHost` matches `hosts.auth_user_id = auth.uid()`, so a role is not
+something a picker can grant. Its own docblock said as much — *"this is not an edge case;
+it is what nine people out of ten will experience if they tap it"* — and it stayed.
+
+It is now drawn only for someone who **holds a host seat**, which is a different question
+from which view is on screen and needed a new observable to answer. `session.current.kind`
+says "which view"; a host who switched to the guest side reads `kind: 'guest'` and still
+holds her seat, and must keep the way back. `holdsHostSeat` says "which seat".
+
+**Not `disabled`, and not a denial toast.** The house rule against disabling applies to a
+control someone could earn — by upgrading, by hitting a cap differently. This one cannot be
+earned by any action available on that screen, so the honest treatment is note O's: do not
+draw it. The ways *in* for a real host are untouched — a host key on the join screen, or
+creating the event.
+
+**In `MemoryRepository` the flag is hard-coded true**, and that is deliberate rather than
+lazy: the fixtures are a host and a guest in one process, which is what lets the screenshot
+harness and all 208 journeys reach the host artboards at all. **So Lane B cannot see the
+hiding** — it is provable only in jest against the Supabase adapter, and it is,
+mutation-checked.
+
+`is_host` is now asked once in `loadFetchOnce` rather than only when someone taps. A host
+who claimed a key last night reopens the app as `kind: 'guest'` until something says
+otherwise, and a flag that gates whether a control is *drawn* has to be known before first
+paint. A failed `is_host` counts as **not** holding a seat: the safe unknown hides a
+control rather than offering one that refuses.
+
+### The opposite failure, found on the way and deliberately not fixed here
+
+The console's copy of the same control is its **only exit**, and for a founder it throws.
+`becomeGuest` opens with `requireGuest()`, and a founder has no `guests` row —
+`create_event` binds her host seat and deliberately does not seat her as a guest. So she
+taps "Guest view →" and gets *"The host console is only available to this event's host."*
+She **is** the host; the message is about the other direction.
+
+Hiding the console's copy would have stranded her completely. Two opposite failures of one
+control want two fixes, so that one is **#37** rather than a second half of this note.

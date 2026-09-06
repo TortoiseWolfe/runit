@@ -7,6 +7,11 @@ import { useRepository } from './RepositoryProvider';
 import { useObservable } from './useObservable';
 
 export const useSession = () => useObservable(useRepository().session.current);
+/**
+ * Whether a HOST SEAT is held here, which is not the same as which view is on screen
+ * (#29). A host looking at the guest side reads `kind: 'guest'` and still holds her seat.
+ */
+export const useHoldsHostSeat = () => useObservable(useRepository().session.holdsHostSeat);
 export const useEvent = () => useObservable(useRepository().event.current);
 /** What a code resolved to before joining. Null until `useLookUpInvite` has run. */
 export const usePreview = () => useObservable(useRepository().event.preview);

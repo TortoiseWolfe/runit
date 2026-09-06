@@ -268,6 +268,23 @@ export interface RunitRepository {
      * every event.
      */
     setPushToken(token: string | null): Promise<void>;
+    /**
+     * Does this person hold a HOST SEAT at this event -- regardless of which view they
+     * are currently looking at? (#29)
+     *
+     * `current.kind` answers "which view", which is a different question. A host who has
+     * switched to the guest side reads `kind: 'guest'` and still holds her seat; a plain
+     * guest reads the same thing and holds nothing.
+     *
+     * It exists because `RoleSwitch` was shown to EVERY guest, and against the shipping
+     * adapter its only possible outcome for them was a toast explaining that it does not
+     * work -- `becomeHost` matches `hosts.auth_user_id = auth.uid()`, so a role is not
+     * something a picker can grant. Nine people out of ten who tapped it got a refusal.
+     *
+     * Deliberately an observable rather than a method: it gates whether a control is
+     * DRAWN, and a screen cannot await an answer during render.
+     */
+    holdsHostSeat: Observable<boolean>;
   };
 
   event: {

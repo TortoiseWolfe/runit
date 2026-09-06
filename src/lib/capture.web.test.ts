@@ -20,8 +20,8 @@ const blob = (bytes: number, type = 'image/jpeg') =>
 
 /** A fake decoder and canvas that record what they were asked for. */
 function deps(size: { width: number; height: number }, opts: { toBlobNull?: boolean } = {}) {
-  const drew: Array<{ w: number; h: number }> = [];
-  const made: Array<{ w: number; h: number }> = [];
+  const drew: { w: number; h: number }[] = [];
+  const made: { w: number; h: number }[] = [];
   let closed = 0;
   return {
     drew,
