@@ -74,32 +74,32 @@ const EXCEPTIONS = [
       'Toast.tsx derives its own position from tabBar.contentHeight, so this ' +
       'geometry is load-bearing elsewhere and must not be "fixed" casually.',
   },
-  {
-    file: 'src/features/session/LeaveSheet.tsx',
-    why:
-      'The modal BACKDROP, `flex: 1` inside a <Modal>, exactly as in ReportSheet below ' +
-      'and exempt for exactly the same reason: it is the largest target in the app, it ' +
-      'is the standard tap-outside-to-dismiss affordance, and `flex: 1` resolves against ' +
-      'the modal root at runtime so there is no number in the source to read. Every ' +
-      'other control in this file declares 52 or 48 explicitly. ' +
-      'NOTE: this is the SECOND entry of this exact shape. A third means the tool should ' +
-      'learn the pattern -- a Pressable whose only style is `flex: 1` directly inside a ' +
-      '<Modal> -- rather than this list growing one sheet at a time. Matching on the ' +
-      'NAME "backdrop" would not do: a name is not a measurement.',
-  },
-  {
-    file: 'src/features/moderation/ReportSheet.tsx',
-    why:
-      'The only flagged element is the modal BACKDROP, whose style is `flex: 1` inside ' +
-      'a <Modal>. It is the largest target in the app -- every pixel not covered by the ' +
-      'sheet -- and it is the standard tap-outside-to-dismiss affordance. `flex: 1` ' +
-      'resolves against the modal root at runtime, so there is no number in the source ' +
-      'for a static rule to read, and inventing a minHeight here would be a fiction ' +
-      'that satisfies the tool without changing the rendering. Every other control in ' +
-      'this file declares 56, 48 or 36 explicitly. Re-check this entry if the backdrop ' +
-      'ever stops being full-bleed.',
-  },
 ];
+
+/**
+ * A MODAL BACKDROP IS THE LARGEST TARGET IN THE APP, and no static rule can read its size.
+ *
+ * `flex: 1` resolves against the modal root at runtime, so there is no number in the
+ * source. Two files were exempted for exactly this shape, and the second entry left an
+ * instruction: "a third means the tool should learn the pattern -- a Pressable whose only
+ * style is `flex: 1` directly inside a <Modal> -- rather than this list growing one sheet
+ * at a time." The photo viewer (#38) was the third. So the pattern is a rule now.
+ *
+ * IT MATCHES ON THE STYLE AND THE ENCLOSING <Modal>, NEVER ON THE NAME. The same entry
+ * warned why: "matching on the NAME 'backdrop' would not do -- a name is not a
+ * measurement." A `flex: 1` Pressable outside a Modal is still flagged, which is right;
+ * that one really could be any size.
+ */
+function isModalBackdrop(code, styleNames) {
+  if (!/<Modal\b/.test(code)) return false;
+  return styleNames.some((n) => {
+    const m = new RegExp(`\\b${n}\\s*:\\s*\\{([^}]*)\\}`).exec(code);
+    if (!m) return false;
+    const body = m[1];
+    // `flex: 1` and nothing that constrains it to a corner of the screen.
+    return /\bflex\s*:\s*1\b/.test(body) && !/\b(width|height|maxHeight|maxWidth)\s*:/.test(body);
+  });
+}
 
 /**
  * Yield `[name, body]` for every `name: { ... }` entry, matching braces so a
@@ -205,6 +205,10 @@ for (const file of files) {
     const props = close === -1 ? rest : rest.slice(0, close + 1);
 
     if (/\bhitSlop\s*=/.test(props)) return;
+
+    // The learned pattern: a full-bleed backdrop inside a <Modal>.
+    const named = [...props.matchAll(/\b(?:s|styles)\.(\w+)\b/g)].map((m) => m[1]);
+    if (named.length > 0 && isModalBackdrop(code, named)) return;
 
     const usesReachableStyle = [...reachable].some((n) =>
       new RegExp(`\\bs\\.${n}\\b|\\bstyles\\.${n}\\b`).test(props),

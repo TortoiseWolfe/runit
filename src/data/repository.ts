@@ -478,6 +478,18 @@ export interface RunitRepository {
      */
     upload(input: { localUri: string; thumbLocalUri?: string | null }): Promise<UploadOutcome>;
     /**
+     * The FULL-SIZE photo's URL, resolved on demand (#38).
+     *
+     * The album renders 400px thumbnails, and `Photo.displayUrl` is that. A viewer wants
+     * the 1600px original, which is ~20x the bytes -- so it is signed when somebody
+     * actually opens a photo rather than for every tile in the grid on every load. That
+     * distinction is the difference between an album costing 15KB a tile and 300KB.
+     *
+     * Null when there is nothing remote to resolve: a seeded row, or `MemoryRepository`,
+     * whose photos have no bucket behind them.
+     */
+    fullUrl(id: PhotoId): Promise<string | null>;
+    /**
      * Re-attempt a failed transfer. No-op unless the photo is `failed`, so a
      * double-tap cannot start two transfers for one photo.
      */

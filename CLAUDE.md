@@ -133,6 +133,12 @@ already inside the container or want it on the host.
 
 ## Verification lanes
 
+**A2 knows about modal backdrops now**, rather than exempting them one file at a time. A
+`flex: 1` Pressable inside a `<Modal>` is the largest target in the app and `flex` resolves
+at runtime, so there is no number to read; the rule matches the STYLE and the enclosing
+`<Modal>`, never the name, because a name is not a measurement. Two exemptions were deleted
+when it landed. FIDELITY note AG.
+
 **A2 — static touch-target audit** (`pnpm audit:targets`). The only lane that can
 see a touch target at all: react-native-web **drops `hitSlop`**, so Lane B keeps
 reporting failure after a correct fix, and `uiautomator dump` reports

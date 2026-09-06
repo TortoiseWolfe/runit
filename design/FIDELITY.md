@@ -1606,3 +1606,59 @@ That a photo appears on a screen. Lane B boots `MemoryRepository`, where `displa
 null on every row, so it cannot see a signed URL at all — it proves the hue tile still
 renders and nothing regressed. Only Lane C can witness the image, by hand, and iOS remains
 unprovable in this environment.
+
+## AG. You could not look at a photo
+Tapping a photo did **nothing**. The tile was a plain `View`; only the small `⋯` badge
+inside it was pressable, and that opens the report sheet. So a shared photo album had no
+way to see a photo larger than a ~120pt square, and the host's approval queue asked for a
+moderation decision from a 64pt one.
+
+It was invisible while the album rendered coloured placeholders, and became the first thing
+anyone would reach for the moment note AF made it render actual images.
+
+**The tile is the control now**, and its `testID` stays on the same node — it is a
+`Pressable` rather than a `Pressable` wrapped around a `View`. `guest-photos.spec.ts` counts
+the album with `getByTestId(/^tile-/)`, and a second element per tile matching that prefix
+silently doubled the count from 9 to 18 once already. The `⋯` badge keeps its deliberate
+`report-tile-` name for the same reason, and reporting is reachable from inside the viewer
+too — Guideline 1.2 wants it available, and someone who has just enlarged a photo is the
+likeliest person to want it.
+
+**The two modals must not stack.** Opening the report sheet closes the viewer first;
+leaving both up puts the sheet behind a full-screen photo on iOS, which reads as a frozen
+app.
+
+### The full size is signed only here
+
+The grid renders 400px thumbnails because that is all a tile needs. `photos.fullUrl()`
+resolves the 1600px original **on demand**, so the ~20× bytes are paid by the person who
+chose to look rather than by every tile on every album load. That split is the whole economy
+of note AF, and a test fails if this path ever signs `thumbPath` instead.
+
+Three layers render, each a real state rather than a spinner: the hue the guest already
+associates with this photo from the grid, then the thumbnail they were just looking at,
+then the full size. A photo that cannot be signed stays at whichever layer it reached —
+which is exactly what a pending photo somebody else uploaded is supposed to look like.
+
+### Two rejections that were both correct
+
+**The React Compiler refused `setState` inside the effect.** The obvious shape is
+`setFull(null)` at the top so the previous photo's image cannot flash under the next one's
+thumbnail. Holding the id alongside the URL gets the same property with no reset at all: a
+stale URL simply does not match.
+
+**Lane A2 refused the tile**, because its size is `tileSize`, computed from the window
+width, and A2 is a declaration check that refuses to pretend otherwise. The style now
+declares the floor a tile never goes below.
+
+### The audit learned a rule instead of collecting a third exemption
+
+A2's exemption list held two entries of one shape — a `flex: 1` backdrop inside a `<Modal>`
+— and the second one left an instruction: *"a third means the tool should learn the pattern
+rather than this list growing one sheet at a time."* The viewer's backdrop was the third.
+
+So the pattern is a rule now and **both exemptions are deleted**. It matches on the style
+and the enclosing `<Modal>`, never on the name, because that same entry said why: *"matching
+on the NAME 'backdrop' would not do — a name is not a measurement."* Mutation-checked in
+both directions: a small control still fails, and a `flex: 1` Pressable with no `<Modal>` in
+the file still fails.

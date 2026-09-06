@@ -130,6 +130,20 @@ export class SignedUrls {
     return changed;
   }
 
+  /**
+   * Resolve ONE key and hand the URL back (#38).
+   *
+   * For the full-size original, which is signed only when somebody opens a photo. It goes
+   * through the same cache as the grid, so opening the same photo twice in an hour is one
+   * request -- and closing the event drops it with everything else.
+   */
+  async resolveOne(key: string): Promise<string | null> {
+    const hit = this.get(key);
+    if (hit !== null) return hit;
+    await this.resolve([key]);
+    return this.get(key);
+  }
+
   /** Drop everything. Called when the event closes: the keys belonged to that event. */
   clear(): void {
     this.cache.clear();

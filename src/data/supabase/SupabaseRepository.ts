@@ -1517,6 +1517,25 @@ export class SupabaseRepository implements RunitRepository {
       return outcome;
     },
 
+
+    /**
+     * The 1600px original, signed on demand (#38).
+     *
+     * `storagePath`, never `thumbPath`: this is the one place the full-size object is
+     * wanted, and it is why the album can afford to render 400px copies everywhere else.
+     *
+     * Own bytes first, same order as the tiles -- a guest who just took this photo has it
+     * on disk and should not wait on a round trip to look at her own picture.
+     */
+    fullUrl: async (id: PhotoId) => {
+      const local = this.overlay.get(id)?.localUri;
+      if (local) return local;
+      const row = (this.tPhotos?.all() ?? []).find((r) => r.id === id);
+      const key = row?.storage_path ?? null;
+      if (!key) return null;
+      return this.signed.resolveOne(key);
+    },
+
     retry: async (id: PhotoId) => {
       const t = this.overlay.get(id);
       // No-op unless it actually failed, so a double-tap cannot start two
