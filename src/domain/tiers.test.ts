@@ -91,17 +91,30 @@ describe('tier_limits in Postgres matches src/domain/tiers.ts', () => {
   });
 
   /**
-   * Only the flags Postgres can actually enforce are mirrored.
-   *
-   * `pinnedAnnouncements` is, by a trigger on `broadcasts` (#21). `pushNotifications`
-   * deliberately is NOT in `tier_limits`: push does not exist at all (#27), and a column
-   * claiming to gate it would be a second place asserting a capability nothing has.
+   * Only the flags Postgres can actually enforce are mirrored. `pinnedAnnouncements` is,
+   * by a trigger on `broadcasts` that folds a pin the tier cannot carry (#21).
    */
   it.each(TIER_ORDER)('%s allows pinning on both sides or neither', (tier) => {
     expect(SEEDED[tier]!.pinnedAnnouncements).toBe(TIERS[tier].features.pinnedAnnouncements);
   });
 
-  it('does not pretend to gate push, which does not exist', () => {
+  /**
+   * PUSH IS SOLD BY NEITHER SIDE, and this asserts both halves rather than one.
+   *
+   * It used to check only that `tier_limits` had no push column, which was the weaker
+   * claim: the TypeScript ladder still carried `pushNotifications`, still granted it on
+   * the $79 and $599 tiers, and still put "Pinned announcements + push" on the Event
+   * card. The database was honest and the price list was not.
+   *
+   * `expo-notifications` is not a dependency. There is no push, so a flag gating it
+   * gates nothing and a feature line selling it sells nothing (#27). `audit:tiers` would
+   * now catch a re-added flag on its own -- a granted feature with no enforcement is
+   * exactly what it fails on -- but it cannot see the marketing copy, and the copy is
+   * what a person reads before paying.
+   *
+   * DELETE THIS TEST on the day push is actually built. Do not weaken it.
+   */
+  it('sells push on neither side, because push does not exist', () => {
     const block = SQL.slice(SQL.indexOf('create table public.tier_limits'));
     // COLUMN DEFINITIONS ONLY. The first version of this matched the whole block and
     // fired on the COMMENT explaining why push is absent -- a test failing on its own
@@ -114,6 +127,12 @@ describe('tier_limits in Postgres matches src/domain/tiers.ts', () => {
     expect(columns).not.toMatch(/push/i);
     // The floor: prove the filter did not simply strip everything.
     expect(columns).toMatch(/pinned_announcements\s+boolean/);
+
+    // The half that was missing. Every tier's flags AND every line of pricing copy.
+    for (const tier of TIER_ORDER) {
+      expect(Object.keys(TIERS[tier].features)).not.toContain('pushNotifications');
+      for (const line of TIERS[tier].featureLines) expect(line).not.toMatch(/push/i);
+    }
   });
 
   /**

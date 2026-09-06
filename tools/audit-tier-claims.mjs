@@ -92,9 +92,16 @@ for (const file of walk(SRC)) {
  * learn to see it: a flag's snake_case name appearing in the migration is enforcement by
  * the only party a second client cannot route around.
  *
- * This does NOT close #21 -- `pinnedAnnouncements` and `pushNotifications` are still
- * client-only -- but the report below now says WHERE each flag is enforced, so the
- * remaining gap is legible instead of hidden behind a single green line.
+ * THIS NOW CLOSES #21, and it took two different kinds of fix. `pinnedAnnouncements`
+ * got real enforcement -- a trigger on `broadcasts` that folds a pin the tier cannot
+ * carry, on INSERT or UPDATE. `pushNotifications` got the other treatment: it was DELETED
+ * from the ladder, because push does not exist and you cannot gate a capability nothing
+ * has. Removing the promise was the only honest option left once building it was out of
+ * scope (#27).
+ *
+ * The report says WHERE each flag is enforced rather than just that it is, because
+ * "enforced" spread across a shipping adapter and a migration is the distinction that
+ * hid the original gap.
  */
 const MIGRATION = join(ROOT, 'supabase/migrations/00000000000000_init.sql');
 const sql = readFileSync(MIGRATION, 'utf8');

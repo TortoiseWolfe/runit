@@ -339,7 +339,7 @@ describe('chat', () => {
     const r = MemoryRepository.create(weddingSeed); // no `now` injection, deliberately
     const before = r.chat.feed.get();
     await r.session.becomeHost('hst_riley');
-    await r.chat.send({ body: 'Cake is cut', pinned: false, push: false });
+    await r.chat.send({ body: 'Cake is cut', pinned: false });
 
     const after = r.chat.feed.get();
     expect(after).toHaveLength(before.length + 1);
@@ -357,7 +357,7 @@ describe('chat', () => {
 
   it('keeps the pin flag on a tier that has pinning', async () => {
     const r = make();
-    await r.chat.send({ body: 'Cake in ten', pinned: true, push: true });
+    await r.chat.send({ body: 'Cake in ten', pinned: true });
     // The canvas drops it (pin:false in the same setState) so pinning is inert.
     expect(r.chat.feed.get()[0]).toMatchObject({ body: 'Cake in ten', pinned: true });
   });
@@ -365,7 +365,7 @@ describe('chat', () => {
   it('degrades pinning on a tier without it rather than refusing to post', async () => {
     const r = make();
     await r.event.setTier('house_party');
-    await r.chat.send({ body: 'Pizza is here', pinned: true, push: true });
+    await r.chat.send({ body: 'Pizza is here', pinned: true });
     const posted = r.chat.feed.get().find((b) => b.body === 'Pizza is here');
     expect(posted).toBeDefined();
     expect(posted?.pinned).toBe(false);
@@ -373,7 +373,7 @@ describe('chat', () => {
 
   it('un-pins an announcement that has stopped being true', async () => {
     const r = make();
-    await r.chat.send({ body: 'Cake in ten', pinned: true, push: true });
+    await r.chat.send({ body: 'Cake in ten', pinned: true });
     const b = r.chat.feed.get().find((x) => x.body === 'Cake in ten')!;
     expect(b.pinned).toBe(true);
 
@@ -383,7 +383,7 @@ describe('chat', () => {
 
   it('still gates PINNING on the plan', async () => {
     const r = make();
-    await r.chat.send({ body: 'Cake in ten', pinned: false, push: true });
+    await r.chat.send({ body: 'Cake in ten', pinned: false });
     const b = r.chat.feed.get().find((x) => x.body === 'Cake in ten')!;
     await r.event.setTier('house_party');
 
@@ -404,7 +404,7 @@ describe('chat', () => {
    */
   it('never refuses UN-pinning, even on a tier that could not have pinned', async () => {
     const r = make();
-    await r.chat.send({ body: 'Cake in ten', pinned: true, push: true });
+    await r.chat.send({ body: 'Cake in ten', pinned: true });
     const b = r.chat.feed.get().find((x) => x.body === 'Cake in ten')!;
     expect(b.pinned).toBe(true);
 
@@ -415,7 +415,7 @@ describe('chat', () => {
 
   it('ignores an empty draft', async () => {
     const r = make();
-    await r.chat.send({ body: '   ', pinned: false, push: false });
+    await r.chat.send({ body: '   ', pinned: false });
     expect(r.chat.feed.get()).toHaveLength(3);
   });
 });
