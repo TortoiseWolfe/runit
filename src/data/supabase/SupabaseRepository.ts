@@ -1527,18 +1527,30 @@ export class SupabaseRepository implements RunitRepository {
 
     request: async ({ title, artist }: { title: string; artist: string }) => {
       const eventId = this.requireEvent();
-      const s = this.sigSession.get();
-      const { data, error } = await this.db.from('song_requests').insert({
-        event_id: eventId,
-        title,
-        artist,
-        // requests_insert requires this to be your OWN guest id; null or anyone
-        // else's is refused with 42501.
-        requested_by_guest_id: this.requireGuest(),
-        requested_by_name: s.kind === 'guest' ? s.nickname : 'Guest',
-      }).select('id');
+      // The client half of `request_song`'s own 42501: a request is structurally a guest's,
+      // and a host holds no row to attribute one to.
+      this.requireGuest();
+
+      // AN RPC, NOT AN INSERT (#44). The insert it replaces created a second row for a song
+      // already in the queue, splitting the vote. Doing the lookup here instead would mean
+      // normalising the title in TypeScript -- a second definition of "the same song" that
+      // can drift from the index enforcing it -- and would still race a guest asking in the
+      // same second. One statement, one definition, server-side.
+      const { data, error } = await this.db.rpc('request_song', {
+        p_event: eventId,
+        p_title: title,
+        p_artist: artist,
+      });
       if (error) throw error;
-      SupabaseRepository.assertWrote(data, 'music.request');
+      // `returns table` gives an ARRAY, and an empty one cannot happen on success -- so it
+      // means the signature moved. Same reasoning as create_event.
+      const row = (data as unknown as { request_id: string; merged: boolean }[])?.[0];
+      if (!row) {
+        throw new Error(
+          'request_song returned no row, which is a schema mismatch rather than a refusal.',
+        );
+      }
+      return { merged: row.merged };
     },
 
     setVote: async (id: SongRequestId, on: boolean) => {

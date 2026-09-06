@@ -290,6 +290,11 @@ export type Database = {
        * A screen echoing its own input would show a name the room is not seeing.
        */
       set_nickname: { Args: { p_event: string; p_nickname: string }; Returns: string };
+      /** `merged` is `xmax <> 0` -- whether the upsert updated instead of inserting (#44). */
+      request_song: {
+        Args: { p_event: string; p_title: string; p_artist: string };
+        Returns: { request_id: string; merged: boolean }[];
+      };
       is_host: { Args: { p_event: string }; Returns: boolean };
       join_event: { Args: { p_code: string; p_nickname: string }; Returns: string };
       my_guest_id: { Args: { p_event: string }; Returns: string };

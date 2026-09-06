@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
-import { joinAsGuest, TOKENS } from './helpers';
+import { joinAsGuest, TOKENS, voteCount } from './helpers';
 
 /**
  * The Music tab, from the guest side.
@@ -366,5 +366,71 @@ test.describe('Guest · Music', () => {
 
     // Adding a song of my own must not change anyone else's row.
     expect(await voteState(page, 'Dancing Queen')).toEqual(before);
+  });
+});
+
+/**
+ * One song, one row -- issue #44.
+ *
+ * `music.request` inserted unconditionally, and the queue is ranked by votes. So two people
+ * asking for the same song produced two rows with one vote each, and the most-wanted song
+ * of the night could sit under songs one person asked for. Three spellings fragmented it
+ * three ways.
+ *
+ * WHAT THIS FILE CANNOT PROVE. MemoryRepository mirrors the rule; the thing that ENFORCES
+ * it is a unique index on `song_key(title, artist)` in Postgres, and only Lane E can watch
+ * that -- including the race these journeys cannot stage, two guests asking in the same
+ * second. `songKey.test.ts` re-parses the migration so the mirror cannot drift from it.
+ */
+test.describe('asking for a song the room already asked for', () => {
+  test('votes for it instead of making a second row', async ({ page }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await joinAsGuest(page, scheme);
+    await page.getByTestId('tab-music').click();
+
+    const before = await voteCount(page, 'req_1');
+    const rows = await page.getByTestId('music-queue').getByText('Dancing Queen').count();
+
+    // The seed already holds "Dancing Queen -- ABBA" with 41 votes. Typed the way somebody
+    // else would type it: different case, stray punctuation, extra spaces.
+    await page.getByTestId('request-input').fill('  dancing  queen! - abba  ');
+    await page.getByTestId('request-submit').click();
+
+    await expect(page.getByTestId('toast')).toContainText('Already in the queue');
+    expect(await voteCount(page, 'req_1')).toBe(before + 1);
+    // The row count is the half that fails when the merge does not happen: a second
+    // "Dancing Queen" would appear at the bottom with one vote.
+    expect(await page.getByTestId('music-queue').getByText('Dancing Queen').count()).toBe(rows);
+  });
+
+  test('a genuinely new song is still a new row', async ({ page }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await joinAsGuest(page, scheme);
+    await page.getByTestId('tab-music').click();
+
+    // The control for the test above: without this, "merge everything" would pass it.
+    await page.getByTestId('request-input').fill('Blue Monday - New Order');
+    await page.getByTestId('request-submit').click();
+
+    await expect(page.getByTestId('toast')).toContainText('Request sent to the DJ');
+    await expect(page.getByTestId('music-queue')).toContainText('Blue Monday');
+  });
+
+  test('and the same title by a different artist is a different song', async ({
+    page,
+  }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await joinAsGuest(page, scheme);
+    await page.getByTestId('tab-music').click();
+
+    // "Alive" by Pearl Jam and "Alive" by Sia are not the same request, and a key built
+    // on the title alone would merge them.
+    await page.getByTestId('request-input').fill('Alive - Pearl Jam');
+    await page.getByTestId('request-submit').click();
+    await page.getByTestId('request-input').fill('Alive - Sia');
+    await page.getByTestId('request-submit').click();
+
+    await expect(page.getByTestId('toast')).toContainText('Request sent to the DJ');
+    expect(await page.getByTestId('music-queue').getByText('Alive', { exact: true }).count()).toBe(2);
   });
 });

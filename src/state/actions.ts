@@ -187,8 +187,15 @@ export function useMusicActions() {
         if (!text) return;
         // Canvas: t.split(/\s[–-]\s/), artist defaulting to 'Unknown artist'.
         const [title, artist = ''] = text.split(/\s[–-]\s/);
-        await repo.music.request({ title: (title ?? text).trim(), artist: artist.trim() });
-        show('Request sent to the DJ');
+        const { merged } = await repo.music.request({
+          title: (title ?? text).trim(),
+          artist: artist.trim(),
+        });
+        // TWO OUTCOMES, TWO SENTENCES (#44). A request that merged into a song already in
+        // the queue adds no row, so "Request sent to the DJ" would describe something the
+        // guest cannot find -- they would look for their song at the bottom and see
+        // nothing. Saying the vote landed is both true and better news.
+        show(merged ? 'Already in the queue — your vote is on it' : 'Request sent to the DJ');
       },
       accept: (id: SongRequestId) => guarded(() => repo.music.accept(id)),
       decline: (id: SongRequestId) => guarded(() => repo.music.decline(id)),

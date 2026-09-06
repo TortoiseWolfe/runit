@@ -2149,3 +2149,66 @@ which is the original defect, stated in one line, at the moment it happens.
 `pnpm shots:appstore` exists now too. The store preset needs `EXPO_PUBLIC_FIDELITY_FRAME`
 on the **export** and `SHOT_PRESET` on the **shoot**, and two env vars that must agree are
 a script's job, not a paragraph's.
+
+## AO. Two people, one song, two rows
+`music.request` inserted unconditionally. The queue is **ranked by votes**, so two people
+asking for the same song produced two rows with one vote each — and the most-wanted song of
+the night could sit under songs one person asked for. Three spellings fragmented it three
+ways.
+
+#8 names this while researching music APIs and correctly recommends shipping no provider.
+**This half needs no provider at all**, which is why it is a separate issue and shipped
+first.
+
+### The database decides what "the same song" is
+
+`public.song_key(title, artist)` under a unique index. Not a lookup in the client, for two
+reasons that are both about the second caller: a check in a client is bypassed by the next
+client, and two guests asking in the same second would both pass a lookup and both insert.
+
+**`IMMUTABLE`, because an index expression must be.** That rules out `unaccent`, which
+depends on a dictionary and is only `STABLE` — so *Beyonce* and *Beyoncé* stay two songs.
+A limit, not a decision; case, punctuation and spacing are what actually differ when two
+people type one title.
+
+**The index is PARTIAL**, over `pending` and `accepted` only. A played song can be asked
+for again later — a party runs six hours and a good song comes round twice — and a declined
+one is a host's decision a re-request should be able to revisit. Unique forever would make
+both impossible, quietly, hours after the row that caused it.
+
+### `request_song` reports which branch ran, and that needs a system column
+
+An upsert returns a row either way, so the caller cannot tell "added to the queue" from
+"your vote is on the one already there". `xmax = 0` in the `RETURNING` is the only way to
+know: zero on a fresh tuple, non-zero on one that was updated.
+
+Without it the toast lies in the direction that matters — a guest told "Request sent to the
+DJ" would look for their song at the bottom of the queue and not find it. It says *"Already
+in the queue — your vote is on it"* instead, which is both true and better news.
+
+`do update set title = song_requests.title` rather than `do nothing`, because `DO NOTHING`
+returns no row: there would be nothing to vote for and the merge would silently become a
+no-op.
+
+### The mirror, and the direction it fails in
+
+`MemoryRepository` has to merge the same way or Lane B's green board sits over a queue the
+real app fragments. `src/domain/songKey.ts` is the one TypeScript definition, and
+`songKey.test.ts` re-parses the migration's own function body and the index declaration —
+the same shape as `tokens.test.ts` re-parsing `theme.css`.
+
+**Folding *less* than the index shows up immediately** — two rows appear. **Folding *more*
+is the silent one:** the fixture merges songs the backend keeps apart, everything stays
+green, and it surfaces on a phone. The first version of that drift test caught a widened SQL
+character class and a dropped index predicate but *not* a TypeScript rule that stripped a
+leading "the" — so there is now a case pinning exactly that.
+
+### Coverage
+
+| Claim | Lane |
+|---|---|
+| Two spellings become one row carrying both votes | **B**, 3 journeys, three mutations caught |
+| A new song is still new; same title, different artist stays two | **B** — the controls, without which "merge everything" passes |
+| The TS mirror cannot fold more or less than the SQL | **jest**, re-parsing the migration, three mutations caught |
+| The index enforces it, the merge is reported, a played song returns, a non-member is refused | **E**, live, 8 assertions |
+| Two guests asking in the same second | **E only, in principle** — no journey here can stage the race; the unique index is what makes it safe |

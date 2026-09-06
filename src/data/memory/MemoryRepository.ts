@@ -24,6 +24,7 @@ import {
 } from '../repository';
 import { checkFeature, checkLimit, type Entitlements } from '@/domain/entitlements';
 import { TIERS } from '@/domain/tiers';
+import { songKey } from '@/domain/songKey';
 import { hueForPhotoSeq } from '@/theme/oklch';
 
 export interface Seed {
@@ -983,6 +984,31 @@ export class MemoryRepository implements RunitRepository {
 
     request: async ({ title, artist }: { title: string; artist: string }) => {
       const s = this.sigSession.get();
+
+      // ONE SONG, ONE ROW (#44), mirroring the unique index rather than inventing a rule.
+      // The queue is ranked by votes, so two rows for one song is not a tidiness problem:
+      // it is the most-wanted song of the night sitting under songs one person asked for.
+      //
+      // Scoped to what is still IN the queue, exactly as the partial index is -- a played
+      // song can come round again.
+      const key = songKey(title, artist);
+      const existing = this.requestList.find(
+        (r) =>
+          (r.status === 'pending' || r.status === 'accepted') &&
+          songKey(r.title, r.artist) === key,
+      );
+      if (existing) {
+        // The vote is the point of the merge. Idempotent, because asking twice for a song
+        // you already voted for is the desired state arriving twice -- the composite key
+        // does exactly this server-side.
+        if (!this.votes.has(existing.id)) {
+          this.votes.add(existing.id);
+          this.patchRequest(existing.id, { voteCount: existing.voteCount + 1 });
+        }
+        this.recompute();
+        return { merged: true };
+      }
+
       const id = this.id('req');
       this.requestList = [
         ...this.requestList,
@@ -1001,6 +1027,7 @@ export class MemoryRepository implements RunitRepository {
       // have one request. Ownership here is by id, so they can have several.
       this.votes.add(id);
       this.recompute();
+      return { merged: false };
     },
 
     setVote: async (id: SongRequestId, on: boolean) => {
