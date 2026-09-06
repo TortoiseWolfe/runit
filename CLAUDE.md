@@ -575,8 +575,17 @@ SOLD — `false` on every tier, "+ push" out of the $79 copy — while the flag 
 `TierFeatures` as the build target, which is what `audit-tier-claims.mjs` tells you to do
 in the text it prints when it fails, and how its eight unenforced siblings already live.
 `pnpm audit:tiers` reports 12 features, 3 granted, every one enforced, no yellow line.
-Still open: #23 (`eventTtlHours`, `albumRetentionDays`: zero readers) · #30 (every paid
-tier is unreachable — the pricing screen is cut and no purchase path exists).
+Still open: #30 (every paid tier is unreachable — the pricing screen is cut and no
+purchase path exists) · #41 (`eventTtlHours` still has zero readers: a free event never
+goes read-only).
+
+**`albumRetentionDays` HAS a reader now (#23), and the sweep does not exist (#40).** The
+album says how long photos are kept and the number comes from `tier_limits`, but nothing
+deletes anything — retention is stated, not enforced. That order is deliberate: the
+warning landed only after a viewer and a save control existed, because a deadline nobody
+can act on is a threat rather than a warning. The sweep is the one irreversible piece and
+**cannot be written in SQL at all** — `storage.protect_delete()` refuses every direct
+delete on `storage.objects`, so it needs the Storage API with a service role.
 
 **The caps are a table.** `public.tier_limits` holds the numbers; `create_event`,
 `invite_host` and `join_event` read them and no client can write them. A cap that lives
