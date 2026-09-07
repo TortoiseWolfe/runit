@@ -865,6 +865,24 @@ service role and posts to Expo. `tier_limits.push_notifications` is the gate and
 `fan_out_push` is what reads it, so `audit:tiers` reports `pushNotifications — SQL`. The
 "+ push" line is back on the $79 card because it is now true. FIDELITY notes Z and AA.
 
+**IT IS ARMED, AND IT IS GUARDED -- and the second half had to come first (#51).**
+`send-push` reads every guest's push token with the SERVICE ROLE and posts to Expo, and the
+functions gateway's `verify_jwt` proves only that a caller holds *a* project JWT -- the anon
+key is PUBLIC, compiled into the bundle. So the endpoint had no authorisation of its own:
+anyone with the app's own key could have POSTed an event id and a body and buzzed every phone
+at somebody else's party. Nothing had gone wrong only because the fan-out was never armed --
+its Vault secrets did not exist, so `fan_out_push` returned early every time. **Adding the
+secrets without adding the check would have been the regression, not the fix.**
+
+`push_authorised()` is the same shape as `sweep_authorised()`: an `x-push-key` header
+compared INSIDE the database so the secret never crosses the wire, failing closed, with a
+missing secret and a wrong one answering identically so a prober cannot learn whether the
+endpoint is live. THREE Vault secrets now, not two -- `push_fanout_url`, `push_gateway_key`
+(the public key, to get past the gateway, authorising nothing) and `push_key` (the one that
+does). Measured against the live project: a caller holding only the publishable key gets
+**403** with or without a guess, no JWT gets **401**, and the trigger's own path gets
+**200 `{"sent":0,"reason":"no registered devices"}`**. FIDELITY note AV.
+
 **What no lane here can prove about it, and this must not be glossed:** that a phone
 buzzes. Lane B has no push API and boots `MemoryRepository`; Lane C could witness an
 Android notification only once FCM credentials are wired; iOS is unprovable in this
