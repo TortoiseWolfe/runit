@@ -464,6 +464,13 @@ it expands to an empty string and the lane skips loudly, exactly as it does loca
 so the wiring is a no-op rather than a red gate. A wrong premise had kept the only lane
 that can see row-level security out of CI for the life of the repo.
 
+**AND THE SUMMARY SAYS SO NOW.** `run-checks.sh` used to print "All checks passed" whether
+or not a lane had skipped -- so lane E skipped on every run for the life of this repo while
+the last line on screen said everything passed, and a duplicate variable declaration sat
+under that green line for a day. A skipped run now ends with **"Every check that RAN
+passed -- N lane(s) skipped and measured nothing"**, naming each one and how to run it. A
+lane that FAILS is still a failure and still stops the run; it is not reclassified.
+
 **It skips LOUDLY without `SUPABASE_DB_URL`**, and that is deliberate. Running it needs a
 database password, and a gate that failed closed for want of a credential would be switched
 off within a week. So it prints a yellow SKIPPED block naming what went unchecked. A
