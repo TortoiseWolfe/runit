@@ -1434,6 +1434,27 @@ begin
   execute 'reset role';
   out := out || format('%s a wrong sweep key is refused',
                        case when public.sweep_authorised('nope') = false then 'PASS' else 'FAIL' end);
+
+  -- #51: the same guard on the push fan-out. `send-push` reads every guest's push token
+  -- with the service role and posts to Expo, and the functions gateway only proves the
+  -- caller holds a project JWT -- and the anon key is public. Without this the endpoint is
+  -- a notification blaster for anyone holding the app's own key.
+  begin
+    execute 'set local role authenticated';
+    perform public.push_authorised('nope');
+    execute 'reset role';
+    out := out || format('%s a client can ask whether a push key is right', 'FAIL');
+  exception when others then
+    execute 'reset role';
+    out := out || format('%s push_authorised is revoked from clients (%s)',
+                         case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  out := out || format('%s a wrong push key is refused',
+                       case when public.push_authorised('nope') = false then 'PASS' else 'FAIL' end);
+  -- Not armed and wrong answer identically, so a prober cannot learn whether push is live.
+  out := out || format('%s and so is a null one',
+                       case when public.push_authorised(null) = false then 'PASS' else 'FAIL' end);
   delete from public.photos where id = spho;
   update public.events set tier = 'event', starts_at = now() + interval '1 day' where id = ce2.event_id;
 

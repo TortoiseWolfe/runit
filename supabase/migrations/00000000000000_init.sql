@@ -791,11 +791,41 @@ create extension if not exists pg_net with schema extensions;
 -- IT MUST NEVER FAIL THE INSERT. Losing a host's announcement because a notification
 -- could not be queued is precisely backwards -- the announcement is the thing she came
 -- to send. Every failure path here returns normally.
+-- `send-push` posts a notification to every guest of an event. `verify_jwt` on the
+-- functions gateway proves only that the caller holds *a* project JWT, and the anon key is
+-- PUBLIC -- it is compiled into the app bundle. Without a second factor the endpoint is a
+-- notification blaster: anyone holding that public key could POST an event id and a body
+-- and buzz every phone at somebody else's party.
+--
+-- The sweep already solved this and this is the same shape, deliberately: an `x-push-key`
+-- header, compared HERE so the secret never crosses the wire, with no secret and a wrong
+-- secret answering identically so a prober cannot learn whether the endpoint is armed.
+--
+-- IT WAS MISSING WHILE THE FAN-OUT WAS UNARMED, which is why nothing had gone wrong: the
+-- two Vault secrets did not exist, so `fan_out_push` returned early every time. Arming it
+-- without this would have been the regression. #51.
+create or replace function public.push_authorised(p_key text)
+returns boolean
+language plpgsql stable security definer set search_path = public as $$
+declare
+  v_secret text;
+begin
+  select decrypted_secret into v_secret
+    from vault.decrypted_secrets where name = 'push_key';
+  if v_secret is null or p_key is null then
+    return false;
+  end if;
+  return v_secret = p_key;
+end $$;
+
+revoke execute on function public.push_authorised(text) from public, anon, authenticated;
+
 create or replace function public.fan_out_push() returns trigger
 language plpgsql security definer set search_path = public as $$
 declare
   v_url    text;
   v_key    text;
+  v_secret text;
   v_ok     boolean;
   v_title  text;
 begin
@@ -811,9 +841,16 @@ begin
 
   -- Secrets live in Vault, never in this file. Absent = not configured yet, which is a
   -- normal state before someone wires the credentials, not an error.
+  --
+  -- THREE, not two, and the third is the one that matters. `push_gateway_key` gets past the
+  -- functions gateway and is the PUBLIC publishable key, so it authorises nothing on its
+  -- own; `push_key` is the shared secret `push_authorised()` checks. Same split as the
+  -- sweep's `sweep_gateway_key` / `sweep_key`. If any is missing the fan-out stays silent
+  -- rather than posting a request the function will refuse.
   select decrypted_secret into v_url from vault.decrypted_secrets where name = 'push_fanout_url';
-  select decrypted_secret into v_key from vault.decrypted_secrets where name = 'push_fanout_key';
-  if v_url is null or v_key is null then
+  select decrypted_secret into v_key from vault.decrypted_secrets where name = 'push_gateway_key';
+  select decrypted_secret into v_secret from vault.decrypted_secrets where name = 'push_key';
+  if v_url is null or v_key is null or v_secret is null then
     return null;
   end if;
 
@@ -823,7 +860,8 @@ begin
     url     := v_url,
     headers := jsonb_build_object(
                  'Content-Type', 'application/json',
-                 'Authorization', 'Bearer ' || v_key
+                 'Authorization', 'Bearer ' || v_key,
+                 'x-push-key', v_secret
                ),
     body    := jsonb_build_object(
                  'event_id', new.event_id,
@@ -859,7 +897,7 @@ create trigger broadcasts_fan_out_push
 create or replace function public.fan_out_song_push() returns trigger
 language plpgsql security definer set search_path = public as $$
 declare
-  v_url text; v_key text; v_ok boolean; v_title text;
+  v_url text; v_key text; v_secret text; v_ok boolean; v_title text;
 begin
   -- Only the pending -> accepted edge. An UPDATE that leaves the status alone (a vote
   -- fold, a rename) must not re-notify, and `played`/`declined` are not good news.
@@ -880,9 +918,11 @@ begin
     return null;
   end if;
 
+  -- Three, and the third is the one that authorises. See fan_out_push above.
   select decrypted_secret into v_url from vault.decrypted_secrets where name = 'push_fanout_url';
-  select decrypted_secret into v_key from vault.decrypted_secrets where name = 'push_fanout_key';
-  if v_url is null or v_key is null then
+  select decrypted_secret into v_key from vault.decrypted_secrets where name = 'push_gateway_key';
+  select decrypted_secret into v_secret from vault.decrypted_secrets where name = 'push_key';
+  if v_url is null or v_key is null or v_secret is null then
     return null;
   end if;
 
@@ -892,7 +932,8 @@ begin
     url     := v_url,
     headers := jsonb_build_object(
                  'Content-Type', 'application/json',
-                 'Authorization', 'Bearer ' || v_key
+                 'Authorization', 'Bearer ' || v_key,
+                 'x-push-key', v_secret
                ),
     body    := jsonb_build_object(
                  'event_id', new.event_id,

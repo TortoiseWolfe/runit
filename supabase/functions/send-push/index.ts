@@ -56,6 +56,36 @@ Deno.serve(async (req) => {
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
   );
 
+  /**
+   * AUTHORISED AGAINST VAULT, NOT AGAINST THE GATEWAY -- #51.
+   *
+   * `verify_jwt` proves only that the caller holds *a* project JWT, and the anon key is
+   * PUBLIC: it is compiled into the app bundle. This endpoint reads every guest's push
+   * token with the service role and posts to Expo, so without a second factor it is a
+   * notification blaster -- anyone with that public key could POST an event id and a body
+   * and buzz every phone at somebody else's party.
+   *
+   * It went unnoticed because the fan-out was never armed: `fan_out_push` returned early
+   * for want of its Vault secrets, so nothing had ever called this. Adding the secrets
+   * without adding this check would have been the regression, not the fix.
+   *
+   * IT FAILS CLOSED. Absent secret and wrong secret answer identically, so a prober cannot
+   * learn whether the endpoint is armed -- the same rule the sweep follows, for the same
+   * reason.
+   */
+  const presented = req.headers.get('x-push-key');
+  const { data: authorised, error: authError } = await db.rpc('push_authorised', {
+    p_key: presented,
+  });
+  if (authError) {
+    console.error('push: could not check authorisation', authError);
+    return new Response(JSON.stringify({ error: 'authorisation check failed' }), { status: 500 });
+  }
+  if (authorised !== true) {
+    console.error('push: refused -- bad key, or no push_key in Vault');
+    return new Response(JSON.stringify({ error: 'forbidden' }), { status: 403 });
+  }
+
   let q = db.from('guests').select('id, push_token').eq('event_id', event_id).not('push_token', 'is', null);
   // A song cue is addressed to one person; an announcement is addressed to the room.
   if (guest_id) q = q.eq('id', guest_id);

@@ -2648,3 +2648,57 @@ usually a test waiting for something it does not need.
 carries your seat, does **not** list an event you hold no seat at, gives a different identity
 a different list, and is revoked from `anon`. Mutation-tested by removing the identity
 filter — the IDOR shape — which turns two of them red. Plus six unit tests and ten journeys.
+
+## AV. Arming push would have opened it
+
+`#51` looked like a two-line fix: the fan-out reads `push_fanout_url` and `push_fanout_key`
+from Vault, neither existed on the live project, so `fan_out_push` returned early every time
+and the $79 tier sold a feature that could not fire. Create the secrets, done.
+
+Reading `send-push` first is what stopped that.
+
+### The endpoint had no authorisation of its own
+
+| | `sweep-photos` | `send-push` (before) |
+|---|---|---|
+| gateway `verify_jwt` | ✅ | ✅ |
+| **checks its own caller** | ✅ `x-sweep-key` → `sweep_authorised()` | ❌ nothing |
+
+The sweep's own comment says why that is not enough: *"`verify_jwt` only proves the caller
+holds a project JWT, and the anon key is public — it is compiled into the app bundle."*
+
+`send-push` reads **every guest's push token with the service role** — the one identity that
+can read `guests` at all, since the table has no SELECT policy for anyone — and posts to
+Expo. Without a second factor it is a notification blaster: anyone holding the app's own
+public key could POST an event id and a body and buzz every phone at somebody else's party.
+
+**Nothing had gone wrong only because it was disarmed.** The secrets did not exist, so the
+trigger never called it. Creating them would have opened it in the same commit that fixed it.
+
+### Three secrets, and only one authorises
+
+`push_fanout_url`, `push_gateway_key` (the public publishable key, to get past the gateway —
+it authorises nothing and is deliberately named so nobody mistakes it for a credential), and
+`push_key`, compared inside the database by `push_authorised()`. The same split the sweep
+already had. `push_key` is minted by `mint_token` and has never been seen by a person: it
+goes from `gen_random_bytes` into Vault, and only ever comes back out to be compared.
+
+### Measured against the live project, not asserted
+
+| caller | result |
+|---|---|
+| the public publishable key, no `x-push-key` | **403** |
+| the public key + a guessed `x-push-key` | **403**, byte-identical |
+| no JWT at all | **401** at the gateway |
+| the trigger's own path, from `net.http_post` | **200** `{"sent":0,"reason":"no registered devices"}` |
+
+The two 403s are identical on purpose. Telling "not armed" apart from "wrong key" tells a
+prober whether the endpoint is live.
+
+### What is still true, and must not be read as closed
+
+**No phone has buzzed.** 0 guests hold a push token; the APNs auth key and the FCM service
+account are still one-time human steps behind interactive Apple and Google logins, and
+without them a token that does exist routes nowhere. `pg_net` is fire-and-forget, so a failed
+push lands in `net._http_response` and nowhere else — which is how the smoke test above was
+read, and is the only way to read one.
