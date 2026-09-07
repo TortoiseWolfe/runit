@@ -32,7 +32,7 @@ This is the route to prefer. It needs nothing from anyone.
 ```bash
 npx supabase start                       # ~12 containers, first pull is slow
 
-# The CLI does not pick up a migration versioned 00000000000000, so apply it directly:
+# NOT `supabase db push` / `db reset` — see below. Apply it directly:
 docker exec -i supabase_db_runit psql -U postgres -v ON_ERROR_STOP=1 \
   < supabase/migrations/00000000000000_init.sql
 
@@ -44,6 +44,22 @@ container serves no TLS at all, so a strict `ssl` option cannot handshake. `veri
 matches the loopback *host* — not a flag or an env var — so it can never be turned on for a
 remote database by accident. Every other host keeps `rejectUnauthorized: true`, because that
 connection carries a real password.
+
+### `supabase db push` and `db reset` are a SILENT NO-OP on this repo
+
+The CLI **reserves the migration name `init`** and skips the file, saying so only in the
+noise of a `start`:
+
+```
+Skipping migration 00000000000000_init.sql... (replace "init" with a different file name
+to apply this migration)
+```
+
+The file is `00000000000000_init.sql`, so the two canonical Supabase deployment commands
+apply nothing and exit 0. It is not the all-zero version — it is the word `init`. This repo
+deploys through the Supabase MCP rather than the CLI, so it has never bitten in practice,
+but anyone reaching for `db push` gets a green no-op. Renaming would fix it and would touch
+six files that reference the filename; filed rather than done.
 
 ### Resetting between attempts
 
@@ -71,6 +87,16 @@ grant all on schema public to postgres, service_role;
 
 The success line names which target it ran against, because "the assertions pass" means
 different things for each.
+
+## In CI, with no credential
+
+`.github/workflows/policies.yml` does exactly the above on every push that touches
+`supabase/**` — start three containers, apply the migration with `ON_ERROR_STOP=1`, run the
+lane. Nothing in it is secret, so it cannot skip for want of a credential, which is the
+property that matters: a gate that can silently skip is the whole bug.
+
+It also guards, as a side effect, the thing nothing else does — that the migration can build
+a database at all.
 
 ## Running it against the live project
 
