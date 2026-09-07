@@ -20,7 +20,22 @@ Two measured reasons, not preferences.
 
 The legal pages stay exactly where they are. App Store Connect's privacy and support URLs are unchanged.
 
-## Deploying it
+## It is deployed
+
+**`https://runit-app.pages.dev` is live as of 2026-09-07**, and `pnpm verify:links` asserts
+it rather than skipping — for the first time since this repo began. It was created by
+**direct upload** (`wrangler pages deploy web --project-name=runit-app`), not git
+integration, so a push to `main` does NOT redeploy it. Re-run that command when anything
+under `web/` changes. The Cloudflare API token used was account-scoped
+`Cloudflare Pages: Edit`, IP-filtered, and revoked afterwards.
+
+**`_redirects` must target `/i/`, not `/i/index.html`.** Pages canonicalises the explicit
+filename — `/i/index.html` answers **308** to `/i/` — and a rewrite whose destination
+redirects does not serve. The first deploy spelled the filename out and every `/i/CODE`
+returned **404**, while the association file was already perfect. Measured on the live host,
+not guessed.
+
+## Deploying it (first time, or to a new host)
 
 One-time, in the Cloudflare dashboard:
 
