@@ -57,6 +57,8 @@ declare
   ce2 record; pin boolean; gcap uuid; filler uuid; i int; bc uuid;
   -- #37 fixtures: the second count, and the seat a guest is promoted into.
   m int; hst uuid;
+  -- #50 fixtures: the two photos whose status the TIER decides, not the uploader.
+  pho50 uuid := gen_random_uuid(); pho51 uuid := gen_random_uuid();
   -- #40 retention fixture. ITS OWN NAME: `pho` above belongs to the moderation block, and
   -- one DECLARE block cannot hold it twice -- 42601, which is what killed this whole lane.
   spho uuid;
@@ -176,21 +178,66 @@ begin
      and arg in ('tier','guest_count','invited_count','active_folder_id','now_schedule_item_id');
   out := out || format('%s event_preview withholds tier and every count (leaked %s, want 0)', case when n = 0 then 'PASS' else 'FAIL' end, n);
 
+  -- `status` IS NO LONGER NAMED HERE (#50). It is not in the INSERT column grant, so
+  -- naming it is refused outright; the trigger decides it from the event's tier.
   begin
-    insert into public.photos (id,event_id,folder_id,uploaded_by_guest_id,uploaded_by_name,status,hue,storage_path)
-    values (gen_random_uuid(), eid, fid, public.my_guest_id(eid), 'Ada', 'pending', 120, eid||'/own.jpg');
+    insert into public.photos (id,event_id,folder_id,uploaded_by_guest_id,uploaded_by_name,hue,storage_path)
+    values (pho50, eid, fid, public.my_guest_id(eid), 'Ada', 120, eid||'/own.jpg');
     out := out || format('PASS guest may insert a photo as themselves');
   exception when others then
     out := out || format('FAIL guest could not insert own photo: %s %s', sqlstate, sqlerrm);
   end;
 
   begin
-    insert into public.photos (id,event_id,folder_id,uploaded_by_guest_id,uploaded_by_name,status,hue,storage_path)
-    values (gen_random_uuid(), eid, fid, gen_random_uuid(), 'NotAda', 'pending', 9, eid||'/other.jpg');
+    insert into public.photos (id,event_id,folder_id,uploaded_by_guest_id,uploaded_by_name,hue,storage_path)
+    values (gen_random_uuid(), eid, fid, gen_random_uuid(), 'NotAda', 9, eid||'/other.jpg');
     out := out || format('FAIL guest inserted a photo attributed to someone else');
   exception when others then
     out := out || format('%s guest cannot insert as another guest (%s)', case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
   end;
+
+  -- ==================================================================
+  -- THE UPLOADER DOES NOT GET A VOTE ON `status` (#50)
+  -- ==================================================================
+  -- Moderation was decided in the CLIENT, from its own entitlements, and nothing
+  -- server-side constrained the column. Any client holding the app's public key could file
+  -- a photo already `approved` and skip the queue a paid tier sells.
+  select p.status into lbl from public.photos p where p.id = pho50;
+  out := out || format('%s a moderated tier files an upload as pending, whatever the client wanted (%s)',
+                       case when lbl = 'pending' then 'PASS' else 'FAIL' end, coalesce(lbl,'null'));
+
+  -- THE LOAD-BEARING ONE. Not "the trigger overrode it" -- the column cannot be named at
+  -- all, so a forged status is refused before any trigger runs.
+  begin
+    insert into public.photos (id,event_id,folder_id,uploaded_by_guest_id,uploaded_by_name,hue,storage_path,status)
+    values (gen_random_uuid(), eid, fid, public.my_guest_id(eid), 'Ada', 7, eid||'/forged.jpg', 'approved');
+    out := out || format('FAIL a guest set status=approved and skipped the queue');
+  exception when others then
+    out := out || format('%s a guest cannot name status at all (%s)',
+                         case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  -- And the trigger READS the tier rather than hardcoding one: on a tier with no moderation
+  -- the same upload is visible immediately, which is a different promise to the guest.
+  execute 'reset role';
+  update public.events set tier = 'house_party' where id = eid;
+  perform set_config('request.jwt.claims', json_build_object('sub',guid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  begin
+    insert into public.photos (id,event_id,folder_id,uploaded_by_guest_id,uploaded_by_name,hue,storage_path)
+    -- f2, not fid: an assertion further down counts photos in `fid` and expects exactly the
+    -- one Ada uploaded. A second row there would break a check about something else.
+    values (pho51, eid, f2, public.my_guest_id(eid), 'Ada', 121, eid||'/free.jpg');
+  exception when others then
+    out := out || format('FAIL free-tier upload was refused: %s %s', sqlstate, sqlerrm);
+  end;
+  execute 'reset role';
+  select p.status into lbl from public.photos p where p.id = pho51;
+  out := out || format('%s an unmoderated tier files the same upload as approved (%s)',
+                       case when lbl = 'approved' then 'PASS' else 'FAIL' end, coalesce(lbl,'null'));
+  update public.events set tier = 'event' where id = eid;
+  perform set_config('request.jwt.claims', json_build_object('sub',guid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
 
   ------------------------------------------------------------------- AS A HOST
   execute 'reset role';
@@ -365,8 +412,12 @@ begin
   perform set_config('request.jwt.claims', json_build_object('sub',buid,'role','authenticated')::text, true);
   execute 'set local role authenticated';
   gb := public.join_event('TEST01', 'Bo');
-  insert into public.photos (event_id, folder_id, uploaded_by_guest_id, uploaded_by_name, status)
-  values (eid, fid, gb, 'Bo', 'approved') returning id into pho;
+  -- NO `status` (#50): a client cannot name the column, and the trigger files this as
+  -- `pending` because TEST01 is on the `event` tier. The reports below are about a photo
+  -- being REPORTABLE, not about it being visible, so pending is fine -- and a fixture that
+  -- had to forge `approved` would be testing a state no guest can actually create.
+  insert into public.photos (event_id, folder_id, uploaded_by_guest_id, uploaded_by_name)
+  values (eid, fid, gb, 'Bo') returning id into pho;
 
   execute 'reset role';
   perform set_config('request.jwt.claims', json_build_object('sub',guid,'role','authenticated')::text, true);
@@ -455,12 +506,17 @@ begin
   -- Objects are inserted directly as the OWNER here. Only `bucket_id` and `name` matter;
   -- everything else on storage.objects is nullable or defaulted.
   execute 'reset role';
+  -- INSERT THEN APPROVE (#50). `status` on insert is the tier's answer for everybody now,
+  -- so an approved photo is made the way the product makes one: a host moderates it. The
+  -- trigger is `before insert` only and `photos_moderate` already restricts UPDATE to
+  -- hosts, so this is the same path the console uses.
   insert into public.photos (id, event_id, folder_id, uploaded_by_guest_id, uploaded_by_name,
-                             status, hue, storage_path, thumb_path)
-  values (gen_random_uuid(), eid, fid, gb, 'Bo', 'approved', 11,
+                             hue, storage_path, thumb_path)
+  values (gen_random_uuid(), eid, fid, gb, 'Bo', 11,
           eid || '/appr.jpg', eid || '/appr_t.jpg'),
-         (gen_random_uuid(), eid, fid, g1, 'Renamed', 'pending', 12,
+         (gen_random_uuid(), eid, fid, g1, 'Renamed', 12,
           eid || '/pend.jpg', eid || '/pend_t.jpg');
+  update public.photos set status = 'approved' where storage_path = eid || '/appr.jpg';
   insert into storage.objects (bucket_id, name) values
     ('event-photos', eid || '/appr.jpg'), ('event-photos', eid || '/appr_t.jpg'),
     ('event-photos', eid || '/pend.jpg'), ('event-photos', eid || '/pend_t.jpg');

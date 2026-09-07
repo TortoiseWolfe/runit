@@ -441,6 +441,11 @@ export class MemoryRepository implements RunitRepository {
     // Success. The free tier has no approval queue, so uploads land approved;
     // paid tiers wait for a host. This is the one behavioural fork the tier copy
     // implies but never states outright.
+    // MIRRORS THE TRIGGER, NOT THE OLD CLIENT RULE (#50). Against Supabase the tier decides
+    // this in `set_photo_status` and `status` is not even in the INSERT grant; here there is
+    // no database, so the fixture applies the same rule from the same source -- the tier's
+    // `photoModeration`. If these two ever disagree, the e2e journeys describe a moderation
+    // queue the real backend does not build.
     const moderated = checkFeature(this.computeEntitlements(), 'photoModeration').allowed;
     this.patchPhoto(id, {
       status: moderated ? 'pending' : 'approved',
