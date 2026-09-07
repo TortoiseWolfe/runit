@@ -1,0 +1,92 @@
+# LANE E, IN CI, WITH NO CREDENTIAL AT ALL.
+#
+# `supabase/verify-policies.sql` is the only check in this repo that can watch row-level
+# security behave, and until 2026-09-06 it had never run to completion — because running it
+# needed a production database password nobody had, so it skipped, and a skip and a pass are
+# the same green. Three defects were hiding in that silence (FIDELITY note AT, #31).
+#
+# This job removes the reason rather than working around it. `supabase start` gives a real
+# Postgres with the actual `auth`, `storage`, `anon` and `authenticated` machinery, the
+# committed migration is applied to it, and the lane runs against loopback. Nothing here is
+# secret, so this cannot skip for want of a credential — which is the property that matters,
+# since a gate that can silently skip is the bug this whole issue is about.
+#
+# IT ALSO GUARDS SOMETHING NOTHING ELSE DOES: that the migration can BUILD A DATABASE. It
+# could not, from aed8fb1 until 63c736c, and nothing noticed because nothing had ever applied
+# it to an empty database — it worked in production only because the objects were already
+# there. `psql -v ON_ERROR_STOP=1` is what makes that a gate rather than a hope.
+#
+# WHAT IT CANNOT SEE is drift between the committed migration and the live project. Only a
+# run against production finds that, which is why `checks.yml` also passes a
+# `SUPABASE_DB_URL` secret through when one exists. The two are complements, not substitutes.
+name: policies
+
+on:
+  push:
+    # Scoped deliberately. The policies, the functions and the grants this lane asserts all
+    # live under supabase/, so a push that does not touch these paths cannot change what it
+    # measures — and a job that runs on every unrelated commit is a job someone eventually
+    # deletes for being slow.
+    paths: &paths
+      - "supabase/**"
+      - "tools/verify-policies.mjs"
+      - "tools/audit-sql-declare.mjs"
+      - ".github/workflows/policies.yml"
+  pull_request:
+    paths: *paths
+
+jobs:
+  lane-e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # engine-strict=true means a wrong Node FAILS the install rather than warning, so the
+      # version has to come from .nvmrc rather than from whatever the runner ships.
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Install
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+
+      # The static half, which needs nothing at all: a DECLARE block naming a variable twice
+      # is 42601 at COMPILE time, so the file would not run one assertion. It is cheap and it
+      # runs first, so the expensive half is not spent discovering something free would catch.
+      - name: SQL declare audit
+        run: pnpm audit:sql
+
+      # PINNED, like @playwright/test and Node are. Three containers rather than twelve:
+      # db, auth and storage are what own the schemas the migration references.
+      - name: Start a local Supabase
+        run: |
+          npx --yes supabase@2.116.0 start \
+            -x imgproxy,kong,mailpit,postgrest,postgres-meta,studio,edge-runtime,logflare,vector,supavisor,realtime
+
+      # NOT `supabase db push` or `db reset`. The CLI SKIPS a migration named `init` —
+      # "replace \"init\" with a different file name to apply this migration" — so both of
+      # those are a silent no-op on this repo. psql is explicit, and ON_ERROR_STOP=1 turns
+      # the apply itself into the from-scratch gate.
+      - name: Apply the committed migration to an empty database
+        run: |
+          db=$(docker ps --filter name=supabase_db --format '{{.Names}}' | head -1)
+          test -n "$db" || { echo "no supabase db container"; exit 1; }
+          docker exec -i "$db" psql -U postgres -v ON_ERROR_STOP=1 \
+            < supabase/migrations/00000000000000_init.sql
+
+      - name: Lane E
+        run: pnpm verify:policies
+        env:
+          # Loopback, so no TLS — verify-policies.mjs matches the HOST for that, never a
+          # flag, so this cannot loosen a remote connection.
+          SUPABASE_DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
+      - name: What the database ended up with
+        if: failure()
+        run: |
+          db=$(docker ps --filter name=supabase_db --format '{{.Names}}' | head -1)
+          docker exec "$db" psql -U postgres -c "\dt public.*" || true
+          docker exec "$db" psql -U postgres -c "select count(*) from pg_policies where schemaname in ('public','storage')" || true
+          npx --yes supabase@2.116.0 status || true
