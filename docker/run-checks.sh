@@ -4,6 +4,33 @@ set -euo pipefail
 
 step() { printf '\n\033[1m── %s\033[0m\n' "$1"; }
 
+# A LANE THAT SKIPPED MEASURED NOTHING, AND THE LAST LINE USED TO SAY "All checks passed"
+# EITHER WAY.
+#
+# Two lanes skip by design rather than fail: lane E needs a database password and lane G
+# needed a host that did not exist. Skipping is right -- a gate that fails for want of a
+# credential gets switched off within a week, which is written down in both tools. What was
+# wrong is that the SUMMARY did not distinguish them. Lane E skipped on every run for the
+# life of this repo while the board said everything passed, and a duplicate variable
+# declaration meant it had not compiled for a day underneath that green line.
+#
+# So the skips are collected and named at the end. `grep -q` on the lane's own SKIPPED
+# marker rather than a second source of truth: the lane already prints what went unchecked,
+# and this only makes sure the last thing on screen cannot contradict it.
+SKIPPED_LANES=()
+lane() {
+  local label="$1"; shift
+  local out rc
+  set +e
+  out="$("$@" 2>&1)"
+  rc=$?
+  set -e
+  printf '%s\n' "$out"
+  [ "$rc" -ne 0 ] && return "$rc"
+  case "$out" in *SKIPPED:*) SKIPPED_LANES+=("$label") ;; esac
+  return 0
+}
+
 # The image's Node must be the Node this repo declares. Without this assertion
 # the Playwright base tag silently selects the runtime: the checks ran on
 # v22.18.0 while development ran on v24.13.0, and nothing said a word.
@@ -83,7 +110,8 @@ step "SQL declare audit  (lane E cannot compile with a duplicate, and skips sile
 pnpm audit:sql
 
 step "policy verification  (lane E -- skips LOUDLY without SUPABASE_DB_URL)"
-node tools/verify-policies.mjs
+lane "lane E -- row-level security behaviour (needs SUPABASE_DB_URL, or a local stack: docs/lane-e.md)" \
+  node tools/verify-policies.mjs
 
 step "iOS bundle  (catches import cycles and missing modules without a Mac)"
 pnpm exec expo export --platform ios --output-dir .export-check --clear
@@ -107,9 +135,19 @@ node tools/verify-qr.mjs
 # commit and answers 200 on every path with a stranger's OAuth callback page, so a status
 # check would have passed while every QR pointed at somebody else's website.
 step "invitation host  (lane G -- skips LOUDLY until Cloudflare Pages is connected)"
-node tools/verify-links.mjs
+lane "lane G -- the invitation host serves OUR association file" \
+  node tools/verify-links.mjs
 
 step "end-to-end journeys  (Playwright, 402x874, dark + light)"
 pnpm exec playwright test
 
-printf '\n\033[32mAll checks passed.\033[0m\n'
+if [ "${#SKIPPED_LANES[@]}" -eq 0 ]; then
+  printf '\n\033[32mAll checks passed.\033[0m\n'
+else
+  # GREEN, BECAUSE NOTHING FAILED -- and qualified, because not everything ran. Saying
+  # "All checks passed" over a lane that measured nothing is the sentence this repo has
+  # spent a session removing from its other gates.
+  printf '\n\033[32mEvery check that RAN passed\033[0m \033[33m-- %s lane(s) skipped and measured nothing:\033[0m\n' \
+    "${#SKIPPED_LANES[@]}"
+  for l in "${SKIPPED_LANES[@]}"; do printf '\033[33m  · %s\033[0m\n' "$l"; done
+fi
