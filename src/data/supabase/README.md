@@ -12,7 +12,7 @@ entitlements enforced only in the in-memory adapter, issue #21).
 |---|---|
 | ref | `qwusbxallkbzfladvgfx` (public — it is the hostname) |
 | url | `https://qwusbxallkbzfladvgfx.supabase.co` |
-| org | `ieceljlytbxfhtaxvnyq` (spoketowork@gmail.com) · free · $0/mo |
+| org | `gnjjvppwbaljcklvwkis` — `RunIt`, owned by spoketowork@gmail.com · free · $0/mo |
 | region | `us-east-2` |
 | schema | `supabase/migrations/00000000000000_init.sql`, applied |
 
