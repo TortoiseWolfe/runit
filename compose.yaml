@@ -23,6 +23,10 @@ services:
       # Real iPhone 16 Pro geometry for the screenshot harness; on the web
       # react-native-safe-area-context otherwise reports zeros.
       EXPO_PUBLIC_FIDELITY: "1"
+      # LANE E's credential, passed THROUGH rather than baked in. Unset on the host
+      # it is an empty string, and the lane skips loudly -- which is the behaviour
+      # this file had before, just no longer by accident.
+      SUPABASE_DB_URL: "${SUPABASE_DB_URL:-}"
     command: ["./docker/run-checks.sh"]
 
   # One-off shell for poking at a failure inside the same image.

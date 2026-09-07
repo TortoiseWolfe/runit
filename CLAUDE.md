@@ -424,14 +424,23 @@ RAISE never runs, so there is no report to parse, and the unparseable case is a 
 that says so. And a **coverage floor** (`EXPECTED_ASSERTIONS`, the same doctrine as lanes
 A and A2) fails a run that measures less than the last one -- because "0 FAILURE(S)" over
 forty assertions and over a hundred and eight are the same sentence. Raise the number when you
-add assertions; that friction is the feature. What is still open in #31 is that **nothing
-re-runs it in CI** -- there is no secret store for the URL, so the lane skips there.
+add assertions; that friction is the feature.
 
-**It skips LOUDLY without `SUPABASE_DB_URL`**, and that is deliberate. Running it
-needs a database password, and CI here is one public-repo job with no secret store; a
-gate that failed closed would be switched off within a week. So it prints a yellow
-SKIPPED block naming what went unchecked. Set the URL and re-run before trusting a
-green board after any migration change:
+**"Nothing re-runs it in CI" was true, and the REASON given for it was false.** This file
+said twice, and `verify-policies.mjs` said once, that CI here is "one public-repo job with
+no secret store". The repository is **private**, and private repositories have encrypted
+Actions secrets like any other. `checks.yml` passes `secrets.SUPABASE_DB_URL` through to
+the container now, so the moment that secret exists lane E runs on every push. Until then
+it expands to an empty string and the lane skips loudly, exactly as it does locally --
+so the wiring is a no-op rather than a red gate. A wrong premise had kept the only lane
+that can see row-level security out of CI for the life of the repo.
+
+**It skips LOUDLY without `SUPABASE_DB_URL`**, and that is deliberate. Running it needs a
+database password, and a gate that failed closed for want of a credential would be switched
+off within a week. So it prints a yellow SKIPPED block naming what went unchecked. A
+malformed URL is a different thing and fails NAMED rather than as a stack trace, because
+that path only became reachable when the secret was wired into CI. Set the URL and re-run
+before trusting a green board after any migration change:
 
 ```
 export SUPABASE_DB_URL='postgresql://postgres:<pw>@db.<ref>.supabase.co:5432/postgres'
