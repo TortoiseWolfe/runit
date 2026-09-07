@@ -13,11 +13,12 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 
 import { Screen } from "@/components/ui/Screen";
 import { Toast } from "@/components/ui/Toast";
-import { useEvent, useLookUpInvite, usePreview } from "@/state/hooks";
+import { useEvent, useLoadMyEvents, useLookUpInvite, usePreview } from "@/state/hooks";
 import { useJoinActions } from "@/state/actions";
 import { useToast } from "@/state/ToastProvider";
 import { icsFilename, icsFor } from "@/lib/invite";
 import { QrScanner } from "./QrScanner";
+import { MyEventsList } from "@/components/ui/MyEventsList";
 import { formatEventDate } from "@/lib/format";
 import { shareIcs } from "@/lib/share";
 import {
@@ -103,6 +104,9 @@ export function JoinScreen() {
   const [nickname, setNickname] = useState("");
   const [hostKey, setHostKey] = useState("");
   const [joined, setJoined] = useState(false);
+  // Refreshed when this screen's session state changes, so claiming a seat or closing an
+  // event leaves the list describing where this identity actually stands (#17).
+  useLoadMyEvents(joined);
   const [scanning, setScanning] = useState(false);
   /**
    * What a SCAN put in the field, so the invitation is looked up for it (#28).
@@ -397,6 +401,16 @@ export function JoinScreen() {
                 An input here was rejected. The fine print directly above is a product
                 promise about accounts, and a sign-in field underneath it would make that
                 promise read as false. A link keeps it literally true. */}
+            {/* THE WAY BACK IN (#17), and it sits here rather than above the field for the
+                same reason the create link does: nearly everyone arriving is a guest with a
+                code, and this must not compete with that. It draws nothing at all for them.
+
+                For a returning HOST it is the whole screen. The anonymous session persists,
+                so she keeps her identity across a restart and loses `event.current` -- and
+                until this existed her only route back to a party she created was to
+                remember the code she gave her guests. */}
+            <MyEventsList hideCurrent />
+
             <Pressable
               onPress={() => router.push("/create")}
               accessibilityRole="button"

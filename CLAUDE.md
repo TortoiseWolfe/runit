@@ -737,9 +737,19 @@ file:line evidence in it, because a roadmap living in prose is how six missing
 capabilities came to hide inside one line. `gh issue list --repo TortoiseWolfe/runit`
 is the scope; issue #1 is the ordering.
 
-**A host can now make her own event and staff it.** What is still missing: #17
-(multi-event) · #18 (host sign-in + custom SMTP) · #19 (account deletion, mandatory the
-day #18 ships).
+**A host can now make her own event, staff it, and FIND IT AGAIN.** #17's list and switcher
+shipped: `my_events()` is a definer function because #34 revoked `hosts.auth_user_id` from
+every client role, so the identity filter cannot live in a client. It returns every seat, not
+only `role = 'host'` -- a DJ needs the way back too. What is still missing: #18 (host sign-in
++ custom SMTP) · #19 (account deletion, mandatory the day #18 ships).
+
+**#17's TITLE WAS WRONG and reading it as the spec would have built the wrong thing.**
+`create_event` has allowed TEN events per identity since it shipped; the cap is in the
+function. The schema was never the blocker -- nothing could LIST them, and the anonymous
+session persists, so a host who closed the app kept her identity, lost `event.current`, and
+had only the six-character code to get back in. FIDELITY note AU.
+
+
 
 **Closed:** #15 (`event_preview`) · #14 (event details at `/host/event`) · #13
 (`create_event`) · #32 (the recovery key) · #16 (`invite_host` -- a co-host gets a seat

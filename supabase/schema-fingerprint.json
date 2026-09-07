@@ -1,7 +1,7 @@
 {
   "capturedFrom": "the LIVE project qwusbxallkbzfladvgfx, via the Supabase MCP",
   "capturedAt": "2026-09-07",
-  "verifiedAgainst": "a local stack built by applying supabase/migrations/00000000000000_init.sql to an empty database — all six groups matched exactly, so there was NO drift at capture time",
+  "verifiedAgainst": "Re-checked after deploying my_events (#17): the live project and a local build of the committed migration BOTH read functions 31 @ a608283bbdc24310b625507daa877b73, and all six groups match. The drift check caught the un-deployed change first, which is what it is for.",
   "howToRefresh": "pnpm schema:fingerprint --write, and only after re-checking production. See docs/lane-e.md and issue #49.",
   "schema": {
     "columns": {
@@ -9,8 +9,8 @@
       "fingerprint": "fa1e9855d0f0e010a83fe664c4477e97"
     },
     "functions": {
-      "n": 30,
-      "fingerprint": "6e591ac62438c507e2f22f50ea2e820e"
+      "n": 31,
+      "fingerprint": "a608283bbdc24310b625507daa877b73"
     },
     "indexes": {
       "n": 29,

@@ -1442,6 +1442,57 @@ begin
 end $$;
 
 revoke execute on function public.claim_host(text, text) from public, anon;
+
+-- ------------------------------------------------------------------------
+-- THE EVENTS THIS PERSON HOSTS (#17)
+-- ------------------------------------------------------------------------
+--
+-- WHY A FUNCTION RATHER THAN A SELECT, and it is not a style choice: #34 revoked
+-- `hosts.auth_user_id` from every client role, so a client CANNOT write
+-- `where auth_user_id = auth.uid()` -- PostgREST would 42501 on the column before RLS was
+-- consulted. The identity filter has to happen somewhere the column is readable, which is
+-- inside a definer function. That revoke is also why this cannot be a view.
+--
+-- IT IS THE WAY BACK IN. The anonymous session persists (`persistSession: true` over
+-- `secureSessionStorage`), so a host who closes the app keeps her identity and loses
+-- `event.current` -- and until this existed her only route back to her own party was to
+-- remember the six-character code. `create_event` has always allowed TEN events per
+-- identity; nothing could ever list them.
+--
+-- EVERY SEAT, NOT ONLY `role = 'host'`. `create_event`'s cap counts founders because it is
+-- bounding how many parties one identity can CREATE. This answers a different question --
+-- "where am I staff?" -- and a DJ invited through `invite_host` needs the way back just as
+-- much as the founder does. A co-host's seat carries `auth_user_id` NULL until `claim_host`
+-- binds it, so an unclaimed invitation correctly does not appear here for anybody.
+create or replace function public.my_events()
+returns table (
+  event_id    uuid,
+  code        text,
+  name        text,
+  venue       text,
+  starts_at   timestamptz,
+  timezone    text,
+  doors_label text,
+  role        text,
+  role_label  text,
+  guest_count integer
+)
+language sql stable security definer set search_path = public as $$
+  select e.id, e.code, e.name, e.venue, e.starts_at, e.timezone, e.doors_label,
+         h.role, h.role_label, public.guest_seats(e.id)
+    from public.hosts h
+    join public.events e on e.id = h.event_id
+   where h.auth_user_id = auth.uid()
+   -- Soonest first, and future before past: the event you are walking into tonight is the
+   -- one you are opening the app for. `starts_at desc` would bury it under last year.
+   order by (e.starts_at < now()), e.starts_at;
+$$;
+
+-- Definer, so the revoke is the whole access control. `authenticated` only: an anonymous
+-- caller has an auth.uid() and is exactly who this is for, but `anon` (no JWT at all) would
+-- get auth.uid() null and an empty set, which is a query nobody needs to be able to make.
+revoke execute on function public.my_events() from public, anon;
+grant execute on function public.my_events() to authenticated;
 grant  execute on function public.claim_host(text, text) to authenticated;
 
 -- MINTING A CREDENTIAL, and `random()` is not allowed to do it.

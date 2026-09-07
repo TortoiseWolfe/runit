@@ -2584,3 +2584,67 @@ It proves the file compiles and that the **committed migration's** policies beha
 asserted. It cannot see whether production has drifted from that migration — if something was
 applied to the live project by hand, only a live run finds it. The success line names its
 target for that reason: "the assertions pass" means two different things.
+
+## AU. The events a host could make and never find again
+
+`create_event` has allowed **ten events per identity** since it shipped — the cap is right
+there in the function, counting `hosts.auth_user_id = auth.uid()`. Nothing could list them.
+The anonymous session persists (`persistSession: true` over `secureSessionStorage`), so a
+host who closed the app kept her identity and lost `event.current`, and her only route back
+to a party she had created was to remember the six-character code she gave her guests.
+
+**The schema was never the blocker; the screen was.** Issue #17's title — "a host cannot hold
+more than one event" — was wrong, and reading it as the spec would have produced an owner
+column and a migration nobody needed.
+
+### Why it has to be a function
+
+`#34` revoked `hosts.auth_user_id` from every client role, so a client cannot write
+`where auth_user_id = auth.uid()` — PostgREST refuses the column before RLS is consulted.
+The identity filter has to live where the column is readable, which is inside a definer
+function. That same revoke is why this cannot be a view.
+
+`my_events()` returns **every seat**, not only `role = 'host'`. The cap counts founders
+because it bounds how many parties one identity may create; this answers a different
+question — *where am I staff?* — and a DJ invited through `invite_host` needs the way back
+just as much. An unclaimed invitation carries `auth_user_id` NULL, so it correctly appears
+for nobody.
+
+### The current event is in the list, and is not a control
+
+Filtering it out would make this "switch to" rather than "your events", and a host with one
+event would then meet an empty box while standing in the party it omitted. It is a `View`
+rather than a disabled `Pressable`, because `empty-world.spec.ts` counts `aria-disabled`
+across a screen to prove no dead controls ship — a correctly inert row would read there as
+one more dead button.
+
+### What Memory can and cannot model, said rather than implied
+
+`open()` moves to an event whose collections are **empty**. A `HostedEvent` carries seven
+fields and a `RunitEvent` twelve, and the fixture holds one evening's broadcasts, songs and
+photos. Furnishing a second party would be a fixture that flatters the app. So the tests
+assert the list and the switch, and say so — the same honesty as `invitation.spec.ts`, which
+proves the invitation screen and states it cannot prove the join that follows.
+
+### Two things a real run caught that writing could not
+
+**The reset recipe this repo shipped an hour earlier was wrong.** `00000000000000_init.sql`
+contains no table grants at all; it relies on Supabase's `ALTER DEFAULT PRIVILEGES ... TO
+anon, authenticated`, which is attached to the schema — so `drop schema public cascade`
+destroys it and every table the migration then creates has no client grant. Lane E aborted
+with `permission denied for table events`. The worse half is quieter: the **revoke**
+assertions would have passed *trivially*, because there was never a grant to revoke.
+`supabase/reset-local.sql` restores the three defaults and exists so the recipe cannot be
+retyped wrong.
+
+**An e2e assertion that asserted nothing.** `await expect(here).toHaveAttribute(...).catch(() =>
+undefined)` always resolves; it was costing ten seconds of timeout per run and proving
+nothing. The 11.1s runtime is what exposed it — a passing test that is inexplicably slow is
+usually a test waiting for something it does not need.
+
+### Verified
+
+147 Lane E assertions, 0 failures, including five for `my_events`: it lists what you host,
+carries your seat, does **not** list an event you hold no seat at, gives a different identity
+a different list, and is revoked from `anon`. Mutation-tested by removing the identity
+filter — the IDOR shape — which turns two of them red. Plus six unit tests and ten journeys.

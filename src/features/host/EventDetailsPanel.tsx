@@ -1,13 +1,14 @@
 import { useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { useEvent, useHosts, useInvitees } from '@/state/hooks';
+import { useEvent, useHosts, useInvitees, useLoadMyEvents } from '@/state/hooks';
 import { useHostActions } from '@/state/actions';
 import { formatClock, formatEventDate, instantToWallClock } from '@/lib/format';
 import { instantFrom, zoneChoices, zoneLabel } from '@/lib/eventForm';
 import { TIERS } from '@/domain/tiers';
 import type { HostRole } from '@/data/types';
 import { alpha, border, eyebrow, radius, useTheme, weight } from '@/theme';
+import { MyEventsList } from '@/components/ui/MyEventsList';
 
 /**
  * The event's own details, which nothing could edit until now.
@@ -40,6 +41,9 @@ const ROLE_CHOICES: { role: HostRole; label: string }[] = [
 
 export function EventDetailsPanel() {
   const { tokens, fade } = useTheme();
+  // A host who created an event and came straight here never passed the join screen, so
+  // the list has to be loaded from this side too (#17).
+  useLoadMyEvents();
   const event = useEvent();
   const { saveEventDetails, rotateHostKey, invite, addInvitee, removeInvitee } = useHostActions();
   const hosts = useHosts();
@@ -515,6 +519,16 @@ export function EventDetailsPanel() {
           </Text>
         </Pressable>
       ) : null}
+      {/* SWITCHING, on the panel that already owns "which event is this" (#17). A host
+          standing in one party reaches her others from here; the join screen is where a
+          host standing in NONE of them reaches all of them. Same rows, same tap.
+
+          Below the details and the key rather than above: this panel's job is the event
+          you are in, and a list of the others should not be the first thing on it. */}
+      <View style={s.switcher}>
+        <MyEventsList heading="Your events" />
+      </View>
+
     </ScrollView>
   );
 }
@@ -541,6 +555,7 @@ const s = StyleSheet.create({
   zoneText: { fontSize: 13 },
   helper: { fontSize: 12, lineHeight: 18 },
   keyBlock: { marginTop: 18, gap: 8 },
+  switcher: { marginTop: 24 },
   seatRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 },
   seatName: { fontSize: 15 },
   seatRole: { fontSize: 13 },

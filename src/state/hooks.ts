@@ -13,6 +13,12 @@ export const useSession = () => useObservable(useRepository().session.current);
  */
 export const useHoldsHostSeat = () => useObservable(useRepository().session.holdsHostSeat);
 export const useEvent = () => useObservable(useRepository().event.current);
+/**
+ * The events this identity is staff at (#17). Empty for everyone who hosts nothing,
+ * which is most people. Null until `useLoadMyEvents` has run.
+ */
+export const useMyEvents = () => useObservable(useRepository().event.mine);
+
 /** What a code resolved to before joining. Null until `useLookUpInvite` has run. */
 export const usePreview = () => useObservable(useRepository().event.preview);
 export const useFeed = () => useObservable(useRepository().chat.feed);
@@ -97,6 +103,24 @@ export function useNowNext() {
  * lookup existed. Raising a toast for it would interrupt someone who came here to
  * type a nickname, over a thing they never asked for.
  */
+/**
+ * Load the events this identity hosts, once, on mount.
+ *
+ * SEPARATE FROM `useMyEvents` on purpose, and the same split as `useLookUpInvite` beside
+ * `usePreview`: the read is a pure observable and the load is an effect, so a screen that
+ * only wants to DRAW the list does not also trigger a fetch, and the effect sets no state
+ * of its own -- which the React Compiler rules reject and were right to.
+ *
+ * `deps` re-runs it. The join screen passes the session kind, so signing into a seat or
+ * closing an event refreshes the list rather than leaving a stale one on screen.
+ */
+export function useLoadMyEvents(dep?: unknown): void {
+  const repo = useRepository();
+  useEffect(() => {
+    void repo.event.loadMine();
+  }, [repo, dep]);
+}
+
 export function useLookUpInvite(code: string | undefined): void {
   const repo = useRepository();
   useEffect(() => {
