@@ -1,0 +1,32 @@
+{
+  "capturedFrom": "the LIVE project qwusbxallkbzfladvgfx, via the Supabase MCP",
+  "capturedAt": "2026-09-07",
+  "verifiedAgainst": "a local stack built by applying supabase/migrations/00000000000000_init.sql to an empty database — all six groups matched exactly, so there was NO drift at capture time",
+  "howToRefresh": "pnpm schema:fingerprint --write, and only after re-checking production. See docs/lane-e.md and issue #49.",
+  "schema": {
+    "columns": {
+      "n": 118,
+      "fingerprint": "fa1e9855d0f0e010a83fe664c4477e97"
+    },
+    "functions": {
+      "n": 30,
+      "fingerprint": "6e591ac62438c507e2f22f50ea2e820e"
+    },
+    "indexes": {
+      "n": 29,
+      "fingerprint": "fbce5e4289a90b4b9bf378ff8d9fce40"
+    },
+    "policies": {
+      "n": 34,
+      "fingerprint": "aa3aa81f02f84e83fe1af0d605e9b35e"
+    },
+    "tier_limits": {
+      "n": 4,
+      "fingerprint": "05b6569c628930058ffe8ba9fc49fa88"
+    },
+    "triggers": {
+      "n": 20,
+      "fingerprint": "dd94b679043d687a27e89781bb9e5406"
+    }
+  }
+}

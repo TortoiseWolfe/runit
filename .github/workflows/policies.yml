@@ -76,6 +76,19 @@ jobs:
           docker exec -i "$db" psql -U postgres -v ON_ERROR_STOP=1 \
             < supabase/migrations/00000000000000_init.sql
 
+      # DOES THE MIGRATION STILL BUILD THE SCHEMA WE RECORDED? Lane E asserts what the
+      # policies DO; it cannot see an extra column, a dropped trigger, or a tier cap edited
+      # in the database only. The baseline was captured from the LIVE project and verified
+      # identical to a local build at capture time (#49), so this catches the whole class of
+      # "the file changed and nobody deployed it" — with no credential.
+      #
+      # What it cannot catch is somebody changing production behind the file's back. That
+      # needs a live run, which `--url` takes when anyone has access.
+      - name: Schema fingerprint
+        run: pnpm schema:check
+        env:
+          SUPABASE_DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
       - name: Lane E
         run: pnpm verify:policies
         env:
