@@ -98,6 +98,30 @@ property that matters: a gate that can silently skip is the whole bug.
 It also guards, as a side effect, the thing nothing else does — that the migration can build
 a database at all.
 
+## Schema drift (#49)
+
+Lane E asserts what the policies **do**. It cannot see an extra column, a dropped trigger, or
+a tier cap edited in the database only — and this repo deploys statement-by-statement through
+the MCP, so the committed migration is a *description* of what was meant to happen.
+
+```bash
+pnpm schema:fingerprint            # six md5s over policies, functions, columns, triggers, indexes, tier_limits
+pnpm schema:check                  # compare against supabase/schema-fingerprint.json
+pnpm schema:fingerprint --url=...  # against any database you can reach
+```
+
+**At capture time (2026-09-07) there was no drift**: all six groups from the live project
+matched a local build of the committed migration exactly. That baseline is committed, and
+`policies.yml` asserts it on every push touching `supabase/**` — so a migration change that
+was never deployed goes red, with no credential needed.
+
+It is a fingerprint rather than a diff on purpose: a hash answers "has anything moved?" in six
+numbers. When one changes, run `supabase/schema-fingerprint.sql` against both sides to find
+out what.
+
+**Refreshing the baseline records a fact, not a wish.** Only run `--write` after re-checking
+production, and say so in the commit message.
+
 ## Running it against the live project
 
 ```bash
