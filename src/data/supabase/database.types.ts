@@ -230,6 +230,19 @@ export type Database = {
     Views: Record<never, never>;
     Functions: {
       claim_host: { Args: { p_code: string; p_secret: string }; Returns: string };
+      /**
+       * The events this identity holds a host seat at (#17). `returns table (...)`,
+       * so PostgREST delivers an ARRAY -- empty for somebody who hosts nothing, which
+       * is the common case and not an error.
+       */
+      my_events: {
+        Args: Record<string, never>;
+        Returns: {
+          event_id: string; code: string; name: string; venue: string;
+          starts_at: string; timezone: string; doors_label: string;
+          role: string; role_label: string; guest_count: number;
+        }[];
+      };
       file_report: {
         Args: {
           p_event_id: string; p_kind: string; p_subject_id: string;

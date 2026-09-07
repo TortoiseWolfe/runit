@@ -138,6 +138,25 @@ export function useSessionActions() {
         router.replace('/join');
       },
       /**
+       * Open another event this identity is staff at (#17).
+       *
+       * ROUTES TO THE HOST CONSOLE, because `open` leaves the caller holding a host seat
+       * and the console is where that seat is useful -- landing her on the guest chat of a
+       * party she runs would be a step backwards from the screen she tapped on.
+       *
+       * The throw is caught and shown, not swallowed: `open` refuses an event the caller
+       * holds no seat at, and a list row that silently does nothing is the shape of the
+       * three inert controls #29 and #37 were about.
+       */
+      openEvent: async (eventId: string) => {
+        try {
+          await repo.event.open(eventId);
+          router.replace('/host/broadcast');
+        } catch (e) {
+          show(e instanceof Error ? e.message : 'That event could not be opened.');
+        }
+      },
+      /**
        * #43. Returns nothing to the caller and reports through the toast instead, because
        * the two outcomes a person cares about are "it changed" and "it did not", and the
        * sheet closes either way. The stored name is what is quoted -- `set_nickname` trims

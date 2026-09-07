@@ -21,6 +21,7 @@ import {
   EntitlementError, JoinError, ScheduleError, type UploadOutcome,
   type ConnectionState, type EventDetails, type EventPreview, type NewEvent, type NewHost,
   type Observable, type RunitRepository, type Unsubscribe,
+  HostedEvent,
 } from '../repository';
 import { checkFeature, checkLimit, type Entitlements } from '@/domain/entitlements';
 import { TIERS } from '@/domain/tiers';
@@ -58,6 +59,19 @@ export interface Seed {
    * never disagree about the same code.
    */
   preview: EventPreview | null;
+  /**
+   * The events this identity is staff at (#17). Optional, and empty is the honest
+   * default: most worlds here are a GUEST's, and a guest hosts nothing.
+   *
+   * WHAT MEMORY CAN AND CANNOT MODEL, said out loud rather than implied. It can model the
+   * LIST and the SWITCH -- which is what the screens do. It cannot model the CONTENT of
+   * the event switched into: a `HostedEvent` carries seven fields and a `RunitEvent` has
+   * twelve, and this fixture holds one event's broadcasts, songs and photos. So `open()`
+   * moves to an event whose collections are empty, and that is a true statement about
+   * this adapter rather than a pretend party. Same honesty as `invitedSeed`, which proves
+   * the invitation SCREEN and says it cannot prove the join that follows.
+   */
+  hosted?: HostedEvent[];
   hosts: Host[];
   /** Optional so existing fixtures need no edit; an absent list is an empty one. */
   invitees?: Invitee[];
@@ -287,6 +301,8 @@ export class MemoryRepository implements RunitRepository {
    */
   private sigHoldsHostSeat: Signal<boolean>;
   private sigEvent: Signal<RunitEvent | null>;
+  private sigMyEvents: Signal<HostedEvent[]>;
+  private hostedList: HostedEvent[];
   private sigPreview: Signal<EventPreview | null>;
   private sigFeed: Signal<Broadcast[]>;
   private sigSchedule: Signal<ScheduleItem[]>;
@@ -358,6 +374,8 @@ export class MemoryRepository implements RunitRepository {
     this.inviteeList = [...(seed.invitees ?? [])];
     this.sigInvitees = new Signal<Invitee[]>(this.inviteeList);
     this.sigEvent = new Signal<RunitEvent | null>(this.ev);
+    this.hostedList = seed.hosted ? [...seed.hosted] : [];
+    this.sigMyEvents = new Signal<HostedEvent[]>(this.hostedList);
     // Starts null, like the adapter it stands in for. A preview is something a code
     // produced, never something the world arrived holding.
     this.sigPreview = new Signal<EventPreview | null>(null);
@@ -755,6 +773,60 @@ export class MemoryRepository implements RunitRepository {
   event = {
     current: undefined as unknown as Observable<RunitEvent | null>,
     preview: undefined as unknown as Observable<EventPreview | null>,
+    mine: undefined as unknown as Observable<HostedEvent[]>,
+
+    loadMine: async () => {
+      // No RPC to call and no identity to be signed out of, so this is a re-publish
+      // rather than a fetch. It exists so the screens read both adapters identically.
+      this.sigMyEvents.set([...this.hostedList]);
+    },
+
+    /**
+     * Switch to another event this identity is staff at.
+     *
+     * The collections come up EMPTY, deliberately -- see `Seed.hosted`. Pretending the
+     * other party had broadcasts and songs would make a fixture that flatters the app,
+     * and the value of this world is proving the list and the switch, not inventing a
+     * second evening.
+     */
+    open: async (eventId: string) => {
+      const target = this.hostedList.find((e) => e.id === eventId);
+      // Refused rather than obeyed, exactly as in SupabaseRepository: the list is a
+      // convenience and the seat is the authority.
+      if (!target) throw new Error('You do not hold a host seat at that event.');
+
+      this.ev = {
+        id: target.id,
+        code: target.code,
+        name: target.name,
+        venue: target.venue,
+        startsAt: target.startsAt,
+        timezone: target.timezone,
+        doorsLabel: target.doorsLabel,
+        tier: 'house_party',
+        activeFolderId: '',
+        nowScheduleItemId: null,
+        guestCount: target.guestCount,
+        invitedCount: 0,
+      };
+      this.broadcastList = [];
+      this.scheduleList = [];
+      this.requestList = [];
+      this.photoList = [];
+      this.folderList = [];
+      this.hostList = [
+        { id: this.id('hst'), displayName: 'Host', role: target.role as HostRole, roleLabel: target.roleLabel },
+      ];
+      this.sigHoldsHostSeat.set(true);
+      this.sigSession.set({
+        kind: 'host',
+        hostId: this.hostList[0]!.id,
+        displayName: this.hostList[0]!.displayName,
+        role: this.hostList[0]!.role,
+        roleLabel: this.hostList[0]!.roleLabel,
+      });
+      this.recompute();
+    },
 
     lookUp: async (code: string) => {
       // Same normalisation as joinAsGuest and as event_preview's
@@ -1363,6 +1435,7 @@ export class MemoryRepository implements RunitRepository {
     this.session.holdsHostSeat = this.sigHoldsHostSeat;
     this.invitees.all = this.sigInvitees;
     this.event.current = this.sigEvent;
+    this.event.mine = this.sigMyEvents;
     this.event.preview = this.sigPreview;
     this.chat.feed = this.sigFeed;
     this.schedule.items = this.sigSchedule;

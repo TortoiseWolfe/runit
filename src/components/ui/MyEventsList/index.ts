@@ -1,0 +1,1 @@
+export { MyEventsList } from './MyEventsList';

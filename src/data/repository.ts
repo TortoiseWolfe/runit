@@ -150,6 +150,26 @@ export type EventPreview = Pick<
   'id' | 'code' | 'name' | 'venue' | 'startsAt' | 'timezone' | 'doorsLabel'
 >;
 
+/**
+ * An event this person is STAFF at, as it appears in a list of them (#17).
+ *
+ * Not a `RunitEvent`: that carries twelve fields including the ones only a member can
+ * read, and this is drawn before any of them are open. It is the invitation's shape plus
+ * the two facts that make a list of parties navigable -- which seat you hold, and whether
+ * anyone is there yet.
+ *
+ * `guestCount` EXCLUDES STAFF, because it comes from `guest_seats()` -- the same rule
+ * `join_event`'s cap and the "N already here" pill read, so a host looking at her own
+ * list does not see herself counted at her own party.
+ */
+export interface HostedEvent extends EventPreview {
+  /** The permission grade: 'host', 'planner' or 'dj'. */
+  role: string;
+  /** The human label beside the name -- "Bride", "Head of Ops". Free text. */
+  roleLabel: string;
+  guestCount: number;
+}
+
 /** Everything needed to bring an event into existence. */
 export interface NewEvent extends EventDetails {
   /** How the host appears on their own announcements. Not an account, just a name. */
@@ -393,6 +413,33 @@ export interface RunitRepository {
     preview: Observable<EventPreview | null>;
     /** Resolve a code into `preview`. A code that names nothing leaves it null. */
     lookUp(code: string): Promise<void>;
+    /**
+     * The events this identity is staff at (#17). Empty for everyone else.
+     *
+     * WHY IT EXISTS. The anonymous session persists, so a host who closes the app keeps
+     * her identity and loses `event.current` -- and `create_event` has always allowed ten
+     * events per identity while nothing could list them. Her only way back to her own
+     * party was to remember the six-character code she gave her guests.
+     *
+     * An observable for the same reason `preview` is one: it is not realtime and cannot
+     * be (RLS delivers no change on a row you are not a member of), but every screen reads
+     * it like every other read, and the effect that loads it sets no state of its own.
+     */
+    mine: Observable<HostedEvent[]>;
+    /** Refresh `mine`. Safe to call with no session; leaves it empty. */
+    loadMine(): Promise<void>;
+    /**
+     * Switch to one of them, by id.
+     *
+     * NOT `closeEvent()` THEN A JOIN: the caller already holds the seat, so there is no
+     * code and no key to present. This tears the current event context down and stands
+     * the next one up in one call, which is what stops a half-switched state where the
+     * tables are subscribed to one event and the session names another.
+     *
+     * Refuses an id this identity holds no seat at, rather than trusting the caller --
+     * the list is a convenience, not the authority.
+     */
+    open(eventId: string): Promise<void>;
     /**
      * Bring an event into existence, and become its host in the same breath.
      *

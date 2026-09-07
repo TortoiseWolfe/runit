@@ -17,6 +17,7 @@ import {
   EntitlementError, JoinError, ScheduleError, type ConnectionState,
   type EventDetails, type EventPreview, type JoinReason, type NewEvent, type NewHost,
   type Observable, type RunitRepository, type UploadOutcome,
+  HostedEvent,
 } from '../repository';
 import type {
   BlockedGuest, Broadcast, BroadcastId, Folder, FolderId, GuestId, Host, Invitee, InviteeId,
@@ -251,6 +252,15 @@ export class SupabaseRepository implements RunitRepository {
   private readonly sigReports = new Signal<Report[]>([], shallowArrayEqual);
   private readonly sigMyReports = new Signal<ReadonlySet<string>>(new Set(), setEqual);
 
+  /**
+   * The events this identity is staff at (#17). Compared by id and by the two fields a
+   * list actually redraws on, so a poll that returns the same parties does not repaint.
+   */
+  private readonly sigMyEvents = new Signal<HostedEvent[]>([], (a, b) =>
+    a.length === b.length &&
+    a.every((x, k) => x.id === b[k]!.id && x.name === b[k]!.name && x.guestCount === b[k]!.guestCount),
+  );
+
   private constructor(
     db: RunitClient,
     private readonly now: () => string,
@@ -287,6 +297,7 @@ export class SupabaseRepository implements RunitRepository {
     this.invitees.all = this.sigInvitees;
     this.event.current = this.sigEvent;
     this.event.preview = this.sigPreview;
+    this.event.mine = this.sigMyEvents;
     this.chat.feed = this.sigFeed;
     this.schedule.items = this.sigSchedule;
     this.music.queue = this.sigQueue;
@@ -1388,6 +1399,92 @@ export class SupabaseRepository implements RunitRepository {
   event = {
     current: undefined as unknown as Observable<RunitEvent | null>,
     preview: undefined as unknown as Observable<EventPreview | null>,
+    mine: undefined as unknown as Observable<HostedEvent[]>,
+
+    /**
+     * WHICH PARTIES AM I STAFF AT? One definer RPC, because #34 revoked
+     * `hosts.auth_user_id` from every client role -- a client cannot filter by the column
+     * that answers this, so the filter has to live where the column is readable.
+     *
+     * SWALLOWS ITS ERROR ON PURPOSE, and only this one. A signed-out caller, a dropped
+     * connection or a project that has not run the migration yet all mean the same thing
+     * to a screen drawing a list: there is nothing to draw. This is read on the join
+     * screen, which is where a guest with no account lands -- and turning that screen red
+     * because a HOST convenience could not load would break the primary path for the
+     * majority who are not hosts at all.
+     */
+    loadMine: async () => {
+      const { data, error } = await this.db.rpc('my_events');
+      if (error) {
+        this.sigMyEvents.set([]);
+        return;
+      }
+      this.sigMyEvents.set(
+        (data ?? []).map((r) => ({
+          id: r.event_id,
+          code: r.code,
+          name: r.name,
+          venue: r.venue,
+          startsAt: r.starts_at,
+          timezone: r.timezone,
+          doorsLabel: r.doors_label,
+          role: r.role,
+          roleLabel: r.role_label,
+          guestCount: r.guest_count,
+        })),
+      );
+    },
+
+    /**
+     * Open one of them.
+     *
+     * THE ID IS CHECKED, NOT OBEYED. `mine` is a convenience; the authority is the seat.
+     * An id this identity holds no seat at is refused here rather than being allowed to
+     * fail three calls later as an unreadable event -- the same reasoning as `becomeHost`,
+     * which validates `hostId` instead of trusting it.
+     *
+     * CLOSE FIRST, ALWAYS. `closeEvent()` drops the caches, the signed URLs, the votes,
+     * the blocks and the host seat -- every one of which belongs to the event being left,
+     * and carrying any of them across would show the next party the last one's state. It
+     * also takes the channel count to zero, and it does NOT call `disconnect()`, which is
+     * exactly what makes an immediate re-open safe (FIDELITY note R: an explicit
+     * disconnect made a re-join race a socket that never opened).
+     */
+    open: async (eventId: string) => {
+      const target = this.sigMyEvents.get().find((e) => e.id === eventId);
+      if (!target) {
+        await this.event.loadMine();
+        if (!this.sigMyEvents.get().some((e) => e.id === eventId)) {
+          throw new Error('You do not hold a host seat at that event.');
+        }
+      }
+
+      await this.session.closeEvent();
+
+      this.eventId = eventId;
+      await this.startTables(eventId);
+      await this.loadFetchOnce();
+
+      // The seat, read back from the event we just opened rather than from the list --
+      // `hostRows` is what `becomeHost` and `claimHost` both name a session from, and
+      // going through the same rows keeps one definition of "which seat is mine".
+      const mine = this.hostRows[0];
+      if (!mine) {
+        throw new Error(
+          'Opened an event whose host rows are unreadable. my_events said this seat ' +
+            'exists, so this is hosts_read refusing a row to its own holder.',
+        );
+      }
+      this.sigHoldsHostSeat.set(true);
+      this.sigSession.set({
+        kind: 'host', hostId: mine.id, displayName: mine.displayName,
+        role: mine.role, roleLabel: mine.roleLabel,
+      });
+      this.recompute();
+      // The list carries a guest count, and the one for the event just opened is now
+      // knowably stale -- she is looking at the real number on the next screen.
+      await this.event.loadMine();
+    },
 
     lookUp: async (code: string) => {
       // A session first, because event_preview is granted to `authenticated` and to

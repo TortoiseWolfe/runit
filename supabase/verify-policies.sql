@@ -573,6 +573,53 @@ begin
   out := out || format('%s a new event is house_party, not a tier nobody paid for (%s)',
                        case when lbl = 'house_party' then 'PASS' else 'FAIL' end, lbl);
 
+  -- ==================================================================
+  -- THE EVENTS THIS IDENTITY HOSTS (#17)
+  -- ==================================================================
+  -- `create_event` has always allowed ten per identity; nothing could list them, so a host
+  -- who lost `event.current` had only the six-character code to get back in. `my_events`
+  -- is the list, and it has to be a definer function because #34 revoked
+  -- `hosts.auth_user_id` from every client role -- the filter cannot live in a client.
+  perform set_config('request.jwt.claims', json_build_object('sub',cuid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+
+  select count(*) into n from public.my_events() me where me.event_id = ce.event_id;
+  out := out || format('%s my_events lists the event this identity just created (%s, want 1)',
+                       case when n = 1 then 'PASS' else 'FAIL' end, n);
+
+  select me.role_label into lbl from public.my_events() me where me.event_id = ce.event_id;
+  out := out || format('%s and carries the seat she holds there (%s)',
+                       case when lbl is not null then 'PASS' else 'FAIL' end, coalesce(lbl,'null'));
+
+  -- THE LOAD-BEARING ONE. A list that leaked other people's parties would be an IDOR
+  -- wearing a convenience's clothes, and the filter is invisible from the client side.
+  select count(*) into n from public.my_events() me where me.event_id = eid;
+  out := out || format('%s and NOT an event this identity holds no seat at (%s, want 0)',
+                       case when n = 0 then 'PASS' else 'FAIL' end, n);
+
+  execute 'reset role';
+
+  -- Somebody else's session sees their own list, not hers. The same assertion from the
+  -- other side, because "returns nothing extra" and "returns the right thing per caller"
+  -- are different claims and only the pair rules out a function ignoring auth.uid().
+  perform set_config('request.jwt.claims', json_build_object('sub',nuid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  select count(*) into n from public.my_events();
+  out := out || format('%s a different identity gets a different list (%s, want 0)',
+                       case when n = 0 then 'PASS' else 'FAIL' end, n);
+  execute 'reset role';
+
+  begin
+    execute 'set local role anon';
+    perform public.my_events();
+    execute 'reset role';
+    out := out || format('%s an anonymous caller can list events', 'FAIL');
+  exception when others then
+    execute 'reset role';
+    out := out || format('%s my_events is revoked from anon (%s)',
+                         case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
   -- THE KEY EXISTS ONLY IN THE RETURN VALUE. If this ever finds a row, the plaintext is
   -- sitting in the database and every backup and support session hands over the event.
   select count(*) into n from public.host_claims hc

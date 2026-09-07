@@ -85,6 +85,45 @@ export const weddingSeed: Seed = {
     guestCount: 172,
     invitedCount: 180,
   },
+  /**
+   * Riley hosts two parties (#17). The wedding is the one she is standing in; the
+   * rehearsal dinner is the one the switcher exists to reach.
+   *
+   * THE FIRST ENTRY IS THE CURRENT EVENT, deliberately. A list that omitted the party you
+   * are already in would be a different control -- "switch to" rather than "your events" --
+   * and the screens would then have to invent the missing row to show you where you are.
+   * Both screens mark it instead.
+   *
+   * `guestCount` is 172 here and the header says 172, because both come from the same
+   * rule: `guest_seats()` excludes staff. A mismatch between this and the pill would be a
+   * real defect, so the fixture must not paper over it.
+   */
+  hosted: [
+    {
+      id: 'evt_wedding',
+      code: 'SR1017',
+      name: "Sam & Riley's Wedding",
+      venue: 'Willow Barn',
+      startsAt: at('16:00'),
+      timezone: ZONE,
+      doorsLabel: 'Doors 4:00 PM',
+      role: 'host',
+      roleLabel: 'Bride',
+      guestCount: 172,
+    },
+    {
+      id: 'evt_rehearsal',
+      code: 'RH2210',
+      name: 'Rehearsal Dinner',
+      venue: 'The Old Mill',
+      startsAt: at('18:30'),
+      timezone: ZONE,
+      doorsLabel: 'Doors 6:30 PM',
+      role: 'host',
+      roleLabel: 'Bride',
+      guestCount: 24,
+    },
+  ],
   hosts: [
     { id: 'hst_riley', displayName: 'Riley', role: 'host', roleLabel: 'Bride' },
     { id: 'hst_jordan', displayName: 'Jordan', role: 'planner', roleLabel: 'Planner' },

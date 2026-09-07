@@ -63,18 +63,24 @@ six files that reference the filename; filed rather than done.
 
 ### Resetting between attempts
 
-`supabase db reset` does **not** apply this migration (see above), so reset the schema by hand:
+`supabase db reset` does **not** apply this migration (see above), so reset by hand:
 
-```sql
-do $$ declare r record; begin
-  for r in select policyname from pg_policies where schemaname='storage' and tablename='objects'
-  loop execute format('drop policy if exists %I on storage.objects', r.policyname); end loop;
-end $$;
-drop schema if exists public cascade;
-create schema public;
-grant usage on schema public to postgres, anon, authenticated, service_role;
-grant all on schema public to postgres, service_role;
+```bash
+docker exec -i supabase_db_runit psql -U postgres -v ON_ERROR_STOP=1 \
+  < supabase/reset-local.sql
 ```
+
+**Use that file rather than a `drop schema` of your own.** `00000000000000_init.sql`
+contains no table grants at all — it relies on Supabase's
+`ALTER DEFAULT PRIVILEGES ... GRANT ALL ON TABLES TO anon, authenticated`, which is attached
+to the *schema*. So `drop schema public cascade` destroys it, and every table the migration
+then creates arrives with no client grant.
+
+That fails two ways and the second is worse. Lane E aborts early with
+`permission denied for table events`, which at least says something. But the **revoke**
+assertions — "my_events is revoked from anon", and eight like it — would **pass trivially**,
+because there was never a grant to revoke. This document carried the broken recipe for about
+an hour; a real run is what caught it.
 
 ## What a local run does and does not prove
 

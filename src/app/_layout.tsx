@@ -19,6 +19,7 @@ import { MemoryRepository } from '@/data/memory/MemoryRepository';
 import { weddingSeed } from '@/data/memory/fixtures/wedding';
 import { emptySeed } from '@/data/memory/fixtures/empty';
 import { invitedSeed } from '@/data/memory/fixtures/invited';
+import { hostingSeed } from '@/data/memory/fixtures/hosting';
 import { flakyTransfer } from '@/data/memory/fixtures/flakyTransfer';
 import { SupabaseRepository } from '@/data/supabase/SupabaseRepository';
 /* eslint-enable no-restricted-imports */
@@ -171,6 +172,21 @@ export default function RootLayout() {
     new URLSearchParams(window.location.search).get('empty') === '1';
 
   /**
+   * Boot as a HOST WHO CAME BACK -- two events made, standing in neither (#17).
+   *
+   * Where every host is the second time she opens the app: the anonymous session persists,
+   * so she keeps her identity and loses `event.current`. `weddingSeed` cannot stand in,
+   * because there the join screen is an INVITATION and the list is a secondary control;
+   * here the list is the only thing on the screen that leads anywhere, which is the state
+   * the issue is about.
+   */
+  const hostingWorld =
+    fidelity &&
+    typeof window !== 'undefined' &&
+    typeof window.location?.search === 'string' &&
+    new URLSearchParams(window.location.search).get('hosting') === '1';
+
+  /**
    * Boot with no event but a resolvable INVITATION -- the state a link or a QR puts a
    * guest in, and the only one of the three in which `event.lookUp` does any work.
    *
@@ -223,13 +239,21 @@ export default function RootLayout() {
         : MemoryRepository.create(
             // Order matters: `?invited=1` is a strictly more furnished empty world, so
             // it has to be read before the plainer flag can claim the same request.
-            invitedWorld ? invitedSeed : emptyWorld ? emptySeed : weddingSeed,
+            // Order matters: each is a strictly more furnished empty world, so the richer
+            // flags have to be read before a plainer one claims the same request.
+            hostingWorld
+              ? hostingSeed
+              : invitedWorld
+                ? invitedSeed
+                : emptyWorld
+                  ? emptySeed
+                  : weddingSeed,
             {
               ...(flaky ? { transfer: flakyTransfer({ steps: [0.4], failAttempts: [1] }) } : {}),
               ...(staleWorld ? { connection: 'stale' as const } : {}),
             },
           ),
-    [flaky, emptyWorld, invitedWorld, staleWorld],
+    [flaky, emptyWorld, invitedWorld, staleWorld, hostingWorld],
   );
 
   const app = (
