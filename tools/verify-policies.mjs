@@ -8,10 +8,17 @@
  * UPDATE affects zero rows and raises nothing.
  *
  * WHY THIS SKIPS LOUDLY INSTEAD OF FAILING CLOSED. Running it needs a database URL
- * containing a password, and CI here is a single public-repo job with no secret store.
- * A gate that fails without credentials would be disabled within a week. A gate that
- * skips SILENTLY is exactly the failure this file exists to correct. So it skips, says
- * so in the same shape as a failure, and names what went unchecked.
+ * containing a password, and a gate that fails for want of a credential is disabled
+ * within a week. A gate that skips SILENTLY is exactly the failure this file exists to
+ * correct. So it skips, says so in the same shape as a failure, and names what went
+ * unchecked.
+ *
+ * THIS FILE USED TO SAY CI WAS "a single public-repo job with no secret store", and so
+ * did CLAUDE.md, twice. The repository is PRIVATE, and private repositories have
+ * encrypted Actions secrets like any other -- so the stated reason the one lane that can
+ * see row-level security never ran in CI was never true. `checks.yml` passes
+ * `secrets.SUPABASE_DB_URL` through now; set it and this runs on every push. Until it is
+ * set the secret expands to an empty string and this skips, exactly as it does locally.
  *
  *   export SUPABASE_DB_URL='postgresql://postgres:<pw>@db.<ref>.supabase.co:5432/postgres'
  *   pnpm verify:policies
@@ -72,6 +79,20 @@ try {
   await client.connect();
 } catch (e) {
   const msg = String(e?.message ?? e);
+  /**
+   * A CONNECTION THAT NEVER OPENS, named rather than thrown. This path only became
+   * reachable when the secret was wired into CI, and an unhandled rejection there prints
+   * a stack trace whose top frame is node's module loader -- which says nothing about the
+   * URL being wrong, and is the least useful thing a gate can do with a bad credential.
+   */
+  if (/ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ETIMEDOUT|password authentication|does not exist/i.test(msg)) {
+    console.error('\x1b[31mFAIL: could not connect to the database.\x1b[0m');
+    console.error(`  ${msg}`);
+    console.error('  SUPABASE_DB_URL must be the DIRECT connection string, shaped:');
+    console.error('    postgresql://postgres:<pw>@db.<ref>.supabase.co:5432/postgres');
+    console.error('  In CI it comes from the SUPABASE_DB_URL Actions secret.');
+    process.exit(1);
+  }
   if (/self[- ]signed|unable to (verify|get local issuer)|certificate/i.test(msg)) {
     console.error('\x1b[31mFAIL: the database certificate could not be verified.\x1b[0m');
     console.error(`  ${msg}`);

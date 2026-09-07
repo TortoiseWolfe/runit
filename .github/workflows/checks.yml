@@ -32,8 +32,24 @@ jobs:
       - name: Build the check image
         run: docker compose build checks
 
+      # LANE E RUNS HERE NOW, IF THE SECRET EXISTS -- and the reason it did not is
+      # that three files said this was "one public-repo job with no secret store".
+      # The repository is PRIVATE, and private repositories have encrypted Actions
+      # secrets like any other. The stated blocker was never true, and it kept the
+      # one lane that can see row-level security out of CI for the life of the repo.
+      #
+      # Until somebody adds SUPABASE_DB_URL under Settings -> Secrets and variables
+      # -> Actions, this expands to an empty string and the lane skips LOUDLY, exactly
+      # as it does on a laptop. So this change is a no-op until the secret exists, and
+      # never a red gate for want of a credential.
+      #
+      # Secrets are not exposed to workflows triggered by a fork's pull request. That
+      # is correct and wanted: the lane would skip there and say so, rather than hand
+      # a database password to anything a stranger can trigger.
       - name: Run every gate
         run: docker compose run --rm checks
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
 
       # The screenshot harness is the slowest gate and the one whose output is
       # worth looking at when it fails.
