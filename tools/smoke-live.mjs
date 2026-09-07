@@ -134,6 +134,25 @@ const seeInConsole = async (segment, selector, ms = 20_000) => {
 
 const STAMP = new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14);
 const EVENT_NAME = `smoke ${STAMP}`;
+
+/**
+ * A WEEK OUT, DERIVED — not the hard-coded `2026-12-31` this used to fill (#47).
+ *
+ * That date was in the future when it was written and stops being so on 2027-01-01, at
+ * which point every event this lane creates is born in the past. Two clocks already run
+ * from `starts_at`: `photos_past_retention()` measures album retention from it, so a
+ * past-dated `house_party` event's photos are immediately expired and the nightly sweep
+ * starts finding rows a test made; and the album's own "kept for N days after the event"
+ * copy renders as already-elapsed. Neither breaks today. Both would break quietly, months
+ * after the commit that caused it.
+ *
+ * A DERIVED DATE IS FINE HERE AND WOULD NOT BE IN LANE B. `pnpm shots` is compared by eye
+ * against committed renders, so a value that moves makes a reference set that can never be
+ * clean -- which is why `00-create-key` is one of two screenshots that already differ run
+ * to run. This lane writes to a live database and prints the event code it leaves behind;
+ * it is non-deterministic by construction, so the honest thing is a date that stays true.
+ */
+const CREATE_DATE = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10);
 const ANNOUNCEMENT = `Smoke ${STAMP}: the cake is real.`;
 const SONG = `Smoke ${STAMP}`;
 
@@ -176,7 +195,7 @@ try {
   await page.waitForSelector('[data-testid="scheme-probe"]', { timeout: 30_000 });
   await page.getByTestId('create-host-name').fill('Smoke Host');
   await page.getByTestId('create-name').fill(EVENT_NAME);
-  await page.getByTestId('create-date').fill('2026-12-31');
+  await page.getByTestId('create-date').fill(CREATE_DATE);
   await page.getByTestId('create-time').fill('19:00');
   await page.getByTestId('create-venue').fill('The test flat');
   await page.getByTestId('create-submit').click();
