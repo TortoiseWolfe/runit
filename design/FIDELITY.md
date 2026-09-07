@@ -2519,3 +2519,68 @@ gate does: on a container run it prints, in yellow, that these PNGs are containe
 `design/renders/` is host DejaVu, so a lane D read against them would report a wrap
 difference as a regression. It prints rather than fails, because every container run is a
 container run.
+
+## AT. The lane that had never run, and the password nobody ever had
+
+Lane E asserts what row-level security actually *does* — the only check here that can. It
+had never run to completion. Not once. On 2026-09-06 it did: **142 assertions, 0 failures.**
+
+### The credential was the whole problem, and it never existed
+
+Running it needed the production database password, so it skipped — and a skip and a pass are
+the same green. The obvious question is where that password went, and the answer is that no
+session ever had one: the Supabase MCP's `create_project` takes `name`, `organization_id`,
+`region` and `confirm_cost_id`, with `additionalProperties: false`. **There is no password
+parameter.** Supabase generates it server-side and never returns it. Nothing was lost; it was
+never obtainable through the tooling that built the project.
+
+That reframes the fix. Chasing the password was chasing the wrong thing. `npx supabase start`
+gives a local Postgres with the real `auth`, `storage`, `anon` and `authenticated` machinery,
+the migration applies to it, and the assertions run — needing nothing from anyone. The
+credential was always the reason nobody ran this, and the local stack removes the reason.
+
+### Three defects were hiding in the silence
+
+Each was invisible for the same reason, and each is the same shape as the last.
+
+**A duplicate `pho uuid`** in the DECLARE block. Postgres rejects that at compile time with
+42601, so *zero* of the file's assertions had run since `aed8fb1` — the commit that also
+raised `EXPECTED_ASSERTIONS` to 143 to describe seven new ones. `pnpm audit:sql` now catches
+this class with no credentials at all.
+
+**The migration could not be applied to an empty database.** `photos_past_retention` is
+`language sql`, and Postgres name-resolves a SQL function body at CREATE time; it selected
+from `public.tier_limits` about 1100 lines before that table was created. It worked on the
+live project only because the table was already there. So the "single monolithic migration"
+that this repo treats as the source of truth was not a reproducible artefact — nothing had
+ever built a database from it. The four other early readers of `tier_limits` are `plpgsql`,
+whose bodies are only syntax-checked, so they would have failed at *runtime* instead, which
+is worse. Same commit again: `aed8fb1`.
+
+**The #44 song-merge assertions used a guest with no seat.** `buid2` is the guest the tier
+cap *refuses* a few hundred lines earlier — that refusal is the point of the 54023 assertion
+— so `request_song` correctly raised "not a guest of this event" and every assertion below
+aborted. Written, never run, for the third time in one file.
+
+### 143 was arithmetic; 142 is a measurement
+
+The floor was 143: 101 from a whole-file run plus six sets counted in separate in-context
+runs. Those addends described assertions that had never executed. Lowering a coverage floor
+is normally the wrong move and it was right exactly once — when the previous value was never
+measured. **Get the next number from a complete run, not by adding to this one.**
+
+### Loopback has no TLS, which is not the same as not verifying it
+
+The local container serves no TLS at all, so a strict `ssl` option cannot handshake. The
+exemption matches the loopback *host* — not a flag, not an env var, not a "skip TLS" switch —
+so it cannot be turned on for a remote database by a tired person at 2am. Every other host
+keeps `rejectUnauthorized: true`, because that connection carries a real password. The one
+case it reads wrong is a remote database behind an SSH tunnel bound to localhost, where the
+traffic is already inside the tunnel's encryption.
+
+### What local proves, and what it cannot
+
+It proves the file compiles and that the **committed migration's** policies behave as
+asserted. It cannot see whether production has drifted from that migration — if something was
+applied to the live project by hand, only a live run finds it. The success line names its
+target for that reason: "the assertions pass" means two different things.

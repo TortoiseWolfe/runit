@@ -647,55 +647,6 @@ end $$;
 revoke execute on function public.sweep_authorised(text) from public, anon, authenticated;
 
 -- ------------------------------------------------------------------------
--- THE RETENTION SWEEP'S EYES (#40)
--- ------------------------------------------------------------------------
---
--- WHAT IS PAST ITS RETENTION. The rule lives HERE, in SQL, beside the `tier_limits` row it
--- reads -- not in the Edge Function that does the deleting. Same reasoning as the caps: a
--- number that lives only in the caller is enforced by whichever caller happens to be asking,
--- and the sweep must not be a second opinion about what "expired" means.
---
--- THE CLOCK RUNS FROM `starts_at`, NOT FROM THE PHOTO. The album says "Photos here are kept
--- for N days after THE EVENT", and that sentence is already on screen -- so a photo uploaded
--- three days late expires with the party rather than outliving it. Building it from
--- `created_at` would quietly break a promise the app has already made.
---
--- NULL IS NEVER. The $599 tier stores `null`, the album draws no line for it, and this
--- returns nothing for it. `0` would mean the opposite and read as plausible, which is why
--- the column has always been nullable rather than defaulted.
---
--- IT SELECTS, IT DOES NOT DELETE, and it cannot: `storage.protect_delete()` refuses every
--- direct delete on `storage.objects` for the owner as much as for a guest (lane E asserts
--- it), so the bytes can only go through the Storage API with a service role. This is the
--- half that belongs in the database.
-create or replace function public.photos_past_retention(p_limit integer default 200)
-returns table (
-  id           uuid,
-  storage_path text,
-  thumb_path   text,
-  event_code   text,
-  expired_at   timestamptz
-)
-language sql stable security definer set search_path = public as $$
-  select p.id, p.storage_path, p.thumb_path, e.code,
-         e.starts_at + make_interval(days => tl.album_retention_days)
-    from public.photos p
-    join public.events e on e.id = p.event_id
-    join public.tier_limits tl on tl.tier = e.tier
-   where tl.album_retention_days is not null
-     and now() > e.starts_at + make_interval(days => tl.album_retention_days)
-   -- Oldest first, so a bounded run always makes progress on the worst backlog rather than
-   -- picking at whatever the planner returned.
-   order by e.starts_at
-   limit greatest(coalesce(p_limit, 200), 0);
-$$;
-
--- NOT CALLABLE BY ANY CLIENT. It answers "which photos are about to be destroyed" across
--- every event in the project, which is nobody's business but the sweep's. The Edge Function
--- reaches it with the service role, which these revokes do not touch.
-revoke execute on function public.photos_past_retention(integer) from public, anon, authenticated;
-
--- ------------------------------------------------------------------------
 -- THE SCHEDULE (#40)
 -- ------------------------------------------------------------------------
 --
@@ -1816,6 +1767,65 @@ on conflict (tier) do update set
   pinned_announcements = excluded.pinned_announcements,
   push_notifications   = excluded.push_notifications,
   album_retention_days = excluded.album_retention_days;
+
+-- MOVED HERE, AND THE MOVE IS THE POINT. This block sat ~1100 lines ABOVE the
+-- `tier_limits` table it selects from. `photos_past_retention` is `language sql`, and
+-- Postgres NAME-RESOLVES a SQL function body at CREATE time -- so applying this file to
+-- an empty database failed here with `relation "public.tier_limits" does not exist`,
+-- and had done since aed8fb1. It never showed up because the live project already had
+-- the table when the function was added, and nothing has ever applied this file from
+-- scratch. The four OTHER early readers of `tier_limits` are all `plpgsql`, whose bodies
+-- are only syntax-checked at create time; they would have failed at RUNTIME instead,
+-- which is worse. Keep anything that SELECTS from `tier_limits` below this line.
+-- ------------------------------------------------------------------------
+-- THE RETENTION SWEEP'S EYES (#40)
+-- ------------------------------------------------------------------------
+--
+-- WHAT IS PAST ITS RETENTION. The rule lives HERE, in SQL, beside the `tier_limits` row it
+-- reads -- not in the Edge Function that does the deleting. Same reasoning as the caps: a
+-- number that lives only in the caller is enforced by whichever caller happens to be asking,
+-- and the sweep must not be a second opinion about what "expired" means.
+--
+-- THE CLOCK RUNS FROM `starts_at`, NOT FROM THE PHOTO. The album says "Photos here are kept
+-- for N days after THE EVENT", and that sentence is already on screen -- so a photo uploaded
+-- three days late expires with the party rather than outliving it. Building it from
+-- `created_at` would quietly break a promise the app has already made.
+--
+-- NULL IS NEVER. The $599 tier stores `null`, the album draws no line for it, and this
+-- returns nothing for it. `0` would mean the opposite and read as plausible, which is why
+-- the column has always been nullable rather than defaulted.
+--
+-- IT SELECTS, IT DOES NOT DELETE, and it cannot: `storage.protect_delete()` refuses every
+-- direct delete on `storage.objects` for the owner as much as for a guest (lane E asserts
+-- it), so the bytes can only go through the Storage API with a service role. This is the
+-- half that belongs in the database.
+create or replace function public.photos_past_retention(p_limit integer default 200)
+returns table (
+  id           uuid,
+  storage_path text,
+  thumb_path   text,
+  event_code   text,
+  expired_at   timestamptz
+)
+language sql stable security definer set search_path = public as $$
+  select p.id, p.storage_path, p.thumb_path, e.code,
+         e.starts_at + make_interval(days => tl.album_retention_days)
+    from public.photos p
+    join public.events e on e.id = p.event_id
+    join public.tier_limits tl on tl.tier = e.tier
+   where tl.album_retention_days is not null
+     and now() > e.starts_at + make_interval(days => tl.album_retention_days)
+   -- Oldest first, so a bounded run always makes progress on the worst backlog rather than
+   -- picking at whatever the planner returned.
+   order by e.starts_at
+   limit greatest(coalesce(p_limit, 200), 0);
+$$;
+
+-- NOT CALLABLE BY ANY CLIENT. It answers "which photos are about to be destroyed" across
+-- every event in the project, which is nobody's business but the sweep's. The Edge Function
+-- reaches it with the service role, which these revokes do not touch.
+revoke execute on function public.photos_past_retention(integer) from public, anon, authenticated;
+
 
 -- Minting a second host seat, and the key that redeems it.
 --
