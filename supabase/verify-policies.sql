@@ -1235,7 +1235,18 @@ begin
   -- most-wanted song of the night could sit under songs one person asked for. The unique
   -- index is what decides two requests are the same song, which is the only place a second
   -- client cannot disagree with.
+  -- SEAT buid2 FIRST, and this is the bug that kept the whole file from ever running past
+  -- here. `buid2` is the guest the CAP REFUSED a few hundred lines above -- that refusal is
+  -- the point of the 54023 assertion -- so she holds no seat, and `request_song` correctly
+  -- raises "not a guest of this event". Every assertion below this line had therefore never
+  -- executed. Seated DIRECTLY rather than through `join_event`, the same way the cap fillers
+  -- are, because the event is at its cap by construction and this section is about song
+  -- merging rather than about joining.
   execute 'reset role';
+  insert into public.guests (event_id, auth_user_id, nickname)
+       values (ce2.event_id, buid2, 'Bo')
+  on conflict do nothing;
+
   perform set_config('request.jwt.claims', json_build_object('sub',auid,'role','authenticated')::text, true);
   execute 'set local role authenticated';
   select r.request_id into g1 from public.request_song(ce2.event_id, 'Dancing Queen', 'ABBA') r;

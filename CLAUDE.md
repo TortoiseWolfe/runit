@@ -409,6 +409,28 @@ role with `set local role authenticated` and a forged `request.jwt.claims`, asse
 **a hundred and eight** behaviours, and RAISES at the end so nothing commits -- the "error" it
 prints IS the report.
 
+**IT RAN COMPLETELY FOR THE FIRST TIME ON 2026-09-06, and it needed no production password
+to do it.** `npx supabase start` gives a local stack, the migration applies to it with psql,
+and `SUPABASE_DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres` runs the lane
+against it -- **142 assertions, 0 failures**. `docs/lane-e.md` has the recipe. That route is
+the durable fix for "nobody runs it": the credential was always the reason, and the local
+stack does not need one. A live run additionally proves production has not DRIFTED from the
+committed migration, which is the one thing local cannot see, so the success line names which
+target it ran against.
+
+**Three defects were hiding in that silence, and all three were invisible for the same
+reason** -- the lane skipped, and a skip and a pass look identical on a board. A duplicate
+`pho uuid` (42601) had stopped the file compiling since `aed8fb1`. The migration could not be
+applied to an empty database at all, because `photos_past_retention` is `language sql` -- whose
+body Postgres name-resolves at CREATE time -- and selected from `tier_limits` ~1100 lines
+before that table was created. And the #44 assertions called `request_song` as `buid2`, the
+guest the tier cap deliberately REFUSES, so everything below them aborted.
+
+**`EXPECTED_ASSERTIONS` was 143 and the truth is 142.** The 143 was arithmetic over six sets
+counted in separate in-context runs -- sets which, it turns out, had never executed. Lowering
+that number is normally wrong and was right exactly once: when the previous value had never
+been measured. Get the next one from a real complete run rather than by adding to this one.
+
 **It did not run at all until 2026-09-05, and nothing said so.** A setup line inserted
 a photo as the host with no `uploaded_by_guest_id`; `photos_insert` refused it with
 42501 outside any exception handler, which aborted the whole `DO` block -- so every

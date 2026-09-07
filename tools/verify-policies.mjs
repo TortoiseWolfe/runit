@@ -37,6 +37,16 @@ if (!url) {
   console.log('  SUPABASE_DB_URL is not set, so THE RLS BEHAVIOUR ASSERTIONS WENT UNCHECKED.');
   console.log('  Nothing else in this suite can see row-level security: lane B has no');
   console.log('  backend and lane C is one emulator with one identity.');
+  console.log('');
+  console.log('  NO PRODUCTION PASSWORD NEEDED — run it against a local stack instead:');
+  console.log('    npx supabase start');
+  console.log('    docker exec -i supabase_db_runit psql -U postgres -v ON_ERROR_STOP=1 \\');
+  console.log('      < supabase/migrations/00000000000000_init.sql');
+  console.log('    SUPABASE_DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres \\');
+  console.log('      pnpm verify:policies');
+  console.log('  That proves the COMMITTED migration\'s policies behave. Only the live run');
+  console.log('  additionally proves production has not drifted from it. docs/lane-e.md');
+  console.log('');
   console.log('  Set it and re-run before trusting a green board after a migration change.');
   process.exit(0);
 }
@@ -72,7 +82,24 @@ if (caPath) {
     process.exit(1);
   }
 }
-const ssl = { rejectUnauthorized: true, ...(ca ? { ca } : {}) };
+/**
+ * LOOPBACK HAS NO TLS TO VERIFY, and that is a different statement from "do not verify".
+ *
+ * `supabase start` runs Postgres in a container on 127.0.0.1:54322 with TLS off entirely,
+ * so a strict `ssl` option there fails the handshake and the lane cannot run locally at
+ * all -- which mattered, because running it locally is the ONLY way anyone without the
+ * production database password can execute these assertions.
+ *
+ * This is narrow on purpose. It matches the loopback HOST, not a flag, an env var or a
+ * "skip TLS" switch, so it can never be turned on for a remote database by accident or by
+ * a tired person at 2am: every other host keeps `rejectUnauthorized: true`, and the
+ * credential on this path is the well-known local `postgres`, not a secret.
+ *
+ * The one case it reads wrong is a remote database reached through an SSH tunnel bound to
+ * localhost -- and there the traffic is already inside the tunnel's encryption.
+ */
+const isLoopback = /@(localhost|127\.0\.0\.1|\[::1\]):/.test(url);
+const ssl = isLoopback ? false : { rejectUnauthorized: true, ...(ca ? { ca } : {}) };
 
 const client = new pg.Client({ connectionString: url, ssl });
 try {
@@ -150,15 +177,18 @@ if (Number(m[1]) > 0) {
  * A gate that passes having measured less than it did last time is the exact bug #31 was
  * filed for. Raise this number when you add assertions; that is the intended friction.
  *
- * IT IS A FLOOR, SO ONLY AN UNDERCOUNT FAILS. 143 = 101 measured in a whole-file run, plus
- * six sets measured in equivalent in-context runs: 7 storage (#10), 7 headcount (#37),
- * 4 seen-by (#24), 9 nickname (#43/#36), 8 song-merge (#44) and 7 retention (#40). The file is now large
- * enough that pasting it whole into an MCP call hits an output limit, which is one more
- * reason #31's "nothing re-runs it in CI" is the thing worth closing. If a real run ever
- * reports fewer, this fails loudly and the number gets corrected, which is the gate doing
- * its job rather than a reason to lower it.
+ * IT IS A FLOOR, SO ONLY AN UNDERCOUNT FAILS. 142 is the first number here ever produced
+ * by a COMPLETE run of the file. It replaces 143, which was arithmetic -- 101 from a
+ * whole-file run plus six sets counted in separate in-context runs (7 storage, 7 headcount,
+ * 4 seen-by, 9 nickname, 8 song-merge, 7 retention) -- and those addends were estimates for
+ * assertions that, as it turned out, had never executed at all. Lowering this number is
+ * normally the wrong move and it is the right one exactly once: when the previous value was
+ * never measured. It is measured now.
+ *
+ * Raise it when you add assertions, and RUN THE FILE to get the number rather than adding
+ * to it. That is the whole lesson of #31 and it has now cost three separate bugs.
  */
-const EXPECTED_ASSERTIONS = 143;
+const EXPECTED_ASSERTIONS = 142;
 // The FIRST assertion shares its line with the "0 FAILURE(S)." preamble -- `format()`
 // joins the array after it -- so an anchored line match silently undercounts by one.
 const counted = report
@@ -176,6 +206,13 @@ if (counted < EXPECTED_ASSERTIONS) {
   process.exit(1);
 }
 
+// NAME WHICH DATABASE. This used to say "against the live database" unconditionally, which
+// became a false statement the moment a local stack could run it -- and "the assertions pass"
+// means something different depending on the target. Locally it proves the committed
+// migration's policies behave; only the live run additionally proves production has not
+// drifted from that migration.
 console.log(
-  `\x1b[32mok: all ${counted} policy assertions hold against the live database\x1b[0m`,
+  `\x1b[32mok: all ${counted} policy assertions hold against the ${
+    isLoopback ? 'LOCAL stack (built from supabase/migrations/)' : 'LIVE project'
+  }\x1b[0m`,
 );
