@@ -213,8 +213,16 @@ describe('the app and the association file describe the same app', () => {
   it('rewrites /i/<code> to the one page, without changing the URL', () => {
     // 200 not 301: Apple matches the URL as SENT, and a redirect would also lose the code
     // out of the address bar before the page could read it.
+    //
+    // THE DESTINATION IS `/i/`, AND THIS TEST USED TO DEMAND `/i/index.html`. It was wrong,
+    // and only the live host could say so: Cloudflare Pages canonicalises the explicit
+    // filename -- `/i/index.html` answers 308 to `/i/` -- and a rewrite whose destination
+    // redirects does not serve. The first deploy shipped the spelled-out form and every
+    // `/i/CODE` returned 404 while the association file beside it was perfect. Measured on
+    // runit-app.pages.dev, not reasoned about. Do not "fix" this back.
     const redirects = readFileSync(join(REPO, 'web/_redirects'), 'utf8');
-    expect(redirects).toMatch(/\/i\/\*\s+\/i\/index\.html\s+200/);
+    expect(redirects).toMatch(/\/i\/\*\s+\/i\/\s+200/);
+    expect(redirects).not.toMatch(/\/i\/index\.html\s+200/);
   });
 });
 

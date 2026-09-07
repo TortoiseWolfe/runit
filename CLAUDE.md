@@ -661,7 +661,18 @@ that lives in a button handler is bypassed by the second caller.
   `pnpm verify:links` (lane G) is the one that can tell, because it reads the BODY back and
   looks for our own appID and App Store id in it. `pages.dev` names are global and
   first-come; an unclaimed one does not resolve at all, so probe before choosing.
-- **THE UNIVERSAL LINK IS UNVERIFIED, and no lane here can change that.** A misconfigured
+- **THE INVITATION HOST IS DEPLOYED (#52).** `runit-app.pages.dev` went up on 2026-09-07 by
+DIRECT UPLOAD -- `wrangler pages deploy web --project-name=runit-app` -- not git integration,
+so **a push to `main` does not redeploy it**; re-run that command when `web/` changes. Lane G
+asserts it now instead of skipping, which it had done on every run since the repo began.
+
+**`_redirects` MUST TARGET `/i/`, NOT `/i/index.html`.** Pages canonicalises the explicit
+filename (`/i/index.html` answers 308 to `/i/`), and a rewrite whose destination redirects
+does not serve. The first deploy had the filename spelled out and every `/i/CODE` returned
+404 -- while the association file was already perfect, so the half that Lane G checks hardest
+was green and the half a guest actually walks was dead.
+
+**THE UNIVERSAL LINK IS UNVERIFIED, and no lane here can change that.** A misconfigured
   one fails SILENTLY -- it opens Safari instead of the app, forever. `src/lib/invite.test.ts`
   proves `INVITE_ORIGIN`, `app.json`'s `associatedDomains`, `web/.well-known/apple-app-site-association`
   and `web/_headers` describe the same app at the same address; Lane F proves the QR

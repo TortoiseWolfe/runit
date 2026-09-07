@@ -3,4 +3,8 @@
 #
 # 200, not 301: a redirect would change the URL in the address bar and, more importantly,
 # Apple's universal-link matching runs against the URL as SENT. Rewriting keeps /i/CODE.
-/i/*  /i/index.html  200
+# THE DESTINATION IS `/i/`, NOT `/i/index.html`. Pages canonicalises the explicit filename
+# -- `/i/index.html` answers 308 to `/i/` -- and a rewrite whose target redirects does not
+# serve, so `/i/SR1017` 404'd on the first deploy with the file spelled out. Measured, not
+# guessed: `/i/` returns 200 text/html and `/i/index.html` returns 308.
+/i/*  /i/  200
