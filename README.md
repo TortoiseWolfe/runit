@@ -23,7 +23,7 @@ specification for every screen.
 | Apple Team ID | `Y774K5FF67` — also half of the associated-domains appID, `Y774K5FF67.com.turtlewolfe.runit`, in `web/.well-known/apple-app-site-association`. `src/lib/invite.test.ts` asserts the two agree. |
 | Invitation links | <https://runit-app.pages.dev> — Cloudflare Pages, output dir `web/`, deployed from this repo. It exists because Apple fetches the association file from the domain ROOT and GitHub Pages can neither serve the apex here nor set `Content-Type: application/json`. See `web/README.md`. **Not yet deployed, and unverified on a device.** The name `runit` was taken by an unrelated project — `pnpm verify:links` is what catches that class of mistake. |
 | Privacy policy | <https://tortoisewolfe.github.io/runit-legal/privacy/> — a required, publicly-accessible field in App Store Connect (Guideline 5.1.1(i)). Source: [`TortoiseWolfe/runit-legal`](https://github.com/TortoiseWolfe/runit-legal), public because Pages on a private repo needs a paid plan. |
-| Supabase | project `qwusbxallkbzfladvgfx`, org `ieceljlytbxfhtaxvnyq`, us-east-2 |
+| Supabase | project `qwusbxallkbzfladvgfx`, org `gnjjvppwbaljcklvwkis` (`RunIt`), us-east-2 |
 
 ## Running it
 
