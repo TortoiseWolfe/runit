@@ -86,17 +86,28 @@ jobs:
       #
       # What it cannot catch is somebody changing production behind the file's back. That
       # needs a live run, which `--url` takes when anyone has access.
+      # THE PORT IS NOT HARDCODED, and it was, and that broke this job. `supabase/config.toml`
+      # moved runit's local stack to 5442x so it can run beside another project's on this
+      # machine — a purely local convenience that silently invalidated two hardcoded
+      # `127.0.0.1:54322` lines here, and the next push failed with ECONNREFUSED on a step
+      # that had nothing to do with the change. The CLI knows where it bound; ask it.
+      - name: Resolve the local database URL
+        run: |
+          # 2>/dev/null because the CLI writes advisories and a "Stopped services" line to
+          # stderr — harmless in a terminal, fatal to a JSON parse if it ever lands on stdout.
+          url=$(npx --yes supabase@2.116.0 status -o json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin)["DB_URL"])')
+          test -n "$url" || { echo "supabase status reported no DB_URL"; exit 1; }
+          echo "SUPABASE_DB_URL=$url" >> "$GITHUB_ENV"
+          echo "resolved: ${url/postgres:postgres@/postgres:***@}"
+
+      # SUPABASE_DB_URL comes from the resolve step above. Loopback, so no TLS —
+      # verify-policies.mjs matches the HOST for that, never a flag, so this cannot
+      # loosen a remote connection.
       - name: Schema fingerprint
         run: pnpm schema:check
-        env:
-          SUPABASE_DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
 
       - name: Lane E
         run: pnpm verify:policies
-        env:
-          # Loopback, so no TLS — verify-policies.mjs matches the HOST for that, never a
-          # flag, so this cannot loosen a remote connection.
-          SUPABASE_DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
 
       - name: What the database ended up with
         if: failure()
