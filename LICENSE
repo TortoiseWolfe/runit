@@ -1,0 +1,26 @@
+Copyright (c) 2026 Jonathan Pohlner. All rights reserved.
+
+RunIt is a commercial product. This repository is published so that its source can
+be read, cited and audited -- and so that its continuous integration runs on the
+public-repository tier. Publication is not a grant of rights.
+
+NO LICENCE IS GRANTED. You may view this source and quote from it for commentary,
+review, teaching or research, with attribution. You may not copy, modify, merge,
+publish, distribute, sublicense, sell, or create derivative works from it, and you
+may not build, submit or distribute an application from it, in whole or in part,
+without prior written permission from the copyright holder.
+
+This is not an open-source licence and is not OSI-approved. If you want to reuse
+something here, ask -- permission is often given, and it costs an email.
+
+THIRD-PARTY COMPONENTS. Dependencies retain their own licences, which govern those
+components rather than this one. `design/theme.css` is compiled Tailwind CSS and
+DaisyUI output and carries their terms. `design/Runit.dc.html`, `design/support.js`
+and `design/ios-frame.jsx` are Claude Design canvas exports, imported verbatim.
+
+NO WARRANTY. This software is provided "as is", without warranty of any kind,
+express or implied, including but not limited to the warranties of merchantability,
+fitness for a particular purpose and non-infringement. In no event shall the
+copyright holder be liable for any claim, damages or other liability, whether in an
+action of contract, tort or otherwise, arising from, out of or in connection with
+this software or its use.
