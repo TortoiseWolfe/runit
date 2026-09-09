@@ -72,6 +72,11 @@ test.describe('the events this identity hosts', () => {
     await switchToHost(page);
     await page.getByTestId('host-segment-event').click();
 
+    // The switcher folds now. Its summary names the event you are standing in -- which
+    // the console header never does -- and the list itself is one tap behind it.
+    await expect(page.getByTestId('event-switcher-summary')).toHaveText("Sam & Riley's Wedding");
+    await page.getByTestId('event-switcher-toggle').click();
+
     const here = page.getByTestId('my-event-SR1017');
     await expect(here).toContainText('Here');
     // A View rather than a disabled Pressable, deliberately: empty-world.spec.ts counts
