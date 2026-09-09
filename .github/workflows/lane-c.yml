@@ -81,8 +81,13 @@ jobs:
             -no-window -no-snapshot -no-audio -no-boot-anim
             -camera-back virtualscene
             -gpu swiftshader_indirect
+          # `sh`, NOT bash: the action runs this block with /usr/bin/sh, which is dash on
+          # ubuntu runners, and `set -o pipefail` is a bashism it rejects outright —
+          # "Illegal option -o pipefail", exit 2, before a single line of the script runs.
+          # `-eu` is POSIX and is all this needs; nothing below pipes into a command whose
+          # failure would otherwise be masked.
           script: |
-            set -euo pipefail
+            set -eu
             export ADB_LIBUSB=0
 
             # A clean prebuild, because CAMERA and its usage strings come from config
