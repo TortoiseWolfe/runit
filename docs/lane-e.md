@@ -45,7 +45,7 @@ matches the loopback *host* — not a flag or an env var — so it can never be 
 remote database by accident. Every other host keeps `rejectUnauthorized: true`, because that
 connection carries a real password.
 
-### `supabase db push` and `db reset` are a SILENT NO-OP on this repo
+### `supabase db push` and `db reset` were a SILENT NO-OP until #48
 
 The CLI **reserves the migration name `init`** and skips the file, saying so only in the
 noise of a `start`:
@@ -55,22 +55,26 @@ Skipping migration 00000000000000_init.sql... (replace "init" with a different f
 to apply this migration)
 ```
 
-The file is `00000000000000_init.sql`, so the two canonical Supabase deployment commands
-apply nothing and exit 0. It is not the all-zero version — it is the word `init`. This repo
-deploys through the Supabase MCP rather than the CLI, so it has never bitten in practice,
-but anyone reaching for `db push` gets a green no-op. Renaming would fix it and would touch
-six files that reference the filename; filed rather than done.
+The file was `00000000000000_init.sql`, so both canonical Supabase deployment commands
+applied nothing and exited 0. It was not the all-zero version — it was the word.
+
+**Renamed to `00000000000000_schema.sql` (#48), and the CLI now says `Applying migration`.**
+Verified end to end: 16 tables, 34 policies, the seed present, 153 lane E assertions and a
+matching schema fingerprint, all from a plain `supabase db reset`.
 
 ### Resetting between attempts
 
-`supabase db reset` does **not** apply this migration (see above), so reset by hand:
-
 ```bash
-docker exec -i supabase_db_runit psql -U postgres -v ON_ERROR_STOP=1 \
-  < supabase/reset-local.sql
+npx supabase db reset
 ```
 
-**Use that file rather than a `drop schema` of your own.** `00000000000000_init.sql`
+That is the whole recipe now, and it is better than what came before: it rebuilds the
+database rather than dropping a schema, so **Supabase's default privileges survive** and the
+client grants come back intact — checked, `anon` and `authenticated` hold INSERT/SELECT on
+`events` afterwards.
+
+`supabase/reset-local.sql` remains for the psql route (applying the migration by hand
+without the CLI). **Use that file rather than a `drop schema` of your own.** `00000000000000_init.sql`
 contains no table grants at all — it relies on Supabase's
 `ALTER DEFAULT PRIVILEGES ... GRANT ALL ON TABLES TO anon, authenticated`, which is attached
 to the *schema*. So `drop schema public cascade` destroys it, and every table the migration

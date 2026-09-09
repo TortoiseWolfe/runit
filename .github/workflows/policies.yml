@@ -65,16 +65,18 @@ jobs:
           npx --yes supabase@2.116.0 start \
             -x imgproxy,kong,mailpit,postgrest,postgres-meta,studio,edge-runtime,logflare,vector,supavisor,realtime
 
-      # NOT `supabase db push` or `db reset`. The CLI SKIPS a migration named `init` —
-      # "replace \"init\" with a different file name to apply this migration" — so both of
-      # those are a silent no-op on this repo. psql is explicit, and ON_ERROR_STOP=1 turns
-      # the apply itself into the from-scratch gate.
+      # psql RATHER THAN `supabase db reset`, and the reason changed with #48. It used to be
+      # that the CLI SKIPPED a migration named `init` and both canonical commands were a
+      # silent no-op; the file is `_schema.sql` now and `db reset` applies it correctly.
+      # This stays on psql because `ON_ERROR_STOP=1` makes the apply ITSELF the from-scratch
+      # gate — an explicit non-zero exit on the first bad statement, which is the property
+      # that caught the migration being unappliable at all.
       - name: Apply the committed migration to an empty database
         run: |
           db=$(docker ps --filter name=supabase_db --format '{{.Names}}' | head -1)
           test -n "$db" || { echo "no supabase db container"; exit 1; }
           docker exec -i "$db" psql -U postgres -v ON_ERROR_STOP=1 \
-            < supabase/migrations/00000000000000_init.sql
+            < supabase/migrations/00000000000000_schema.sql
 
       # DOES THE MIGRATION STILL BUILD THE SCHEMA WE RECORDED? Lane E asserts what the
       # policies DO; it cannot see an extra column, a dropped trigger, or a tier cap edited
