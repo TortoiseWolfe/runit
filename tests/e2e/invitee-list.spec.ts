@@ -38,6 +38,7 @@ test.describe('who is invited', () => {
     );
 
     await page.getByTestId('host-segment-event').click();
+    await page.getByTestId('invitees-toggle').click();
     await expect(page.getByTestId('invitee-email')).toBeVisible();
     await page.getByTestId('invitee-email').fill(ADDRESS);
     await page.getByTestId('invitee-add').click();
@@ -56,6 +57,8 @@ test.describe('who is invited', () => {
     await joinAsGuest(page, scheme);
     await switchToHost(page);
     await page.getByTestId('host-segment-event').click();
+
+    await page.getByTestId('invitees-toggle').click();
 
     await page.getByTestId('invitee-email').fill(ADDRESS);
     await page.getByTestId('invitee-add').click();
@@ -80,6 +83,8 @@ test.describe('who is invited', () => {
     await joinAsGuest(page, scheme);
     await switchToHost(page);
     await page.getByTestId('host-segment-event').click();
+
+    await page.getByTestId('invitees-toggle').click();
 
     await page.getByTestId('invitee-email').fill(ADDRESS);
     await page.getByTestId('invitee-add').click();

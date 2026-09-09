@@ -9,6 +9,7 @@ import { TIERS } from '@/domain/tiers';
 import type { HostRole } from '@/data/types';
 import { alpha, border, eyebrow, radius, useTheme, weight } from '@/theme';
 import { MyEventsList } from '@/components/ui/MyEventsList';
+import { Disclosure } from '@/components/ui/Disclosure';
 import { ZonePicker } from '@/components/ui/ZonePicker';
 
 /**
@@ -306,63 +307,73 @@ export function EventDetailsPanel() {
             </>
           ) : null}
 
-          <TextInput
-            value={coHostName}
-            onChangeText={setCoHostName}
-            placeholder="Their name"
-            placeholderTextColor={alpha(tokens.baseContent, fade.faint)}
-            accessibilityLabel="Name of the person helping"
-            testID="cohost-name"
-            returnKeyType="done"
-            submitBehavior="blurAndSubmit"
-            onSubmitEditing={onInvite}
-            style={fieldStyle}
-          />
-
-          <View style={s.pillRow}>
-            {ROLE_CHOICES.map((r) => {
-              const on = r.role === coHostRole;
-              return (
-                <Pressable
-                  key={r.role}
-                  onPress={() => setCoHostRole(r.role)}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: on }}
-                  accessibilityLabel={`Role ${r.label}`}
-                  testID={`cohost-role-${r.role}`}
-                  style={[
-                    s.pill,
-                    { borderColor: tokens.base300, backgroundColor: on ? tokens.primary : 'transparent' },
-                  ]}
-                >
-                  <Text style={[s.pillText, { color: on ? tokens.primaryContent : tokens.baseContent }]}>
-                    {r.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-
-          {/* NEVER disabled at the cap, the same rule as "+ New folder": a control that is
-              visibly there and does nothing when tapped reads as a bug, and disabling it
-              makes the denial unreachable. The repository throws and the toast names the
-              limit. It once WAS disabled elsewhere and looked exactly like a broken button. */}
-          <Pressable
-            onPress={onInvite}
-            accessibilityRole="button"
-            accessibilityHint={atHostCap ? `This plan includes ${hostCap} hosts.` : undefined}
-            testID="cohost-invite"
-            style={[s.rotate, { borderColor: tokens.base300 }]}
+          {/* The seats above are the answer to "who is helping"; this is the machinery
+              for adding one, and a host adds a co-host once. `invitedKey` stays OUTSIDE
+              the fold deliberately -- it is shown exactly once and never again, so a
+              collapsed section is not somewhere it may ever be. */}
+          <Disclosure
+            title="Add someone"
+            summary={atHostCap ? `${hostCap} hosts on this plan` : 'DJ, planner or co-host'}
+            testID="cohost-add"
           >
-            <Text
-              style={[
-                s.rotateText,
-                { color: atHostCap ? alpha(tokens.baseContent, fade.faint) : tokens.baseContent },
-              ]}
+          <TextInput
+              value={coHostName}
+              onChangeText={setCoHostName}
+              placeholder="Their name"
+              placeholderTextColor={alpha(tokens.baseContent, fade.faint)}
+              accessibilityLabel="Name of the person helping"
+              testID="cohost-name"
+              returnKeyType="done"
+              submitBehavior="blurAndSubmit"
+              onSubmitEditing={onInvite}
+              style={fieldStyle}
+            />
+
+            <View style={s.pillRow}>
+              {ROLE_CHOICES.map((r) => {
+                const on = r.role === coHostRole;
+                return (
+                  <Pressable
+                    key={r.role}
+                    onPress={() => setCoHostRole(r.role)}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: on }}
+                    accessibilityLabel={`Role ${r.label}`}
+                    testID={`cohost-role-${r.role}`}
+                    style={[
+                      s.pill,
+                      { borderColor: tokens.base300, backgroundColor: on ? tokens.primary : 'transparent' },
+                    ]}
+                  >
+                    <Text style={[s.pillText, { color: on ? tokens.primaryContent : tokens.baseContent }]}>
+                      {r.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            {/* NEVER disabled at the cap, the same rule as "+ New folder": a control that is
+                visibly there and does nothing when tapped reads as a bug, and disabling it
+                makes the denial unreachable. The repository throws and the toast names the
+                limit. It once WAS disabled elsewhere and looked exactly like a broken button. */}
+            <Pressable
+              onPress={onInvite}
+              accessibilityRole="button"
+              accessibilityHint={atHostCap ? `This plan includes ${hostCap} hosts.` : undefined}
+              testID="cohost-invite"
+              style={[s.rotate, { borderColor: tokens.base300 }]}
             >
-              {atHostCap ? `${hostCap} hosts on this plan` : 'Add a co-host'}
-            </Text>
-          </Pressable>
+              <Text
+                style={[
+                  s.rotateText,
+                  { color: atHostCap ? alpha(tokens.baseContent, fade.faint) : tokens.baseContent },
+                ]}
+              >
+                {atHostCap ? `${hostCap} hosts on this plan` : 'Add a co-host'}
+              </Text>
+            </Pressable>
+          </Disclosure>
         </View>
       ) : null}
 
@@ -379,10 +390,11 @@ export function EventDetailsPanel() {
         list one host can read is not that decision.
       */}
       {event ? (
-        <View style={s.keyBlock}>
-          <Text style={[s.sectionTitle, { color: alpha(tokens.baseContent, fade.muted) }]}>
-            Who is invited
-          </Text>
+        <Disclosure
+          title="Who is invited"
+          summary={invitees.length === 0 ? 'Nobody yet' : `${invitees.length} invited`}
+          testID="invitees"
+        >
 
           {invitees.length === 0 ? (
             <Text style={[s.helper, { color: alpha(tokens.baseContent, fade.body) }]}>
@@ -439,19 +451,9 @@ export function EventDetailsPanel() {
           >
             <Text style={[s.rotateText, { color: tokens.baseContent }]}>Add to the list</Text>
           </Pressable>
-        </View>
+        </Disclosure>
       ) : null}
 
-      {/* THE RECOVERY KEY, for the note that got lost or was shown to the wrong person.
-          Issue #32.
-
-          She did not need a key to get in -- create_event bound her seat to auth.uid()
-          -- and she does not need one on this phone. It exists because that identity is
-          an anonymous session in a keystore, and an Android reinstall wipes it. Without
-          a key she loses her own event permanently while it carries on without her.
-
-          Rotating RETIRES the old one, which is the half that makes rotation mean
-          anything, and verify-policies.sql asserts exactly that. */}
       {event ? (
         <View style={s.keyBlock}>
           <Text style={[s.sectionTitle, { color: alpha(tokens.baseContent, fade.muted) }]}>

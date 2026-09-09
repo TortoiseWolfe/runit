@@ -29,8 +29,26 @@ async function openEventTab(page: Page, scheme: 'dark' | 'light') {
   await expect(page.getByTestId('host-event-details')).toBeVisible();
 }
 
+/**
+ * Open the add form, which folds away now.
+ *
+ * The SEATS stay on screen -- "who is helping" is answered without opening anything.
+ * What folds is the machinery for adding one, and `invited-key` is deliberately left
+ * OUTSIDE the fold, because it is shown exactly once and a collapsed section is not
+ * somewhere a one-time key may ever be.
+ */
+async function openAddCoHost(page: Page) {
+  // IDEMPOTENT, because a toggle is not. This helper is called once per co-host and the
+  // section keeps its own open state, so an unconditional click would close the fold on
+  // the second seat -- which is exactly how the cap test failed first time round.
+  if (await page.getByTestId('cohost-name').isVisible()) return;
+  await page.getByTestId('cohost-add-toggle').click();
+  await expect(page.getByTestId('cohost-name')).toBeVisible();
+}
+
 /** Add one co-host and return the key the screen handed over. */
 async function addCoHost(page: Page, name: string, role: 'dj' | 'planner' | 'host' = 'host') {
+  await openAddCoHost(page);
   await page.getByTestId('cohost-name').fill(name);
   await page.getByTestId(`cohost-role-${role}`).click();
   await page.getByTestId('cohost-invite').click();
@@ -122,6 +140,9 @@ test.describe('host · adding a co-host', () => {
     // NOT disabled at the cap. A control that is visibly there and does nothing when
     // tapped reads as a bug, and disabling it makes the denial unreachable — this button
     // is drawn the way "+ New folder" is, for the same reason.
+    // The cap now also reads on the closed section, so a host sees it without opening.
+    await expect(page.getByTestId('cohost-add-summary')).toHaveText('5 hosts on this plan');
+    await openAddCoHost(page);
     await expect(page.getByTestId('cohost-invite')).toContainText('5 hosts on this plan');
     await expect(page.locator('[aria-disabled="true"]')).toHaveCount(0);
 
@@ -136,6 +157,7 @@ test.describe('host · adding a co-host', () => {
     const scheme = testInfo.project.name as 'dark' | 'light';
     await openEventTab(page, scheme);
 
+    await openAddCoHost(page);
     await page.getByTestId('cohost-invite').click();
     // An empty name would create a seat labelled by its role alone, which is unreachable
     // for whoever holds the key: nothing on the console would say who it belongs to.
