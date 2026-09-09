@@ -250,7 +250,44 @@ which nothing but the camera can put there. It also **measures that the preview 
 because `CameraView` mounts long before it produces a frame and a black SurfaceView passes
 every check short of reading pixels.
 
-Three traps it paid for, all of which make a BROKEN run look fine or a FINE run look broken:
+**IT RUNS IN CI NOW, AND THE PREVIEW PAINTS THERE (#46).** `.github/workflows/lane-c.yml`,
+dispatch-only, `gh workflow run lane-c.yml`. The doubt recorded in its own header — that the
+virtual-scene camera under swiftshader "may simply not work on a hosted runner" — is
+answered: the emulator boots in ~40s under `-camera-back virtualscene -gpu
+swiftshader_indirect`, Gradle builds the dev client in ~11m, and the lane reads **SR1017 off
+the wall with `the preview is painting (mean 86.6, spread 32.5)`**. A dead surface is
+near-zero on both numbers, so that line is the measurement, not a hope.
+
+**It took six runs and every failure was the HARNESS, never the app.** Two of them are worth
+knowing because both make a working app look broken:
+
+**`android-emulator-runner` splits `script:` on newlines and runs EACH LINE in its own
+`sh -c`.** A multi-line block is therefore not a script; it is a list of one-liners that
+share nothing. `set -eu` applied to a shell that exited immediately, `export ADB_LIBUSB=0`
+never reached `scan:device`, `pnpm start &` was backgrounded into a shell that then exited,
+and a `for` loop was torn from its `done` — and only the loop said anything out loud. That
+is why the whole thing lives in `tools/lane-c-ci.sh` and the workflow's `script:` is ONE
+LINE. Anything added there goes in the file instead.
+
+**expo-dev-client shows a one-time developer-menu sheet on the first launch of a freshly
+installed build, and it covers the join screen.** It is a WINDOW, and `uiautomator dump`
+reports the topmost one only — so `join-code` is genuinely absent from the hierarchy while
+the join screen sits fully rendered behind it. Invisible on this machine, because the dev
+client here was onboarded long ago and the flag persists; CI installs a new APK every run,
+so it appears every run. Three CI failures read `the app never reached the join screen`
+while the screenshot beside them showed the event name and the headcount. `scan:device`
+dismisses it now, from the same dump the `join-code` lookup just missed.
+
+**AND IT LEAVES STATE WHEN IT FAILS**, which it did not for the first five runs. `fail()`
+printed a sentence and exited, so the one process that could see the device threw away
+everything it knew — three consecutive failures could be diagnosed only by running a
+fourth. It writes `test-results/lane-c/` now: `screen.png`, `hierarchy.xml` and
+`logcat.txt`, the siblings of `test-results/lane-b` and `lane-h`. Deliberately NOT
+`design/device/`, which holds COMMITTED evidence: the CI artifact was pointed there and
+uploaded five PNGs straight out of the checkout, presenting files already in git as frames
+from the run.
+
+Three traps it paid for earlier, all of which make a BROKEN run look fine or a FINE run look broken:
 `virtualscene-image` answers OK whether or not it did anything, so the poster must be hung
 **before** the scanner opens or the lane silently reads whatever `-virtualscene-poster` put
 there at launch; `adb reverse tcp:8081 tcp:8081` is installed by `expo run:android` as a side
