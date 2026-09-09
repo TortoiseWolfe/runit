@@ -38,6 +38,7 @@
     "schema:fingerprint": "node tools/schema-fingerprint.mjs",
     "schema:check": "node tools/schema-fingerprint.mjs --check",
     "verify:qr": "node tools/verify-qr.mjs",
+    "icons": "node tools/make-icons.mjs",
     "qr:poster": "node tools/make-qr-poster.mjs",
     "scan:device": "node tools/scan-on-device.mjs",
     "web": "expo start --web"
