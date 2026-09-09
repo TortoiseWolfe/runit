@@ -70,27 +70,20 @@ jobs:
           npx --yes supabase@2.116.0 start \
             -x imgproxy,kong,mailpit,postgrest,postgres-meta,studio,edge-runtime,logflare,vector,supavisor,realtime
 
-      # psql RATHER THAN `supabase db reset`, and the reason changed with #48. It used to be
-      # that the CLI SKIPPED a migration named `init` and both canonical commands were a
-      # silent no-op; the file is `_schema.sql` now and `db reset` applies it correctly.
-      # This stays on psql because `ON_ERROR_STOP=1` makes the apply ITSELF the from-scratch
-      # gate — an explicit non-zero exit on the first bad statement, which is the property
-      # that caught the migration being unappliable at all.
-      - name: Apply the committed migration to an empty database
-        run: |
-          db=$(docker ps --filter name=supabase_db --format '{{.Names}}' | head -1)
-          test -n "$db" || { echo "no supabase db container"; exit 1; }
-          docker exec -i "$db" psql -U postgres -v ON_ERROR_STOP=1 \
-            < supabase/migrations/00000000000000_schema.sql
-
-      # DOES THE MIGRATION STILL BUILD THE SCHEMA WE RECORDED? Lane E asserts what the
-      # policies DO; it cannot see an extra column, a dropped trigger, or a tier cap edited
-      # in the database only. The baseline was captured from the LIVE project and verified
-      # identical to a local build at capture time (#49), so this catches the whole class of
-      # "the file changed and nobody deployed it" — with no credential.
+      # `db reset` RATHER THAN psql, and the reason is #48's own consequence. The rename
+      # off `init` made the CLI START APPLYING the migration -- which is what it was for --
+      # so `supabase start` above now builds the schema, and the explicit psql apply that
+      # followed it hit `relation "events" already exists` and failed the job. The fix that
+      # closed a silent no-op created a double apply in the same change.
       #
-      # What it cannot catch is somebody changing production behind the file's back. That
-      # needs a live run, which `--url` takes when anyone has access.
+      # This keeps the property the psql step was there for: a FROM-SCRATCH apply that fails
+      # loudly. Mutation-checked -- an unappliable statement makes `db reset` exit 1 and name
+      # the statement number and SQLSTATE, which is a better diagnostic than ON_ERROR_STOP
+      # gave. It also rebuilds the DATABASE rather than dropping a schema, so Supabase's
+      # default privileges survive and the client grants are real.
+      - name: Rebuild the database from the committed migration
+        run: npx --yes supabase@2.116.0 db reset
+
       # THE PORT IS NOT HARDCODED, and it was, and that broke this job. `supabase/config.toml`
       # moved runit's local stack to 5442x so it can run beside another project's on this
       # machine — a purely local convenience that silently invalidated two hardcoded
