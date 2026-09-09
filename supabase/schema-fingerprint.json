@@ -1,16 +1,16 @@
 {
   "capturedFrom": "the LIVE project qwusbxallkbzfladvgfx, via the Supabase MCP",
-  "capturedAt": "2026-09-07",
-  "verifiedAgainst": "Re-checked after deploying push_authorised and the guarded fan-outs (#51): the live project and a local build of the committed migration both read functions 32 @ 9464044454ad874a4c0b2b959f4f5b54, and all six groups match.",
+  "capturedAt": "2026-09-09",
+  "verifiedAgainst": "Re-checked after deploying photo_moderation_50 (#50): the live project and a local build of the committed migration match on all six groups. The tier_limits expression now also covers photo_moderation \u2014 it did not when the column landed, so a drift in that VALUE would have been invisible while the columns group only caught its existence.",
   "howToRefresh": "pnpm schema:fingerprint --write, and only after re-checking production. See docs/lane-e.md and issue #49.",
   "schema": {
     "columns": {
-      "n": 118,
-      "fingerprint": "fa1e9855d0f0e010a83fe664c4477e97"
+      "n": 119,
+      "fingerprint": "adfd4bad2915c17d5e6a7f568470787d"
     },
     "functions": {
-      "n": 32,
-      "fingerprint": "9464044454ad874a4c0b2b959f4f5b54"
+      "n": 33,
+      "fingerprint": "8c57cf6ac2708dd1423975ecc8a6f107"
     },
     "indexes": {
       "n": 29,
@@ -22,11 +22,11 @@
     },
     "tier_limits": {
       "n": 4,
-      "fingerprint": "05b6569c628930058ffe8ba9fc49fa88"
+      "fingerprint": "514a6d0ac563b8652c7b89c8ee97d5b8"
     },
     "triggers": {
-      "n": 20,
-      "fingerprint": "dd94b679043d687a27e89781bb9e5406"
+      "n": 21,
+      "fingerprint": "50229d51c089fb291c749843886eabe1"
     }
   }
 }
