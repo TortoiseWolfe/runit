@@ -9,7 +9,7 @@ import { ZonePicker } from '@/components/ui/ZonePicker';
 import { Toast } from '@/components/ui/Toast';
 import { useCreateActions } from '@/state/actions';
 import { formatClock, formatEventDate } from '@/lib/format';
-import { instantFrom, zoneChoices } from '@/lib/eventForm';
+import { deviceZone, instantFrom, zoneChoices } from '@/lib/eventForm';
 import { alpha, border, eyebrow, radius, useTheme, weight } from '@/theme';
 import type { CreatedEvent } from '@/data/repository';
 
@@ -39,7 +39,10 @@ export function CreateEventScreen() {
   const [doorsLabel, setDoorsLabel] = useState('');
   const [date, setDate] = useState('');
   const [time, setTime] = useState('19:00');
-  const [zone, setZone] = useState(() => zoneChoices('UTC')[0]!);
+  // THIS PHONE'S zone, not `zoneChoices('UTC')[0]` -- that is the literal 'UTC', because
+  // `zoneChoices` puts `current` first on purpose. Seeding from it stored every new
+  // event as UTC and showed a 6pm party as 10:00 PM.
+  const [zone, setZone] = useState(deviceZone);
   const [busy, setBusy] = useState(false);
   /** Set once, and it holds the only copy of the key that will ever exist. */
   const [made, setMade] = useState<CreatedEvent | null>(null);

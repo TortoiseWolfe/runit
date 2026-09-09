@@ -32,13 +32,28 @@ const COMMON_ZONES = [
   'UTC',
 ];
 
-export function zoneChoices(current: string): string[] {
-  let device = 'UTC';
+/**
+ * What this phone thinks its zone is, or UTC when it will not say.
+ *
+ * EXPORTED BECAUSE A NEW EVENT HAS NO `current` ZONE TO SEED FROM, and reaching into
+ * `zoneChoices` for one was a bug. That function puts `current` FIRST so an existing event
+ * always opens on its own zone -- which is right, and which makes `zoneChoices('UTC')[0]`
+ * the literal string 'UTC' rather than anything about this phone. The create screen seeded
+ * from exactly that, so every event made without touching the picker was stored as UTC:
+ * a 6pm party read 10:00 PM to every guest, because `formatClock` renders the EVENT's zone
+ * and not the reader's.
+ */
+export function deviceZone(): string {
   try {
-    device = new Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    return new Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
   } catch {
-    // A resolvedOptions() that throws is not a reason to render no picker at all.
+    // A resolvedOptions() that throws is not a reason to have no zone at all.
+    return 'UTC';
   }
+}
+
+export function zoneChoices(current: string): string[] {
+  const device = deviceZone();
   // `current` first, so an event's own zone is always offered even when it is neither
   // common nor this phone's. Without that, opening the form would silently move the
   // event to whichever zone happened to be listed first.
