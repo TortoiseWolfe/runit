@@ -256,3 +256,37 @@ test.describe('leaving the console you just made', () => {
     await expect(page.getByTestId('toast')).toHaveCount(0);
   });
 });
+
+/**
+ * THE ZONE A NEW EVENT STARTS IN, and this is the only test that can catch it coming back.
+ *
+ * `CreateEventScreen` seeded from `zoneChoices('UTC')[0]`, which is the literal string
+ * 'UTC' wherever the phone is, because `zoneChoices` puts `current` first by design. So
+ * every event created without touching the picker was stored as UTC -- and `formatClock`
+ * renders the EVENT's zone rather than the reader's, so a 6pm party read 10:00 PM to
+ * everyone standing at it.
+ *
+ * `eventForm.test.ts` proves `deviceZone()` works. NOTHING THERE PROVES THE SCREEN USES
+ * IT: change the seed back and every unit test still passes. This one fails, because it
+ * sets the browser's timezone and then reads what the control defaulted to.
+ *
+ * `timezoneId` is what makes it real. CI and the checks container both run in UTC, so
+ * without it the assertion would agree with the bug and the fix equally.
+ */
+test.describe('making your own event · the zone it starts in', () => {
+  test.use({ timezoneId: 'America/Chicago' });
+
+  test('defaults to the zone this phone is in, not UTC', async ({ page }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await open(page, scheme, '/create', 'create-event');
+
+    // `zoneLabel` drops the region prefix: 'America/Chicago' -> 'Chicago'.
+    await expect(page.getByTestId('create-zone-toggle')).toContainText('Chicago');
+
+    // And the reading composes in that zone rather than in UTC -- 19:00 typed on the form
+    // is 7:00 PM at the venue, which is the number the door sign carries.
+    await page.getByTestId('create-date').fill('2026-09-11');
+    await page.getByTestId('create-time').fill('19:00');
+    await expect(page.getByTestId('create-starts-preview')).toHaveText('Fri, Sep 11 · 7:00 PM');
+  });
+});
