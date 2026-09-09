@@ -109,7 +109,7 @@ for (const file of walk(SRC)) {
  * "enforced" spread across a shipping adapter and a migration is the distinction that
  * hid the original gap.
  */
-const MIGRATION = join(ROOT, 'supabase/migrations/00000000000000_init.sql');
+const MIGRATION = join(ROOT, 'supabase/migrations/00000000000000_schema.sql');
 const sql = readFileSync(MIGRATION, 'utf8');
 const snake = (f) => f.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
 const inSql = new Map(flags.map((f) => [f, new RegExp(`\\b${snake(f)}\\b`).test(sql)]));

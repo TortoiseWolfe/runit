@@ -5,7 +5,7 @@
 --     < supabase/reset-local.sql
 --
 -- WHY THE DEFAULT PRIVILEGES ARE RESTORED, and it is the whole reason this file exists
--- rather than three lines in a doc. `00000000000000_init.sql` contains NO table grants at
+-- rather than three lines in a doc. `00000000000000_schema.sql` contains NO table grants at
 -- all: it relies on Supabase's `ALTER DEFAULT PRIVILEGES ... GRANT ALL ON TABLES TO anon,
 -- authenticated`, which is attached to the SCHEMA -- so `drop schema public cascade`
 -- destroys it, and every table the migration then creates arrives with no client grant.

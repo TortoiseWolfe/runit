@@ -14,7 +14,7 @@ entitlements enforced only in the in-memory adapter, issue #21).
 | url | `https://qwusbxallkbzfladvgfx.supabase.co` |
 | org | `gnjjvppwbaljcklvwkis` — `RunIt`, owned by spoketowork@gmail.com · free · $0/mo |
 | region | `us-east-2` |
-| schema | `supabase/migrations/00000000000000_init.sql`, applied |
+| schema | `supabase/migrations/00000000000000_schema.sql`, applied |
 
 Credentials go in `.env.local` (gitignored). `.env.example` has the shape.
 

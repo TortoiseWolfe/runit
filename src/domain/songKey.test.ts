@@ -14,7 +14,7 @@ import { songKey } from './songKey';
  * seed.
  */
 const migration = readFileSync(
-  join(__dirname, '../../supabase/migrations/00000000000000_init.sql'),
+  join(__dirname, '../../supabase/migrations/00000000000000_schema.sql'),
   'utf8',
 );
 

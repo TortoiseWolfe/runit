@@ -409,12 +409,18 @@ role with `set local role authenticated` and a forged `request.jwt.claims`, asse
 **a hundred and eight** behaviours, and RAISES at the end so nothing commits -- the "error" it
 prints IS the report.
 
-**`supabase db push` AND `db reset` ARE A SILENT NO-OP HERE.** The CLI reserves the
-migration name `init` and skips the file -- *"replace \"init\" with a different file name to
-apply this migration"* -- and `00000000000000_init.sql` is exactly that name. It is not the
-all-zero version, it is the word. Migrations go out through the Supabase MCP so this has never
-bitten, but anyone reaching for the canonical command gets a green run that applied nothing.
-`.github/workflows/policies.yml` and `docs/lane-e.md` use psql for that reason.
+**`supabase db push` AND `db reset` WERE A SILENT NO-OP, and #48 fixed it.** The CLI
+reserves the migration name `init` and skips the file -- *"replace \"init\" with a different
+file name to apply this migration"* -- and the migration was `00000000000000_init.sql`,
+exactly that name. Not the all-zero version: the word. Both canonical commands exited 0
+having applied nothing.
+
+It is **`00000000000000_schema.sql`** now and the CLI says `Applying migration`. `npx supabase
+db reset` is the local recipe, and it is better than the psql dance it replaces: it rebuilds
+the DATABASE rather than dropping a schema, so Supabase's `ALTER DEFAULT PRIVILEGES` survive
+and the client grants come back intact -- which is the trap `supabase/reset-local.sql` exists
+to work around on the psql route. `policies.yml` still applies by psql with `ON_ERROR_STOP=1`,
+deliberately: that makes the apply itself the from-scratch gate.
 
 **IT RAN COMPLETELY FOR THE FIRST TIME ON 2026-09-06, and it needed no production password
 to do it.** `npx supabase start` gives a local stack, the migration applies to it with psql,

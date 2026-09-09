@@ -41,7 +41,7 @@ if (!url) {
   console.log('  NO PRODUCTION PASSWORD NEEDED — run it against a local stack instead:');
   console.log('    npx supabase start');
   console.log('    docker exec -i supabase_db_runit psql -U postgres -v ON_ERROR_STOP=1 \\');
-  console.log('      < supabase/migrations/00000000000000_init.sql');
+  console.log('      < supabase/migrations/00000000000000_schema.sql');
   console.log('    SUPABASE_DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres \\');
   console.log('      pnpm verify:policies');
   console.log('  That proves the COMMITTED migration\'s policies behave. Only the live run');
