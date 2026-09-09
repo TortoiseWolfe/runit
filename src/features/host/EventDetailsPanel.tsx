@@ -42,7 +42,7 @@ const ROLE_CHOICES: { role: HostRole; label: string }[] = [
 ];
 
 export function EventDetailsPanel() {
-  const { tokens, fade } = useTheme();
+  const { tokens, fade, depth, depthCss } = useTheme();
   // A host who created an event and came straight here never passed the join screen, so
   // the list has to be loaded from this side too (#17).
   useLoadMyEvents();
@@ -142,6 +142,8 @@ export function EventDetailsPanel() {
 
   const fieldStyle = [
     s.input,
+    // A field is a channel machined into the panel, not a box sitting on it.
+    { boxShadow: depthCss.groove },
     { borderColor: tokens.base300, backgroundColor: tokens.base200, color: tokens.baseContent },
   ];
   const label = (text: string) => (
