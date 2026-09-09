@@ -75,7 +75,13 @@ test.describe('making your own event', () => {
 
     await page.getByTestId('create-date').fill('2026-09-11');
     await page.getByTestId('create-time').fill('19:00');
+    // The zone list folds away -- the chosen zone is always in words on the reading
+    // line, its alternatives are behind the toggle. `zoneChoices` already puts this
+    // phone's own zone first, so the common case needs no interaction at all.
+    await expect(page.getByTestId('create-zone-America/New_York')).toHaveCount(0);
+    await page.getByTestId('create-zone-toggle').click();
     await page.getByTestId('create-zone-America/New_York').click();
+    await expect(page.getByTestId('create-zone-America/New_York')).toHaveCount(0);
 
     // The defence against a zone nobody meant to pick. Without it, the first thing a
     // host learns about her event's time is what her guests' calendars say.

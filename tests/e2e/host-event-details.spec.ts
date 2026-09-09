@@ -115,7 +115,15 @@ test.describe('host · event details', () => {
 
     // Same instant, different venue: the wall clock is what the door sign says, so
     // moving the zone moves the instant and NOT the reading.
+    //
+    // The zone list folds away now -- the current zone is always on the reading line in
+    // words, but its alternatives are behind the toggle, because `zoneChoices` already
+    // pre-selects this phone's own zone and nearly every host is standing at their venue.
+    await expect(page.getByTestId('event-zone-Europe/London')).toHaveCount(0);
+    await page.getByTestId('event-zone-toggle').click();
     await page.getByTestId('event-zone-Europe/London').click();
+    // Choosing closes it, so the list cannot sit between the reading and the next field.
+    await expect(page.getByTestId('event-zone-Europe/London')).toHaveCount(0);
     await expect(page.getByTestId('event-starts-preview')).toHaveText('Fri, Sep 11 · 7:00 PM');
   });
 

@@ -5,10 +5,11 @@ import {
 import { useRouter } from 'expo-router';
 
 import { Screen } from '@/components/ui/Screen';
+import { ZonePicker } from '@/components/ui/ZonePicker';
 import { Toast } from '@/components/ui/Toast';
 import { useCreateActions } from '@/state/actions';
 import { formatClock, formatEventDate } from '@/lib/format';
-import { instantFrom, zoneChoices, zoneLabel } from '@/lib/eventForm';
+import { instantFrom, zoneChoices } from '@/lib/eventForm';
 import { alpha, border, eyebrow, radius, useTheme, weight } from '@/theme';
 import type { CreatedEvent } from '@/data/repository';
 
@@ -219,40 +220,24 @@ export function CreateEventScreen() {
 
         {/* What the fields MEAN, before anything is created. The defence against a zone
             nobody meant to pick, and against the disagreement that shipped: HOUSE7 held
-            an 11:13 AM start under a "Doors 7:00 PM" label because nothing rendered it. */}
-        <Text
-          testID="create-starts-preview"
-          style={[s.reading, { color: alpha(tokens.baseContent, fade.body) }]}
-        >
-          {startsAt
-            ? `${formatEventDate(startsAt, zone)} · ${formatClock(startsAt, zone)}`
-            : 'Add a date as 2026-09-11 and a time as 19:00.'}
-        </Text>
-
-        {label('TIME ZONE')}
-        <View style={s.zoneRow}>
-          {zones.map((z) => {
-            const on = z === zone;
-            return (
-              <Pressable
-                key={z}
-                onPress={() => setZone(z)}
-                accessibilityRole="button"
-                accessibilityState={{ selected: on }}
-                accessibilityLabel={`Time zone ${zoneLabel(z)}`}
-                testID={`create-zone-${z}`}
-                style={[
-                  s.zone,
-                  { borderColor: tokens.base300, backgroundColor: on ? tokens.primary : 'transparent' },
-                ]}
-              >
-                <Text style={[s.zoneText, { color: on ? tokens.primaryContent : tokens.baseContent }]}>
-                  {zoneLabel(z)}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
+            an 11:13 AM start under a "Doors 7:00 PM" label because nothing rendered it.
+            The zone control sits ON this line because this line is what it interprets. */}
+        <ZonePicker
+          reading={
+            <Text
+              testID="create-starts-preview"
+              style={[s.reading, { color: alpha(tokens.baseContent, fade.body) }]}
+            >
+              {startsAt
+                ? `${formatEventDate(startsAt, zone)} · ${formatClock(startsAt, zone)}`
+                : 'Add a date as 2026-09-11 and a time as 19:00.'}
+            </Text>
+          }
+          value={zone}
+          onChange={setZone}
+          choices={zones}
+          testIDPrefix="create-zone"
+        />
 
         {label('VENUE')}
         <TextInput
@@ -336,14 +321,8 @@ const s = StyleSheet.create({
   row: { flexDirection: 'row', gap: 10 },
   half: { flex: 1 },
   reading: { fontSize: 13, marginTop: 4 },
-  zoneRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   // 32 tall, over SC 2.5.8's 24 AA minimum, and the 8pt gap keeps neighbours from
   // needing slop that RN would not honour between flush siblings anyway.
-  zone: {
-    height: 32, paddingHorizontal: 12, borderRadius: radius.pill, borderWidth: border,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  zoneText: { fontSize: 13 },
   // Tabular so the groups line up, and large because it gets read aloud across a room.
   code: { fontSize: 26, fontWeight: weight.semibold, letterSpacing: 2, fontVariant: ['tabular-nums'] },
   helper: { fontSize: 12, lineHeight: 18 },

@@ -4,11 +4,12 @@ import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } fr
 import { useEvent, useHosts, useInvitees, useLoadMyEvents } from '@/state/hooks';
 import { useHostActions } from '@/state/actions';
 import { formatClock, formatEventDate, instantToWallClock } from '@/lib/format';
-import { instantFrom, zoneChoices, zoneLabel } from '@/lib/eventForm';
+import { instantFrom, zoneChoices } from '@/lib/eventForm';
 import { TIERS } from '@/domain/tiers';
 import type { HostRole } from '@/data/types';
 import { alpha, border, eyebrow, radius, useTheme, weight } from '@/theme';
 import { MyEventsList } from '@/components/ui/MyEventsList';
+import { ZonePicker } from '@/components/ui/ZonePicker';
 
 /**
  * The event's own details, which nothing could edit until now.
@@ -216,37 +217,21 @@ export function EventDetailsPanel() {
       </View>
 
       {/* The interpretation, not a second copy of the input. Reading back what the
-          three fields COMBINE to is what catches a zone nobody meant to pick. */}
-      <Text testID="event-starts-preview" style={[s.reading, { color: alpha(tokens.baseContent, fade.body) }]}>
-        {startsAt
-          ? `${formatEventDate(startsAt, zone)} · ${formatClock(startsAt, zone)}`
-          : 'Date and time read as 2026-09-11 and 19:00.'}
-      </Text>
-
-      {label('TIME ZONE')}
-      <View style={s.zoneRow}>
-        {zones.map((z) => {
-          const on = z === zone;
-          return (
-            <Pressable
-              key={z}
-              onPress={() => setZone(z)}
-              accessibilityRole="button"
-              accessibilityState={{ selected: on }}
-              accessibilityLabel={`Time zone ${zoneLabel(z)}`}
-              testID={`event-zone-${z}`}
-              style={[
-                s.zone,
-                { borderColor: tokens.base300, backgroundColor: on ? tokens.primary : 'transparent' },
-              ]}
-            >
-              <Text style={[s.zoneText, { color: on ? tokens.primaryContent : tokens.baseContent }]}>
-                {zoneLabel(z)}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
+          three fields COMBINE to is what catches a zone nobody meant to pick -- so the
+          zone control sits ON this line rather than in a row of its own below it. */}
+      <ZonePicker
+        reading={
+          <Text testID="event-starts-preview" style={[s.reading, { color: alpha(tokens.baseContent, fade.body) }]}>
+            {startsAt
+              ? `${formatEventDate(startsAt, zone)} · ${formatClock(startsAt, zone)}`
+              : 'Date and time read as 2026-09-11 and 19:00.'}
+          </Text>
+        }
+        value={zone}
+        onChange={setZone}
+        choices={zones}
+        testIDPrefix="event-zone"
+      />
 
       {label('VENUE')}
       <TextInput
@@ -334,7 +319,7 @@ export function EventDetailsPanel() {
             style={fieldStyle}
           />
 
-          <View style={s.zoneRow}>
+          <View style={s.pillRow}>
             {ROLE_CHOICES.map((r) => {
               const on = r.role === coHostRole;
               return (
@@ -346,11 +331,11 @@ export function EventDetailsPanel() {
                   accessibilityLabel={`Role ${r.label}`}
                   testID={`cohost-role-${r.role}`}
                   style={[
-                    s.zone,
+                    s.pill,
                     { borderColor: tokens.base300, backgroundColor: on ? tokens.primary : 'transparent' },
                   ]}
                 >
-                  <Text style={[s.zoneText, { color: on ? tokens.primaryContent : tokens.baseContent }]}>
+                  <Text style={[s.pillText, { color: on ? tokens.primaryContent : tokens.baseContent }]}>
                     {r.label}
                   </Text>
                 </Pressable>
@@ -544,15 +529,15 @@ const s = StyleSheet.create({
   },
   row: { flexDirection: 'row', gap: 10 },
   half: { flex: 1 },
-  reading: { fontSize: 13, marginTop: 4 },
-  zoneRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  reading: { fontSize: 13 },
+  pillRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   // 32 tall, over SC 2.5.8's 24 AA minimum, and the 8pt gap keeps neighbours from
   // needing slop that RN would not honour between flush siblings anyway.
-  zone: {
+  pill: {
     height: 32, paddingHorizontal: 12, borderRadius: radius.pill, borderWidth: border,
     alignItems: 'center', justifyContent: 'center',
   },
-  zoneText: { fontSize: 13 },
+  pillText: { fontSize: 13 },
   helper: { fontSize: 12, lineHeight: 18 },
   keyBlock: { marginTop: 18, gap: 8 },
   switcher: { marginTop: 24 },
