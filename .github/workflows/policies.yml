@@ -34,6 +34,11 @@ on:
       - ".github/workflows/policies.yml"
   pull_request:
     paths: *paths
+  # ON DEMAND, because a gate you cannot run is a gate you cannot trust after an outage.
+  # CI stopped entirely for four commits when the account's Actions allowance ran out (#55),
+  # and there was no way to re-run anything without inventing a commit to push. The repo is
+  # public now, so minutes are unmetered and this costs nothing to have.
+  workflow_dispatch:
 
 jobs:
   lane-e:
