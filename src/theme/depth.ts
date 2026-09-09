@@ -32,6 +32,14 @@ import type { Scheme } from './ThemeProvider';
  *   light  base-100 L 0.958 -> shadow L 0.402 (large room, it carries the effect)
  *                           -> edge   L 0.981 (almost none, and it all but vanishes)
  *
+ * THE EDGE CARRIES 0.7 AND THE SHADOW 0.55, which is not symmetry for its own sake. Dark
+ * is this app's default ground -- `design/README.md`: "Unknown system preference falls back
+ * to dark" -- and on dark the shadow is the ink with no headroom, so the edge is doing the
+ * work alone. Raising the SHADOW instead would paint a value the ground cannot support and
+ * it composites to grey sludge, which is the failure ScriptHammer's own comments record.
+ * One number, and the L arithmetic keeps it scheme-appropriate: light's edge sits at L
+ * 0.981 against a 0.958 ground, so even at 0.7 it stays the whisper it is meant to be.
+ *
  * The two ramps trade places between the schemes exactly as designed. A single-ink system
  * would be near-invisible on one of the app's two grounds -- so both primitives keep both
  * inks, and neither scheme was hand-tuned to make that true.
@@ -65,7 +73,7 @@ function inksFor(scheme: Scheme): DepthInks {
   return {
     shadow: alpha(shadow, 0.55),
     shadowSoft: alpha(shadow, 0.32),
-    edge: alpha(edge, 0.5),
+    edge: alpha(edge, 0.7),
   };
 }
 

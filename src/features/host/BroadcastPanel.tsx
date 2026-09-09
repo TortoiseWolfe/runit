@@ -14,7 +14,7 @@ import { alpha, border, eyebrow, radius, useTheme, weight } from '@/theme';
 
 /** Artboard 03, Broadcast segment. */
 export function BroadcastPanel() {
-  const { tokens, fade } = useTheme();
+  const { tokens, fade, depthCss } = useTheme();
   const event = useEvent();
   const feed = useFeed();
   const schedule = useSchedule();
@@ -129,6 +129,7 @@ export function BroadcastPanel() {
         testID="broadcast-draft"
         style={[
           s.textarea,
+          { boxShadow: depthCss.groove },
           { borderColor: tokens.base300, backgroundColor: tokens.base200, color: tokens.baseContent },
         ]}
       />

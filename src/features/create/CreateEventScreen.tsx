@@ -29,7 +29,7 @@ import type { CreatedEvent } from '@/data/repository';
  * host, which is everyone who needs this screen.
  */
 export function CreateEventScreen() {
-  const { tokens, fade } = useTheme();
+  const { tokens, fade, depth, depthCss } = useTheme();
   const router = useRouter();
   const { createEvent } = useCreateActions();
 
@@ -67,6 +67,7 @@ export function CreateEventScreen() {
 
   const fieldStyle = [
     s.input,
+    { boxShadow: depthCss.groove },
     { borderColor: tokens.base300, backgroundColor: tokens.base200, color: tokens.baseContent },
   ];
   const label = (text: string) => (

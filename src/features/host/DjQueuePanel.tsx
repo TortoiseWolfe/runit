@@ -6,7 +6,7 @@ import { alpha, border, eyebrow, radius, useTheme, weight } from '@/theme';
 
 /** Artboard 03, DJ queue segment. */
 export function DjQueuePanel() {
-  const { tokens, fade } = useTheme();
+  const { tokens, fade, depth, depthCss } = useTheme();
   const nowPlaying = useNowPlaying();
   const accepted = useAccepted();
   const incoming = useIncoming();
@@ -42,7 +42,7 @@ export function DjQueuePanel() {
         Up next · accepted
       </Text>
       {accepted.map((r) => (
-        <View key={r.id} style={[s.row, { borderColor: tokens.base300 }]}>
+        <View key={r.id} style={[s.row, { borderColor: tokens.base300, boxShadow: depth.well }]}>
           <View style={s.rowBody}>
             <Text style={[s.rowTitle, { color: tokens.baseContent }]} numberOfLines={1}>{r.title}</Text>
             <Text style={[s.rowSub, { color: alpha(tokens.baseContent, fade.muted) }]} numberOfLines={1}>
