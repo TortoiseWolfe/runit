@@ -111,6 +111,7 @@ pnpm export:web:live            # Lane H: build the export against SUPABASE, not
 pnpm smoke:live                 # Lane H: drive the SHIPPING adapter against the live project
 pnpm feedback:sync              # TestFlight tester feedback -> GitHub issues
 pnpm render:canvas              # regenerate design/renders/ from the canvas
+pnpm icons                      # regenerate assets/*.png from design/brand/runit-logo.svg
 ```
 
 `pnpm checks` runs the same sequence directly, without Docker, when you are
@@ -612,6 +613,23 @@ that lives in a button handler is bypassed by the second caller.
 
 ## Things that will bite you
 
+- **EVERY ICON COMES FROM ONE SVG, and `pnpm icons` both writes and CHECKS them.**
+  `design/brand/runit-logo.svg` is the source; `assets/*.png` is output and must never be
+  hand-edited. Three things there are not obvious. **The artwork ANIMATES** -- a 6.4s SMIL
+  beam-swing with `fill="freeze"` -- so a screenshot at t=0 captures a mid-swing beam and a
+  dim lens, which is a wrong icon that looks entirely plausible; `SETTLE_MS` is 7500 and
+  lowering it silently ruins every asset. **iOS REJECTS an icon with an alpha channel**, so
+  `icon.png` is asserted to be PNG colour type 2 -- that one fails at App Store Connect, not
+  in any lane here. And **Android silhouettes a notification icon to flat white by its
+  alpha**, so the full-colour wordmark arrives there as a smear: `notification-icon.png` is a
+  separate two-shape mark, and `app.json` pointed at `adaptive-icon.png` until this was
+  noticed.
+- **The wordmark DOES survive as an icon, and the commit that set the old one said
+  otherwise.** `8f97859` rejected a wordmark as unable to "survive being 40px on a home
+  screen". A home-screen icon is 60 **points** -- 180px on a 3x device. Measured at the sizes
+  iOS actually renders: crisp at 180 and 120, readable at 80 and 60, gone at 40, which is
+  notification scale and is exactly why that icon is a different mark.
+  `design/brand/README.md`.
 - `@testing-library/react-native` v14 made `render` **async**. Un-awaited,
   `screen` stays empty and every query fails with "`render` function has not
   been called", which points nowhere near the cause.
