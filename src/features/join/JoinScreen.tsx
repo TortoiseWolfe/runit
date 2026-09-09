@@ -39,7 +39,7 @@ import {
  * bottom="page"> re-derives them from real insets. Everything else is verbatim.
  */
 export function JoinScreen() {
-  const { tokens, fade } = useTheme();
+  const { tokens, fade, depth, depthCss } = useTheme();
   const router = useRouter();
   const event = useEvent();
   const preview = usePreview();
@@ -152,6 +152,7 @@ export function JoinScreen() {
 
   const inputStyle = [
     s.input,
+    { boxShadow: depthCss.groove },
     {
       borderColor: tokens.base300,
       backgroundColor: tokens.base100,
@@ -286,7 +287,7 @@ export function JoinScreen() {
             ) : null}
           </View>
 
-          <View style={[s.card, { backgroundColor: tokens.base200 }]}>
+          <View style={[s.card, { backgroundColor: tokens.base200, boxShadow: depth.plate }]}>
             {/*
               THE CANVAS COPY, AND THE CONTROL IT WAS STANDING IN FOR (#28).
 

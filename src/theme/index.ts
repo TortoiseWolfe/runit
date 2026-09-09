@@ -13,3 +13,4 @@ export {
 } from './oklch';
 export { radius, border, insetDelta, tabBar, toast } from './layout';
 export { tracking, weight, eyebrow, fade, fadeFor, type Fade } from './typography';
+export { DEPTH, DEPTH_CSS, BASE100_SOURCE, type Depth, type DepthInks } from './depth';

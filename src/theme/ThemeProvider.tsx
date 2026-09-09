@@ -4,6 +4,7 @@ import * as SystemUI from 'expo-system-ui';
 
 import { DARK, LIGHT, type ThemeTokens } from './tokens';
 import { fadeFor, type Fade } from './typography';
+import { DEPTH, DEPTH_CSS, type Depth } from './depth';
 
 export type ThemeName = 'system' | 'dark' | 'light';
 export type Scheme = 'dark' | 'light';
@@ -16,6 +17,14 @@ export interface ThemeValue {
    * prefer this over the module-level `fade` import inside a component.
    */
   fade: Fade;
+  /**
+   * plate / well / groove, already resolved for this scheme. Same rule as `fade`: take it
+   * from `useTheme()`, never from a module-level import, because the two schemes carry
+   * different inks and a hard-coded one is invisible on the other ground.
+   */
+  depth: Depth;
+  /** The same three, as CSS strings, for `TextInput` -- whose style type refuses the array. */
+  depthCss: Record<keyof Depth, string>;
   /** The resolved scheme actually being painted. */
   scheme: Scheme;
   isDark: boolean;
@@ -54,7 +63,16 @@ export function ThemeProvider({
   }, [tokens]);
 
   const value = useMemo<ThemeValue>(
-    () => ({ tokens, fade: fadeFor[scheme], scheme, isDark: scheme === 'dark', name, setName }),
+    () => ({
+      tokens,
+      fade: fadeFor[scheme],
+      depth: DEPTH[scheme],
+      depthCss: DEPTH_CSS[scheme],
+      scheme,
+      isDark: scheme === 'dark',
+      name,
+      setName,
+    }),
     [tokens, scheme, name],
   );
 

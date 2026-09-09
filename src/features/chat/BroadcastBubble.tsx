@@ -18,7 +18,7 @@ export function BroadcastBubble({
   /** The EVENT's zone, not the phone's -- see formatClock. */
   timeZone: string;
 }) {
-  const { tokens, fade } = useTheme();
+  const { tokens, fade, depth } = useTheme();
   return (
     <View style={s.row}>
       <View style={[s.avatar, { backgroundColor: tokens.neutral }]}>
@@ -30,7 +30,7 @@ export function BroadcastBubble({
         <Text style={[s.meta, { color: alpha(tokens.baseContent, fade.muted) }]}>
           {broadcast.authorName} · {broadcast.authorRoleLabel} · {formatClock(broadcast.createdAt, timeZone)}
         </Text>
-        <View style={[s.bubble, { backgroundColor: tokens.base200, borderColor: tokens.base300 }]}>
+        <View style={[s.bubble, { backgroundColor: tokens.base200, borderColor: tokens.base300, boxShadow: depth.plate }]}>
           <Text style={[s.text, { color: tokens.baseContent }]}>{broadcast.body}</Text>
         </View>
       </View>
