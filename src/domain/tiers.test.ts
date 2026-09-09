@@ -45,7 +45,7 @@ function seededLimits(): Record<string, Record<string, number | boolean | null>>
 
   const rows: Record<string, Record<string, number | boolean | null>> = {};
   const re =
-    /\('(\w+)',\s*([\d]+|null),\s*([\d]+|null),\s*([\d]+|null),\s*([\d]+|null),\s*(true|false),\s*(true|false),\s*(true|false),\s*([\d]+|null)\)/g;
+    /\('(\w+)',\s*([\d]+|null),\s*([\d]+|null),\s*([\d]+|null),\s*([\d]+|null),\s*(true|false),\s*(true|false),\s*(true|false),\s*([\d]+|null),\s*(true|false)\)/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(block)) !== null) {
     rows[m[1]!] = {
@@ -61,6 +61,10 @@ function seededLimits(): Record<string, Record<string, number | boolean | null>>
       // and uses null for unlimited, so the two would never compare equal on the venue
       // tier -- caught by this test on its first run.
       albumRetentionDays: m[9] === 'null' ? null : Number(m[9]),
+      // #50. The tenth column, and the reason it is HERE rather than only in tiers.ts: the
+      // client used to decide moderation from its own entitlements, so the number that
+      // mattered lived where the party being restricted could edit it.
+      photoModeration: m[10] === 'true',
     };
   }
   return rows;
@@ -113,6 +117,16 @@ describe('tier_limits in Postgres matches src/domain/tiers.ts', () => {
 
   it.each(TIER_ORDER)('%s grants host roles on both sides or neither', (tier) => {
     expect(SEEDED[tier]!.hostRoles).toBe(TIERS[tier].features.hostRoles);
+  });
+
+  /**
+   * #50, and this is the drift that mattered most: `photoModeration` had NO `tier_limits`
+   * column at all, so the only copy of it lived in `tiers.ts` -- which the CLIENT read to
+   * decide whether its own upload should wait for a host. A moderation control enforced by
+   * the party being moderated. The column exists now because `set_photo_status` reads it.
+   */
+  it.each(TIER_ORDER)('%s moderates photos on both sides or neither', (tier) => {
+    expect(SEEDED[tier]!.photoModeration).toBe(TIERS[tier].features.photoModeration);
   });
 
   /**

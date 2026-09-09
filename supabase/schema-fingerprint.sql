@@ -23,6 +23,6 @@ union all
 select 'tier_limits', count(*)::int, md5(coalesce(string_agg(x, e'\n' order by x), ''))
   from (select tier||'|'||coalesce(max_guests::text,'-')||'|'||coalesce(max_hosts::text,'-')||'|'||
                coalesce(max_photos::text,'-')||'|'||coalesce(max_folders::text,'-')||'|'||host_roles||'|'||
-               pinned_announcements||'|'||push_notifications||'|'||coalesce(album_retention_days::text,'-') as x
+               pinned_announcements||'|'||push_notifications||'|'||coalesce(album_retention_days::text,'-')||'|'||photo_moderation as x
           from public.tier_limits) tl
 order by 1;

@@ -2013,21 +2013,37 @@ export class SupabaseRepository implements RunitRepository {
         }
       }
 
-      const ent = this.sigEntitlements.get();
-      // Free tiers have no moderation queue, so a photo there is already in the
-      // album. Mirrors MemoryRepository, and the two delivered outcomes are
-      // different promises to the guest.
-      const status = ent.tier.features.photoModeration ? 'pending' : 'approved';
-
+      // `status` IS NOT SENT, AND CANNOT BE (#50). It used to be chosen here, from this
+      // client's own entitlements -- which meant the moderation queue a paid tier sells was
+      // enforced by the party being restricted. Any client holding the app's PUBLIC
+      // publishable key could file a photo already `approved`. The tier decides now, in a
+      // `before insert` trigger, and `status` is not in the INSERT column grant at all, so
+      // naming it here would be refused rather than ignored.
+      //
+      // AND THE OUTCOME IS READ BACK, not predicted. The caller wants to know whether this
+      // photo is in the album or in a queue, and the only authority on that is now the row
+      // the trigger wrote. Reporting a guess would put us back where we started, one step
+      // removed -- and the first version of this change did exactly that: it left
+      // `return status`, which quietly resolved to the DOM global `window.status`, so
+      // `tsc` was happy and every upload returned 'failed' at runtime.
       const ins = await this.db.from('photos').insert({
         id, event_id: eventId, folder_id: folderId,
         uploaded_by_guest_id: guestId, uploaded_by_name: t.uploadedByName,
-        status, hue: t.hue, storage_path: path, thumb_path: thumbPath,
-      }).select('id');
+        hue: t.hue, storage_path: path, thumb_path: thumbPath,
+      }).select('id, status');
       if (ins.error) throw ins.error;
 
+      const filed = (ins.data?.[0] as { status?: string } | undefined)?.status;
+      if (filed !== 'approved' && filed !== 'pending') {
+        throw new Error(
+          `photos.insert returned status ${String(filed)}. The row is the authority on ` +
+            `whether this photo is in the album or in the queue, so an unreadable answer ` +
+            `is a failure rather than something to guess past.`,
+        );
+      }
+
       this.overlay.settle(id);
-      return status as UploadOutcome;
+      return filed satisfies UploadOutcome;
     } catch (e) {
       this.overlay.fail(id, e instanceof Error ? e.message : 'Upload failed.');
       return 'failed';

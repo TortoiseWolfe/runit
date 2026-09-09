@@ -351,7 +351,34 @@ describe('uploading a photo', () => {
     c.seed('events', [eventRow({ tier: 'house_party' })]);
     const repo = await join(c);
     await expect(repo.photos.upload({ localUri: 'file:///tmp/a.jpg' })).resolves.toBe('approved');
-    expect((c.find('insert', 'photos')[0]!.payload as { status: string }).status).toBe('approved');
+  });
+
+  /**
+   * #50. This test used to assert the OPPOSITE: that the client put `status` in the insert
+   * payload. That was the defect -- the moderation state a paid tier sells was chosen by
+   * the uploader's own client, and `status` was in the INSERT column grant, so any client
+   * holding the app's public key could file a photo already approved.
+   *
+   * The column is not in the grant now and a `before insert` trigger decides it from the
+   * event's tier, so naming it here would be refused rather than ignored. Asserting its
+   * ABSENCE is what stops it coming back.
+   */
+  it('does not send status at all, because the uploader does not get a vote', async () => {
+    const c = ready();
+    c.seed('events', [eventRow({ tier: 'house_party' })]);
+    const repo = await join(c);
+    await repo.photos.upload({ localUri: 'file:///tmp/a.jpg' });
+    const payload = c.find('insert', 'photos')[0]!.payload as Record<string, unknown>;
+    expect(payload).not.toHaveProperty('status');
+  });
+
+  it('reports what the row says, not what it hoped, on a moderated tier', async () => {
+    const c = ready();
+    c.seed('events', [eventRow({ tier: 'event' })]);
+    const repo = await join(c);
+    // The outcome is read back off the inserted row. A client that predicted this would be
+    // the original defect wearing one more layer.
+    await expect(repo.photos.upload({ localUri: 'file:///tmp/a.jpg' })).resolves.toBe('pending');
   });
 
   it('retries a failed photo without minting a second one', async () => {

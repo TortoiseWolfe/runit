@@ -27,6 +27,8 @@
  */
 
 import { AuthApiError, AuthRetryableFetchError } from '@supabase/auth-js';
+import { TIERS } from '@/domain/tiers';
+import type { TierId } from '@/data/types';
 
 type Result = { data: unknown; error: unknown };
 
@@ -125,6 +127,24 @@ export class FakeClient {
     if (op.kind === 'select') {
       this.order.push(`select:${op.table}`);
       return { data: this.rows.get(op.table) ?? [], error: null };
+    }
+    /**
+     * `photos` INSERT MODELS THE TRIGGER (#50), and this fixture otherwise models nothing.
+     *
+     * CLAUDE.md is blunt that `FakeClient` "records what was sent and never evaluates it",
+     * and that is still true everywhere else. This one exception exists because the client
+     * stopped PREDICTING a photo's moderation state and started reading it back off the
+     * inserted row -- so a fake that answers `{id:'row'}` with no status makes every upload
+     * throw, and a fake that echoes the payload would answer with a status the real
+     * database ignores. Either would be a test agreeing with itself.
+     *
+     * The rule is `set_photo_status`: the EVENT'S TIER decides, and the uploader has no
+     * say. Read from the same `TIERS` table the migration's seed is drift-checked against.
+     */
+    if (op.kind === 'insert' && op.table === 'photos') {
+      const ev = (this.rows.get('events') ?? [])[0] as { tier?: TierId } | undefined;
+      const moderated = TIERS[ev?.tier ?? 'house_party'].features.photoModeration;
+      return { data: [{ id: 'row', status: moderated ? 'pending' : 'approved' }], error: null };
     }
     // Default for a write: it worked and returned the row. A test that wants a
     // refusal asks for one explicitly, so no test passes by accident.

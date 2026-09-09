@@ -174,18 +174,29 @@ where e.code = 'DEMO42'
 -- their permanent rendering, exactly as in the in-memory wedding fixture. hue is
 -- degrees 0-359; storing it rather than a colour keeps the tile correct across a
 -- light/dark switch with no data change.
-insert into public.photos (event_id, folder_id, uploaded_by_name, status, hue)
+-- `status` IS SET BY A SECOND STATEMENT (#50). `photos_set_status` decides it on INSERT
+-- from the event's tier, for every caller including this one -- DEMO42 is on the `event`
+-- tier, so everything lands `pending`. The only route to `approved` is a host moderating,
+-- which is an UPDATE, and that is what the second statement is. Naming `status` in the
+-- INSERT above would be silently overwritten, which is worse than not naming it.
+insert into public.photos (event_id, folder_id, uploaded_by_name, hue)
 select e.id,
        (select f.id from public.folders f where f.event_id = e.id order by f.position limit 1),
-       p.who, p.status, p.hue
+       p.who, p.hue
 from public.events e
 cross join (values
-  ('Sam',   'approved', 24),
-  ('Devon', 'approved', 152),
-  ('Alex',  'pending',  287)
-) as p(who, status, hue)
+  ('Sam',   24),
+  ('Devon', 152),
+  ('Alex',  287)
+) as p(who, hue)
 where e.code = 'DEMO42'
   and (select count(*) from public.photos x where x.event_id = e.id) = 0;
+
+-- Two of the three are approved, so the demo album has something in it and the host queue
+-- has exactly one thing waiting -- which is the state a reviewer should meet.
+update public.photos p set status = 'approved'
+  from public.events e
+ where e.id = p.event_id and e.code = 'DEMO42' and p.uploaded_by_name in ('Sam', 'Devon');
 
 select code, name, tier, guest_count,
        (select count(*) from public.folders f where f.event_id = e.id) as folders,

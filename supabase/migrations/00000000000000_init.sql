@@ -1193,6 +1193,27 @@ create policy photos_insert on public.photos for insert
 create policy photos_moderate on public.photos for update
   using (public.is_host(event_id)) with check (public.is_host(event_id));
 
+-- ...AND THE UPLOADER DOES NOT GET A VOTE ON `status` (#50).
+--
+-- A policy says WHO may write, not WHICH COLUMNS. `photos_insert` above checks only that
+-- you are filing your own photo, so `status` was yours to choose: any client holding the
+-- app's PUBLIC publishable key could insert one already `approved` and walk straight past
+-- the moderation queue the paid tiers sell. Our own client did the right thing --
+-- `SupabaseRepository` read the tier and sent `pending` -- which is exactly the shape
+-- CLAUDE.md warns about, one level up: a check in the caller is bypassed by the second
+-- caller, and the second caller is anybody with the bundle.
+--
+-- TWO LOCKS, DELIBERATELY. The column grant stops a client NAMING `status` at all; the
+-- trigger below decides it regardless. Either alone would close the hole, and neither
+-- alone survives the other being edited by someone who did not know why it was there.
+revoke insert on public.photos from authenticated, anon;
+grant  insert (id, event_id, folder_id, uploaded_by_guest_id, uploaded_by_name,
+               hue, storage_path, thumb_path, created_at)
+  on public.photos to authenticated, anon;
+
+-- The tier decides, and the database asks it -- see `set_photo_status` below the
+-- `tier_limits` seed, which is where anything reading that table has to live.
+
 -- ========================================================================
 -- REALTIME
 -- ========================================================================
@@ -1836,7 +1857,17 @@ create table public.tier_limits (
   -- built in SQL at all -- `storage.protect_delete()` refuses every direct delete on
   -- storage.objects, for the owner as much as a guest, which Lane E asserts. It has to go
   -- through the Storage API with a service role, and that is its own piece of work.
-  album_retention_days integer
+  album_retention_days integer,
+  -- Whether an uploaded photo waits for a host before the room can see it (#50).
+  --
+  -- IT LIVED IN THE CLIENT UNTIL NOW, and that is the whole defect. `SupabaseRepository`
+  -- chose `pending` or `approved` from its own entitlements and sent the column; nothing
+  -- server-side constrained it, `status` was in the INSERT grant, and `photos_insert`
+  -- checks only WHO uploaded. So any client holding the app's public key could file a
+  -- photo already approved and skip the queue a paid tier sells. CLAUDE.md states the rule
+  -- it broke -- "a check that lives in a button handler is bypassed by the second caller"
+  -- -- and this was that, one level up: the check lived in OUR client.
+  photo_moderation boolean not null default false
 );
 
 alter table public.tier_limits enable row level security;
@@ -1847,18 +1878,56 @@ create policy tier_limits_read on public.tier_limits for select using (true);
 revoke insert, update, delete on public.tier_limits from authenticated, anon;
 
 insert into public.tier_limits
-  (tier, max_guests, max_hosts, max_photos, max_folders, host_roles, pinned_announcements, push_notifications, album_retention_days)
-values ('house_party',   10,    1,  100,    1, false, false, false,   30),
-       ('party',         50,    2, 1000,    3, false, false, false,   90),
-       ('event',        300,    5, null,   10, true,  true,  true,   365),
-       ('venue',       3000, null, null, null, true,  true,  true,  null)
+  (tier, max_guests, max_hosts, max_photos, max_folders, host_roles, pinned_announcements, push_notifications, album_retention_days, photo_moderation)
+values ('house_party',   10,    1,  100,    1, false, false, false,   30, false),
+       ('party',         50,    2, 1000,    3, false, false, false,   90, true),
+       ('event',        300,    5, null,   10, true,  true,  true,   365, true),
+       ('venue',       3000, null, null, null, true,  true,  true,  null, true)
 on conflict (tier) do update set
   max_guests  = excluded.max_guests,  max_hosts   = excluded.max_hosts,
   max_photos  = excluded.max_photos,  max_folders = excluded.max_folders,
   host_roles  = excluded.host_roles,
   pinned_announcements = excluded.pinned_announcements,
   push_notifications   = excluded.push_notifications,
-  album_retention_days = excluded.album_retention_days;
+  album_retention_days = excluded.album_retention_days,
+  photo_moderation     = excluded.photo_moderation;
+
+-- The tier decides, and the database asks it. `before insert` only: UPDATE on `photos` is
+-- already host-only by `photos_moderate` above, so a guest has no second door to reopen
+-- what this refused -- checked rather than assumed, because #26 shipped exactly that bug
+-- (an UPDATE policy that undid an insert-time fold).
+create or replace function public.set_photo_status() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  v_moderated boolean;
+begin
+  -- UNCONDITIONAL, AND THE FIRST ATTEMPT WAS NOT. It tried `current_user not in
+  -- ('anon','authenticated')` to exempt admin callers -- which silently never matched,
+  -- because inside a SECURITY DEFINER function `current_user` is the DEFINER, not the
+  -- caller. It read as a role check and was a constant.
+  --
+  -- Unconditional is also the better rule, not merely the working one: `status` on INSERT
+  -- is the TIER's answer for everybody, and the only route to `approved` is a host
+  -- approving -- an UPDATE, which this trigger does not touch and `photos_moderate`
+  -- already restricts to hosts. Seeds that want an approved photo insert one and then
+  -- update it, which is what a host does anyway.
+
+  select tl.photo_moderation into v_moderated
+    from public.tier_limits tl
+    join public.events e on e.tier = tl.tier
+   where e.id = new.event_id;
+
+  -- An event whose tier cannot be read is not a reason to let a photo through unreviewed.
+  -- Absent answers as MODERATED, which fails toward the host rather than toward the room.
+  new.status := case when coalesce(v_moderated, true) then 'pending' else 'approved' end;
+  return new;
+end $$;
+
+create trigger photos_set_status
+  before insert on public.photos
+  for each row execute function public.set_photo_status();
+
+revoke execute on function public.set_photo_status() from public, anon, authenticated;
 
 -- MOVED HERE, AND THE MOVE IS THE POINT. This block sat ~1100 lines ABOVE the
 -- `tier_limits` table it selects from. `photos_past_retention` is `language sql`, and
