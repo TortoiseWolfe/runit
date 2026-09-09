@@ -55,9 +55,13 @@ export function MyEventsList({
 
   return (
     <View style={s.wrap} testID="my-events">
-      <Text style={[s.heading, { color: alpha(tokens.baseContent, fade.muted) }]}>
-        {heading}
-      </Text>
+      {/* Empty when a caller has already printed it -- `Disclosure` on the host panel
+          supplies the title itself, and a second copy would read as a repeated heading. */}
+      {heading ? (
+        <Text style={[s.heading, { color: alpha(tokens.baseContent, fade.muted) }]}>
+          {heading}
+        </Text>
+      ) : null}
       {events.map((e) => {
         const here = e.id === current?.id;
         const body = (

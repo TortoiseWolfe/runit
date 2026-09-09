@@ -512,9 +512,20 @@ export function EventDetailsPanel() {
 
           Below the details and the key rather than above: this panel's job is the event
           you are in, and a list of the others should not be the first thing on it. */}
-      <View style={s.switcher}>
-        <MyEventsList heading="Your events" />
-      </View>
+      <Disclosure
+        title="Your events"
+        // The event you are STANDING IN, which the console header never says out loud --
+        // it reads "Host" and nothing else. A host running two parties otherwise has no
+        // indication which console she is looking at, and Broadcast is one tap away.
+        summary={event?.name ?? 'None open'}
+        testID="event-switcher"
+      >
+        {/* `heading` is the empty string because `Disclosure` already printed it, and
+            `hideCurrent` stays FALSE: on this panel the list is the map of where you
+            are, so the current row is marked "Here" rather than filtered out. That is
+            the opposite of the join screen and it is deliberate on both sides. */}
+        <MyEventsList heading="" />
+      </Disclosure>
 
     </ScrollView>
   );
@@ -542,7 +553,6 @@ const s = StyleSheet.create({
   pillText: { fontSize: 13 },
   helper: { fontSize: 12, lineHeight: 18 },
   keyBlock: { marginTop: 18, gap: 8 },
-  switcher: { marginTop: 24 },
   seatRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 },
   seatName: { fontSize: 15 },
   seatRole: { fontSize: 13 },
