@@ -1,0 +1,114 @@
+# LANE C IN CI — the only gate that can point a lens at anything.
+#
+# `pnpm scan:device` hangs a QR the app's own `EventQr` generated on the Android emulator's
+# virtual-scene wall, walks the virtual device to it, and asserts the code arrives in
+# `join-code` — which nothing but the camera can put there (#42, docs/qr-scan-lane.md).
+# Until now it ran only when a person typed it, so everything it witnesses could regress
+# silently: an SDK bump changing `barcodeScannerSettings`, a config-plugin change dropping
+# CAMERA, or an edit hiding `qr-cancel` behind the live preview — none of which any web lane
+# can see, because react-native-web has no `CameraView` at all.
+#
+# DISPATCH-ONLY, DELIBERATELY. This builds a dev client from scratch and boots an emulator;
+# it is minutes, not seconds, and putting that in front of every push is how a slow gate
+# gets deleted. It is here to be run before a build and after anything touching the scanner,
+# the camera plugin or the Expo SDK — the same standing as `pnpm android` and lane H.
+#
+# THE HONEST CAVEAT, recorded rather than discovered later: the virtual-scene camera under
+# swiftshader is the part that may simply not work on a hosted runner. The stock
+# `com.android.camera2` app ANR-ed on the same configuration locally while `CameraView`
+# itself was fine, so the camera stack is not robust there. If this proves flaky it should
+# be deleted rather than retried — a lane that goes amber half the time teaches people to
+# ignore it, which is worse than not having it.
+name: lane C
+
+on:
+  workflow_dispatch:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      # Gradle needs a JDK, and the repo builds against 17 locally.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+
+      # The emulator will not use hardware acceleration without this, and a software-only
+      # boot on a hosted runner is slow enough to hit the job timeout.
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Gradle cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('package.json', 'app.json') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      # `-camera-back virtualscene` is the whole point: it is what gives the emulator a
+      # scene with a wall we can hang a poster on. The AVD default is `emulated`, which is
+      # an animated test pattern no QR can be shown on — and `virtualscene-image` answers OK
+      # either way, so a wrong camera mode reads as a broken scanner rather than a
+      # misconfigured emulator.
+      - name: Build the dev client, then witness a scan
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          force-avd-creation: false
+          disable-animations: true
+          emulator-options: >-
+            -no-window -no-snapshot -no-audio -no-boot-anim
+            -camera-back virtualscene
+            -gpu swiftshader_indirect
+          script: |
+            set -euo pipefail
+            export ADB_LIBUSB=0
+
+            # A clean prebuild, because CAMERA and its usage strings come from config
+            # plugins and /android is gitignored output — an in-place prebuild can leave a
+            # stale manifest, which is the exact trap #42 was filed behind.
+            npx expo prebuild -p android --clean
+
+            # --no-bundler: Metro is started separately below so the job controls it.
+            npx expo run:android --no-bundler
+
+            pnpm start > /tmp/metro.log 2>&1 &
+            for i in $(seq 1 60); do
+              curl -sf http://127.0.0.1:8081/status >/dev/null && break
+              sleep 2
+            done
+            curl -sf http://127.0.0.1:8081/status >/dev/null || { tail -40 /tmp/metro.log; exit 1; }
+
+            pnpm scan:device
+
+      # The frames the lane files are the evidence, and they are the only iOS-free native
+      # rendering this repo can produce. Kept on failure too: a black preview or a launcher
+      # screenshot says more than the exit code.
+      - name: Upload the frames it witnessed
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lane-c-frames
+          path: design/device/android-qr-*.png
+          if-no-files-found: warn
