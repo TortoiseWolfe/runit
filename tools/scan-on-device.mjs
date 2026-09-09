@@ -315,6 +315,32 @@ async function launch() {
   shell(`am start -a android.intent.action.VIEW -d '${url}' ${PKG}`);
 }
 
+/**
+ * THE DEV MENU'S FIRST-LAUNCH SHEET -- invisible on this machine, unmissable in CI.
+ *
+ * expo-dev-client shows a one-time "This is the developer menu" sheet the first time a
+ * freshly installed build is opened. It is a WINDOW, and `uiautomator dump` reports the
+ * topmost one only, so `join-code` is genuinely absent from the hierarchy while the join
+ * screen sits fully rendered directly behind it.
+ *
+ * It never appears here because the dev client on this machine was onboarded long ago and
+ * the flag persists; CI installs a new APK every run, so it appears every run. That cost
+ * three CI failures reading `the app never reached the join screen` while the screenshot
+ * beside them showed the join screen, the event name and the headcount.
+ *
+ * Tapping it is not papering over a defect. It is a real thing a real first launch shows,
+ * and the lane already handles the other one -- the camera permission dialog.
+ */
+const dismissDevMenuOnboarding = (nodes) => {
+  const onboarding = nodes.some((n) => n.text.startsWith('This is the developer menu'));
+  if (!onboarding) return false;
+  const cont = nodes.find((n) => n.text === 'Continue' && n.bounds);
+  if (!cont) return false;
+  step('dismissing the dev-client onboarding sheet, which covers the join screen');
+  tap(cont, 'Continue');
+  return true;
+};
+
 // Three attempts, because the intent being dropped and the bundle being slow look the
 // same from here and only one of them is fixed by waiting longer.
 let launched = false;
@@ -322,10 +348,14 @@ for (let attempt = 1; attempt <= 3 && !launched; attempt++) {
   await launch();
   const deadline = Date.now() + 60_000;
   while (Date.now() < deadline) {
-    if (find(dump(), 'join-code')) {
+    const nodes = dump();
+    if (find(nodes, 'join-code')) {
       launched = true;
       break;
     }
+    // Read from the SAME dump the join-code check just missed, so the two can never
+    // disagree about what was on screen.
+    dismissDevMenuOnboarding(nodes);
     await sleep(2_000);
   }
   if (!launched) console.log(`     attempt ${attempt} did not reach the join screen; retrying`);
@@ -335,7 +365,8 @@ if (!launched) {
     'the app never reached the join screen',
     `intent: ${url}`,
     'if the hierarchy shows the launcher the intent was dropped; if it shows a dev-client',
-    'launcher screen, Metro is reachable from here but not from the device.',
+    'launcher screen, Metro is reachable from here but not from the device; and if it shows',
+    'a sheet, read test-results/lane-c/screen.png -- something is covering the join screen.',
   );
 }
 ok('join screen is up');
