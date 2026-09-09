@@ -15,7 +15,7 @@ import { alpha, border, useTheme, weight } from '@/theme';
  * flex:1 here and the affordance flex:0, which is what the design intends.
  */
 export function NowNextCard() {
-  const { tokens, fade } = useTheme();
+  const { tokens, fade, depth } = useTheme();
   const [open, setOpen] = useState(false);
   const schedule = useSchedule();
   const { now, next, nowIndex } = useNowNext();
@@ -23,7 +23,7 @@ export function NowNextCard() {
   const muted = alpha(tokens.baseContent, fade.muted);
 
   return (
-    <View style={[s.card, { backgroundColor: tokens.base200, borderColor: tokens.base300 }]}>
+    <View style={[s.card, { backgroundColor: tokens.base200, borderColor: tokens.base300, boxShadow: depth.plate }]}>
       <Pressable
         onPress={() => setOpen((v) => !v)}
         accessibilityRole="button"

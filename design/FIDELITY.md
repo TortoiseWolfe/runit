@@ -2702,3 +2702,53 @@ account are still one-time human steps behind interactive Apple and Google login
 without them a token that does exist routes nowhere. `pg_net` is fire-and-forget, so a failed
 push lands in `net._http_response` and nowhere else — which is how the smoke test above was
 read, and is the only way to read one.
+
+## AW. Depth, which the canvas does not draw
+
+The canvas has exactly two shadows in 49KB, both flat black outer drops: the shutter button
+(`0 20px 40px rgba(0,0,0,.25)`) and the toast (`0 10px 30px rgba(0,0,0,.3)`). Every other
+surface is flat, separated by a 1px border and a base-200 fill. That is a real design
+position and it shipped for months.
+
+**This diverges from it deliberately**, on the owner's direction and after a `/council`
+review: cards are RAISED (plate), inputs are CUT (groove), and one light source sits above.
+The vocabulary is ScriptHammer's "Machine Shop" system (`ScriptHammer/src/app/globals.css`
+~405-500), adopted as a house style across the repo family.
+
+**THE IDEA CROSSED; THE MECHANISM COULD NOT.** ScriptHammer derives its two inks live with
+`oklch(from var(--color-base-100) calc(l * 0.42) c h / 0.55)`. React Native cannot parse
+`oklch()` at all — it normalises to `null` and renders transparent, and
+`tools/audit-native-styles.mjs` fails the build over one. Relative colour syntax has no RN
+equivalent whatsoever. So the same arithmetic runs in `src/theme/depth.ts`, once, at module
+load, through this repo's own converter.
+
+**It is NOT in `tokens.ts`, and that is the same call as `fade`.** `tokens.test.ts` locks
+every `ThemeTokens` key to a `--color-*` var in `theme.css`; these are derived from base-100
+rather than authored beside it, so putting them there would mean inventing canvas vars to
+satisfy a test. See note H, which settled this for the opacity ramp.
+
+**The two-ink design earns its place at two themes, which is not what it was built for.**
+ScriptHammer's stated reason is 32 themes spanning L=0 to L=1. RunIt has two — but they sit
+at the extremes, which is the same problem with fewer samples:
+
+    dark   base-100 L 0.228 -> shadow L 0.096 #02010E   little room; subtle
+                            -> edge   L 0.653 #8C8EA7   large room; carries it
+    light  base-100 L 0.958 -> shadow L 0.402 #4C4743   large room; carries it
+                            -> edge   L 0.981 #FDF8F2   almost none; vanishes
+
+Read `design/screenshots/01-join.{dark,light}.png` together and the trade is visible: light
+shows a raised card and three cut fields, dark shows a lit top lip and very little else.
+Neither scheme was tuned by hand to make that happen.
+
+**THE CONSEQUENCE, AND IT IS NOT A BUG:** depth reads much more strongly on light than on
+dark, and this is a dark-first app. That is the arithmetic being faithful to the ground it
+is given, not a mistake to correct by raising the dark alpha — doing so would make the
+shadow a colour the ground cannot support and it would read as grey sludge, which is the
+failure ScriptHammer's own comments record.
+
+**What no lane here can settle.** `TextStyle.boxShadow` is typed `string` while `ViewStyle`
+takes the object array, so `TextInput` gets a serialised form — and the only `boxShadow`
+strings shipping before this were simple outer drops with no `inset` keyword. Whether RN's
+string parser honours `inset` on a device is a claim only a build answers. The object form,
+used on every View, is not exposed to that question. `depth.test.ts` asserts the two
+spellings agree layer for layer, including the count of `inset`s.

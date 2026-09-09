@@ -89,7 +89,7 @@ function QueueRow({
 }
 
 export function MusicScreen() {
-  const { tokens, fade } = useTheme();
+  const { tokens, fade, depthCss } = useTheme();
   const queue = useQueue();
   const nowPlaying = useNowPlaying();
   const mine = useMyRequest();
@@ -218,6 +218,7 @@ export function MusicScreen() {
           testID="request-input"
           style={[
             s.input,
+            { boxShadow: depthCss.groove },
             { borderColor: tokens.base300, backgroundColor: tokens.base200, color: tokens.baseContent },
           ]}
         />
