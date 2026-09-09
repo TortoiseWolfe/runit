@@ -53,9 +53,45 @@ const EXPECTED_CODE = 'SR1017';
 // documented, because a doc costs an hour every time somebody has not read it.
 const env = { ...process.env, ADB_LIBUSB: '0' };
 
+/**
+ * WHEN THIS LANE FAILS IT LEAVES STATE -- and until now it did not, which is the reason
+ * three CI runs in a row could be diagnosed only by running a fourth. `fail()` printed a
+ * sentence and exited, so the one machine that could see the device threw away everything
+ * it knew on the way out.
+ *
+ * IT IS DELIBERATELY NOT `design/device/`. That directory holds COMMITTED evidence, and a
+ * CI artifact pointed at it uploads files out of the checkout and presents them as frames
+ * from the run -- which is exactly what happened: a failed run produced an artifact of
+ * five PNGs, every one of them a file already in git. `test-results/lane-c/` is the
+ * sibling of `test-results/lane-b` and `lane-h`, and is gitignored.
+ */
+const DIAG = join(import.meta.dirname, '..', 'test-results', 'lane-c');
+
+const leaveState = () => {
+  // Best effort by construction: this runs while something is already wrong, and a device
+  // that has gone away must not turn a named failure into an unhandled throw.
+  for (const [name, produce] of [
+    ['screen.png', () => screencap()],
+    ['hierarchy.xml', () => adb('exec-out', 'uiautomator', 'dump', '/dev/tty')],
+    // The JS error that stops a screen rendering appears here and NOWHERE else -- not in
+    // the hierarchy, which simply lacks the node, and not in Metro's log, which only knows
+    // it served a bundle.
+    ['logcat.txt', () => adb('logcat', '-d', '-t', '600')],
+  ]) {
+    try {
+      mkdirSync(DIAG, { recursive: true });
+      writeFileSync(join(DIAG, name), produce());
+      console.error(`  state: test-results/lane-c/${name}`);
+    } catch (e) {
+      console.error(`  could not capture ${name}: ${e.message}`);
+    }
+  }
+};
+
 const fail = (msg, ...rest) => {
   console.error(`\x1b[31mFAIL: ${msg}\x1b[0m`);
   for (const line of rest) console.error(`  ${line}`);
+  leaveState();
   process.exit(1);
 };
 const ok = (msg) => console.log(`\x1b[32m  ok\x1b[0m ${msg}`);
