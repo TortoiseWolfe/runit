@@ -89,15 +89,17 @@ jobs:
           # Anything this lane needs to do goes in tools/lane-c-ci.sh, never back into here.
           script: bash tools/lane-c-ci.sh
 
-      # The frames the lane files are the evidence, and they are the only iOS-free native
-      # rendering this repo can produce. Kept on failure too: a black preview or a launcher
-      # screenshot says more than the exit code.
-      - name: Upload the frames it witnessed
+      # `design/device/` is only meaningful on SUCCESS -- those PNGs are COMMITTED, so on a
+      # failed run this step uploads five files straight out of the checkout and labels them
+      # frames from the run. `test-results/lane-c/` is the half that is actually produced
+      # here: the live hierarchy, a screencap and logcat, written by `fail()`.
+      - name: Upload what it witnessed, and what it failed on
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: lane-c-frames
           path: |
             design/device/android-qr-*.png
+            test-results/lane-c/
             metro.log
           if-no-files-found: warn
