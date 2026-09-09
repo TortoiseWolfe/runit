@@ -81,31 +81,13 @@ jobs:
             -no-window -no-snapshot -no-audio -no-boot-anim
             -camera-back virtualscene
             -gpu swiftshader_indirect
-          # `sh`, NOT bash: the action runs this block with /usr/bin/sh, which is dash on
-          # ubuntu runners, and `set -o pipefail` is a bashism it rejects outright —
-          # "Illegal option -o pipefail", exit 2, before a single line of the script runs.
-          # `-eu` is POSIX and is all this needs; nothing below pipes into a command whose
-          # failure would otherwise be masked.
-          script: |
-            set -eu
-            export ADB_LIBUSB=0
-
-            # A clean prebuild, because CAMERA and its usage strings come from config
-            # plugins and /android is gitignored output — an in-place prebuild can leave a
-            # stale manifest, which is the exact trap #42 was filed behind.
-            npx expo prebuild -p android --clean
-
-            # --no-bundler: Metro is started separately below so the job controls it.
-            npx expo run:android --no-bundler
-
-            pnpm start > /tmp/metro.log 2>&1 &
-            for i in $(seq 1 60); do
-              curl -sf http://127.0.0.1:8081/status >/dev/null && break
-              sleep 2
-            done
-            curl -sf http://127.0.0.1:8081/status >/dev/null || { tail -40 /tmp/metro.log; exit 1; }
-
-            pnpm scan:device
+          # ONE LINE, DELIBERATELY, AND THIS IS THE SECOND FIX TO THE SAME BLOCK.
+          # `android-emulator-runner` splits `script:` on newlines and runs EACH LINE in its
+          # own `sh -c`. A multi-line block therefore loses `set -e`, every exported variable
+          # and every background job between one line and the next, and a `for` loop is torn
+          # from its `done`. Three of those four fail SILENTLY; only the loop said anything.
+          # Anything this lane needs to do goes in tools/lane-c-ci.sh, never back into here.
+          script: bash tools/lane-c-ci.sh
 
       # The frames the lane files are the evidence, and they are the only iOS-free native
       # rendering this repo can produce. Kept on failure too: a black preview or a launcher
@@ -115,5 +97,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: lane-c-frames
-          path: design/device/android-qr-*.png
+          path: |
+            design/device/android-qr-*.png
+            metro.log
           if-no-files-found: warn
