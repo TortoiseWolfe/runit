@@ -147,6 +147,27 @@ export interface Invitee {
   joinedGuestId: GuestId | null;
 }
 
+export type GuestListId = string;
+
+/**
+ * A GUEST LIST THAT OUTLIVES ONE EVENT (#59).
+ *
+ * `invitees` is keyed to the event and cascades with it -- right for a roster, wrong for an
+ * address book. The same family gets retyped for every birthday, and `create_event` allows
+ * ten events per identity, so this is a state the schema already anticipates people reaching.
+ *
+ * IT BELONGS TO THE IDENTITY, not to an event, and an event BORROWS one by copy. Pointing an
+ * event at a live list would mean editing the family list next March retroactively changes
+ * what last September's party says it invited.
+ */
+export interface GuestList {
+  id: GuestListId;
+  name: string;
+  /** How many people are on it. Folded by the adapter, not stored. */
+  memberCount: number;
+  createdAt: Instant;
+}
+
 export type BroadcastKind = 'announcement' | 'schedule_started';
 
 export interface Broadcast {

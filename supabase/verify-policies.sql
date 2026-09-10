@@ -32,6 +32,7 @@
 
 do $$
 declare
+  lst       uuid;
   ts        timestamptz;
   guid uuid := '11111111-1111-1111-1111-111111111111';
   huid uuid := '44444444-4444-4444-4444-444444444444';
@@ -463,6 +464,99 @@ begin
     out := out || format('FAIL a host stamped an event that is not theirs');
   exception when others then
     out := out || format('%s mark_invited refuses a host of another event (%s)',
+                         case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  -- ======================================================================
+  -- #59: a guest list that outlives the event, and is nobody else's
+  -- ======================================================================
+
+  -- Saving what is already on the event, which is how a first list comes to exist.
+  select public.save_guest_list(eid, 'Family') into lst;
+  out := out || format('%s save_guest_list returns a list', case when lst is not null then 'PASS' else 'FAIL' end);
+
+  select count(*) into n from public.guest_list_members where list_id = lst;
+  out := out || format('%s and it copied the event roster into it (%s, want 3)',
+                       case when n = 3 then 'PASS' else 'FAIL' end, n);
+
+  -- Saving twice MERGES rather than erroring at somebody who just added a name.
+  select count(*) into n from public.guest_lists where owner = huid;
+  out := out || format('%s saving twice keeps one list (%s, want 1)',
+                       case when (select count(*) from public.guest_lists where owner = huid) = 1
+                            then 'PASS' else 'FAIL' end, n);
+
+  -- ATTACH BY COPY. The rows land in `invitees`, so the event's roster is a record of what
+  -- it WAS rather than a pointer at a list that will move next March.
+  delete from public.invitees where event_id = eid;
+  select public.attach_guest_list(eid, lst) into n;
+  out := out || format('%s attaching a list copies its members in (%s, want 3)',
+                       case when n = 3 then 'PASS' else 'FAIL' end, n);
+
+  -- And attaching twice adds nobody, because `invitees`' own partial unique indexes
+  -- deduplicate the copy for free.
+  select public.attach_guest_list(eid, lst) into n;
+  out := out || format('%s attaching the same list again adds nobody (%s, want 0)',
+                       case when n = 0 then 'PASS' else 'FAIL' end, n);
+
+  -- FORGET. The question #59 was filed asking: a persistent address book of people who
+  -- never heard of RunIt has to honour "delete me", and it must reach the copies too.
+  select public.forget_person(null, '(555) 010-1234') into n;
+  out := out || format('%s forget_person removes them from the list AND the event (%s, want 2)',
+                       case when n = 2 then 'PASS' else 'FAIL' end, n);
+
+  select count(*) into n from public.guest_list_members
+   where list_id = lst and public.phone_key(phone) = '5550101234';
+  out := out || format('%s and they are really gone from the saved list (%s, want 0)',
+                       case when n = 0 then 'PASS' else 'FAIL' end, n);
+
+  begin
+    perform public.forget_person(null, null);
+    out := out || format('FAIL forget_person accepted neither an email nor a phone');
+  exception when others then
+    out := out || format('%s forget_person needs something to match on (%s)',
+                         case when sqlstate = '22023' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  -- FORGET IS SCOPED BY A WHERE CLAUSE, NOT BY AN EXCEPTION, which is the shape most worth
+  -- pinning: it does not refuse out-of-scope rows, it silently does not match them. So the
+  -- only way to know it is scoped is to put a row OUTSIDE the scope and count.
+  --
+  -- TEST02 belongs to another host. A person on ITS roster must survive a forget run by us.
+  -- SEEDED WITHOUT RLS, and this is the second time this file has taught the same lesson.
+  -- The first attempt inserted it while standing as the host of `eid`, so
+  -- `invitees_host_insert` refused it with 42501 -- OUTSIDE an exception handler, which
+  -- aborts the whole DO block and produces no report at all. That is issue #31's exact
+  -- shape, and the header of this file already describes it.
+  execute 'reset role';
+  insert into public.invitees (event_id, phone, display_name)
+  values (eid2, '(555) 010-7777', 'Someone Elses Guest');
+  perform set_config('request.jwt.claims', json_build_object('sub',huid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+
+  select public.forget_person(null, '555-010-7777') into n;
+  out := out || format('%s forget_person matches nothing outside what you own or host (%s, want 0)',
+                       case when n = 0 then 'PASS' else 'FAIL' end, n);
+  -- COUNTED WITHOUT RLS, because standing as this host the other event's rows are
+  -- INVISIBLE rather than absent -- `invitees_host_read` is scoped by `is_host`, and this
+  -- file already asserts exactly that a few lines below. Counting under RLS returned 0 and
+  -- would have "proved" the row was deleted when it was merely hidden, which is the most
+  -- flattering possible way for this assertion to be wrong.
+  execute 'reset role';
+  select count(*) into n from public.invitees
+   where event_id = eid2 and public.phone_key(phone) = '5550107777';
+  perform set_config('request.jwt.claims', json_build_object('sub',huid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  out := out || format('%s and the other event still has them (%s, want 1)',
+                       case when n = 1 then 'PASS' else 'FAIL' end, n);
+
+  -- A HOST OF ANOTHER EVENT CANNOT ATTACH HER OWN LIST TO IT. Both halves are checked
+  -- inside the definer, and neither implies the other -- skipping the event half would let
+  -- anyone read their address book into somebody else's party.
+  begin
+    perform public.attach_guest_list(eid2, lst);
+    out := out || format('FAIL a list was attached to an event that is not theirs');
+  exception when others then
+    out := out || format('%s attach_guest_list refuses an event you do not host (%s)',
                          case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
   end;
 

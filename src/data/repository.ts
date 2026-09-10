@@ -16,7 +16,7 @@
  * web client cannot route around them.
  */
 import type {
-  BlockedGuest, Broadcast, BroadcastId, Folder, FolderId, GuestId, HostRole, Instant,
+  BlockedGuest, Broadcast, BroadcastId, Folder, FolderId, GuestId, GuestList, GuestListId, HostRole, Instant,
   Invitee, InviteeId, NowPlaying, Photo, PhotoId,
   Host, HostId, Report, ReportId, ReportReason, ReportResolution, ReportSubject,
   RunitEvent, ScheduleItem, ScheduleItemId, Session, SongRequest, SongRequestId,
@@ -418,6 +418,42 @@ export interface RunitRepository {
      * an invitee -- which is why the schema grants DELETE here and nowhere else.
      */
     remove(id: InviteeId): Promise<void>;
+  };
+
+  /**
+   * SAVED GUEST LISTS (#59). Owned by the identity, borrowed by an event.
+   *
+   * There is no `attach by reference` on purpose -- see `attach`.
+   */
+  guestLists: {
+    /** Yours only. A guest observes an empty list rather than an error. */
+    all: Observable<GuestList[]>;
+    /**
+     * Saves the CURRENT event's invitees under a name, merging into a list of that name if
+     * one exists -- because "save as Family" twice should not error at somebody who has just
+     * added three people.
+     */
+    saveCurrent(name: string): Promise<GuestListId>;
+    /**
+     * Copies a list's members onto the current event. BY COPY, never by reference: an
+     * event's roster is a record of who was invited THEN, and a live pointer would let a
+     * list edited months later rewrite a finished party's history.
+     *
+     * Returns how many were actually added -- attaching the same list twice adds nobody,
+     * because `invitees`' own unique indexes deduplicate the copy.
+     */
+    attach(id: GuestListId): Promise<number>;
+    remove(id: GuestListId): Promise<void>;
+    /**
+     * FORGETS SOMEBODY EVERYWHERE YOU HOLD THEM -- every saved list you own and every
+     * event you host, finished ones included.
+     *
+     * This is other people's contact details kept past any event they were connected to,
+     * for people who never heard of RunIt, so "delete me" has to mean it. An event's roster
+     * being a historical record is a good argument right up until it is used to justify
+     * keeping somebody who asked to be removed.
+     */
+    forget(who: { email?: string; phone?: string }): Promise<number>;
   };
 
   event: {

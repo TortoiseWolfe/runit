@@ -19,6 +19,7 @@ import { registerForPush } from '@/lib/push';
 import { checkLimit } from '@/domain/entitlements';
 import { useEntitlements } from './hooks';
 import type {
+  GuestListId,
   BroadcastId, FolderId, GuestId, InviteeId, PhotoId, ReportId, ReportReason, ReportResolution,
   ReportSubject, ScheduleItemId, SongRequestId,
 } from '@/data/types';
@@ -426,6 +427,56 @@ export function useHostActions() {
        * backed out has invited nobody, and a date beside a message that was never sent is
        * worse than no date, which is what this column held for the life of the repo.
        */
+      /**
+       * SAVING THE ROSTER AS A LIST (#59), which is how a first list comes to exist. Nobody
+       * builds an address book in the abstract; they invite people to a party and then want
+       * the same forty next time.
+       */
+      saveGuestList: async (name: string) => {
+        try {
+          await repo.guestLists.saveCurrent(name);
+          show(`Saved as "${name.trim()}".`);
+          return true;
+        } catch (e) {
+          show(e instanceof Error ? e.message : 'Could not save that list.');
+          return false;
+        }
+      },
+
+      /** Copies a saved list onto this event. Reports what actually landed. */
+      attachGuestList: async (id: GuestListId, name: string) => {
+        try {
+          const added = await repo.guestLists.attach(id);
+          show(
+            added > 0
+              ? `Added ${added} from "${name}".`
+              : `Everyone on "${name}" is already invited.`,
+          );
+          return true;
+        } catch (e) {
+          show(e instanceof Error ? e.message : 'Could not attach that list.');
+          return false;
+        }
+      },
+
+      removeGuestList: (id: GuestListId) => repo.guestLists.remove(id),
+
+      /**
+       * FORGETS SOMEBODY EVERYWHERE. The toast names the number because the whole point is
+       * that it reaches more than the row you were looking at -- every saved list and every
+       * event you host, finished ones included.
+       */
+      forgetPerson: async (who: { email?: string; phone?: string }) => {
+        try {
+          const gone = await repo.guestLists.forget(who);
+          show(gone > 0 ? `Removed from ${gone} place${gone === 1 ? '' : 's'}.` : 'Nothing to remove.');
+          return true;
+        } catch (e) {
+          show(e instanceof Error ? e.message : 'Could not remove them.');
+          return false;
+        }
+      },
+
       sendInvitations: async (ids: InviteeId[]) => {
         if (ids.length === 0) return false;
         try {

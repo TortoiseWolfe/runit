@@ -11,6 +11,7 @@
 import * as Crypto from 'expo-crypto';
 
 import type {
+  GuestList, GuestListId,
   BlockedGuest, Broadcast, BroadcastId, Folder, FolderId, GuestId, Host, HostRole,
   Invitee, InviteeId, NowPlaying, Photo, PhotoId,
   Report, ReportId, ReportReason, ReportResolution, ReportSubject,
@@ -248,6 +249,9 @@ export class MemoryRepository implements RunitRepository {
   private hostList: Host[];
   private inviteeList: Invitee[];
   private sigInvitees: Signal<Invitee[]>;
+  private listRows: { id: string; name: string; createdAt: string }[] = [];
+  private listMembers = new Map<string, { email: string | null; phone: string | null; displayName: string | null }[]>();
+  private sigGuestLists: Signal<GuestList[]>;
   private broadcastList: Broadcast[];
   /**
    * The last push token handed to `session.setPushToken` (#27). It is stored rather than
@@ -373,7 +377,10 @@ export class MemoryRepository implements RunitRepository {
     this.sigSession = new Signal<Session>({ kind: 'anonymous' });
     this.sigHoldsHostSeat = new Signal<boolean>(true);
     this.inviteeList = [...(seed.invitees ?? [])];
+    this.listRows = [];
+    this.listMembers = new Map();
     this.sigInvitees = new Signal<Invitee[]>(this.inviteeList);
+    this.sigGuestLists = new Signal<GuestList[]>([]);
     this.sigEvent = new Signal<RunitEvent | null>(this.ev);
     this.hostedList = seed.hosted ? [...seed.hosted] : [];
     this.sigMyEvents = new Signal<HostedEvent[]>(this.hostedList);
@@ -486,6 +493,16 @@ export class MemoryRepository implements RunitRepository {
     this.sigEntitlements.set(this.computeEntitlements());
     this.sigEvent.set(this.ev ? { ...this.ev } : null);
     this.sigInvitees.set(this.inviteeList);
+    // The member count is FOLDED here rather than stored, the same way `photoCount` is on a
+    // folder: two places holding one number is how they come to disagree.
+    this.sigGuestLists.set(
+      this.listRows.map((l) => ({
+        id: l.id,
+        name: l.name,
+        memberCount: (this.listMembers.get(l.id) ?? []).length,
+        createdAt: l.createdAt,
+      })),
+    );
     // Pinned first, then oldest-to-newest -- the canvas renders its feed in
     // insertion order with new messages at the bottom, chat-style.
     this.sigFeed.set(
@@ -809,6 +826,86 @@ export class MemoryRepository implements RunitRepository {
       this.inviteeList = this.inviteeList.filter((i) => i.id !== id);
       if (this.inviteeList.length !== before) this.shiftInvitedCount(-1);
       this.recompute();
+    },
+  };
+
+  // ------------------------------------------------------------ guest lists
+
+  /**
+   * SAVED LISTS IN MEMORY (#59). The e2e suite IS this adapter, so a list that behaved
+   * differently here would put Lane B's green board over a feature the real backend does
+   * not have. It mirrors the three rules that matter: save merges by name, attach copies
+   * and deduplicates, forget reaches both the list and the roster.
+   */
+  guestLists = {
+    all: undefined as unknown as Observable<GuestList[]>,
+
+    saveCurrent: async (name: string) => {
+      const label = name.trim();
+      if (!label) throw new Error('Give the list a name.');
+      // Merge by name rather than refuse. Saving "Family" twice after adding somebody is
+      // the normal case, and erroring at it is the fastest way to look broken.
+      const existing = this.listRows.find(
+        (l) => l.name.trim().toLowerCase() === label.toLowerCase(),
+      );
+      const id = existing?.id ?? this.id('gl');
+      if (!existing) this.listRows = [...this.listRows, { id, name: label, createdAt: this.now() }];
+
+      const members = this.listMembers.get(id) ?? [];
+      const merged = [...members];
+      for (const i of this.inviteeList) {
+        const clash = merged.some(
+          (m) =>
+            (!!i.email && m.email?.toLowerCase() === i.email.toLowerCase()) ||
+            (!!i.phone && !!m.phone && phoneKey(m.phone) === phoneKey(i.phone)),
+        );
+        if (!clash) merged.push({ email: i.email, phone: i.phone, displayName: i.displayName });
+      }
+      this.listMembers.set(id, merged);
+      this.recompute();
+      return id;
+    },
+
+    attach: async (id: GuestListId) => {
+      const members = this.listMembers.get(id);
+      if (!members) throw new Error('That list is gone.');
+      const { added } = await this.invitees.addMany(
+        members.map((m) => ({
+          email: m.email ?? undefined,
+          phone: m.phone ?? undefined,
+          displayName: m.displayName ?? undefined,
+        })),
+      );
+      return added;
+    },
+
+    remove: async (id: GuestListId) => {
+      this.listRows = this.listRows.filter((l) => l.id !== id);
+      this.listMembers.delete(id);
+      this.recompute();
+    },
+
+    forget: async (who: { email?: string; phone?: string }) => {
+      const email = who.email?.trim().toLowerCase();
+      const phone = who.phone ? phoneKey(who.phone) : '';
+      if (!email && !phone) throw new Error('Give an email or a phone number.');
+      const hit = (r: { email: string | null; phone: string | null }) =>
+        (!!email && r.email?.toLowerCase() === email) ||
+        (!!phone && !!r.phone && phoneKey(r.phone) === phone);
+
+      let gone = 0;
+      for (const [listId, members] of this.listMembers) {
+        const kept = members.filter((m) => !hit(m));
+        gone += members.length - kept.length;
+        this.listMembers.set(listId, kept);
+      }
+      const before = this.inviteeList.length;
+      this.inviteeList = this.inviteeList.filter((i) => !hit(i));
+      const removed = before - this.inviteeList.length;
+      if (removed) this.shiftInvitedCount(-removed);
+      gone += removed;
+      this.recompute();
+      return gone;
     },
   };
 
@@ -1500,6 +1597,7 @@ export class MemoryRepository implements RunitRepository {
     this.session.current = this.sigSession;
     this.session.holdsHostSeat = this.sigHoldsHostSeat;
     this.invitees.all = this.sigInvitees;
+    this.guestLists.all = this.sigGuestLists;
     this.event.current = this.sigEvent;
     this.event.mine = this.sigMyEvents;
     this.event.preview = this.sigPreview;

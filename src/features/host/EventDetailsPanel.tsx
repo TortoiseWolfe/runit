@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { useEvent, useHosts, useInvitees, useLoadMyEvents } from '@/state/hooks';
+import { useEvent, useGuestLists, useHosts, useInvitees, useLoadMyEvents } from '@/state/hooks';
 import { useHostActions } from '@/state/actions';
 import { formatClock, formatEventDate, instantToWallClock } from '@/lib/format';
 import { instantFrom, zoneChoices } from '@/lib/eventForm';
@@ -49,10 +49,11 @@ export function EventDetailsPanel() {
   const event = useEvent();
   const {
     saveEventDetails, rotateHostKey, invite, addInvitee, removeInvitee,
-    addFromContacts, sendInvitations,
+    addFromContacts, sendInvitations, saveGuestList, attachGuestList,
   } = useHostActions();
   const hosts = useHosts();
   const invitees = useInvitees();
+  const guestLists = useGuestLists();
 
   /**
    * Seeded ONCE from the event, then owned by the form.
@@ -116,6 +117,17 @@ export function EventDetailsPanel() {
    * addressed to the thirty who already have it.
    */
   const unsent = invitees.filter((i) => i.invitedAt === null);
+
+  const onSaveGuestList = async () => {
+    if (busy) return;
+    // NAMED AFTER THE EVENT by default, because that is what a host would call it and it is
+    // one fewer thing to type on a phone. She renames it by saving again under another name;
+    // `save_guest_list` merges by name rather than erroring.
+    const name = (event?.name ?? 'My list').trim();
+    setBusy(true);
+    await saveGuestList(name);
+    setBusy(false);
+  };
 
   const onAddFromContacts = async () => {
     if (busy) return;
@@ -520,6 +532,39 @@ export function EventDetailsPanel() {
 
               Drawn only when there is somebody to send to, the same rule as the invite row on
               BroadcastPanel: a control that cannot act is not drawn. */}
+          {/* SAVED LISTS (#59). The roster is keyed to the event and dies with it; this is the
+              same people, kept. Drawn inside the invitee section rather than beside it
+              because it is the same job -- who is coming -- and a second top-level fold for
+              it would be a menu of one. */}
+          {invitees.length > 0 ? (
+            <Pressable
+              onPress={onSaveGuestList}
+              accessibilityRole="button"
+              accessibilityLabel="Save these people as a reusable list"
+              testID="guest-list-save"
+              style={[s.rotate, { borderColor: tokens.base300 }]}
+            >
+              <Text style={[s.rotateText, { color: tokens.baseContent }]}>
+                Save these {invitees.length} as a list
+              </Text>
+            </Pressable>
+          ) : null}
+
+          {guestLists.map((l) => (
+            <Pressable
+              key={l.id}
+              onPress={() => void attachGuestList(l.id, l.name)}
+              accessibilityRole="button"
+              accessibilityLabel={`Add the ${l.name} list, ${l.memberCount} people`}
+              testID={`guest-list-${l.id}`}
+              style={[s.rotate, { borderColor: tokens.base300 }]}
+            >
+              <Text style={[s.rotateText, { color: tokens.accent }]}>
+                + {l.name} ({l.memberCount})
+              </Text>
+            </Pressable>
+          ))}
+
           {invitees.length > 0 ? (
             <Pressable
               onPress={onSendInvitations}

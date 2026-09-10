@@ -112,6 +112,27 @@ export type Database = {
         };
         Relationships: [];
       };
+      guest_lists: {
+        Row: { id: string; owner: string; name: string; created_at: string };
+        Insert: { id?: string; owner: string; name: string; created_at?: string };
+        Update: { id?: string; owner?: string; name?: string; created_at?: string };
+        Relationships: [];
+      };
+      guest_list_members: {
+        Row: {
+          id: string; list_id: string; email: string | null; phone: string | null;
+          display_name: string | null; created_at: string;
+        };
+        Insert: {
+          id?: string; list_id: string; email?: string | null; phone?: string | null;
+          display_name?: string | null; created_at?: string;
+        };
+        Update: {
+          id?: string; list_id?: string; email?: string | null; phone?: string | null;
+          display_name?: string | null; created_at?: string;
+        };
+        Relationships: [];
+      };
       invitees: {
         // `email` is NULLABLE now and `phone` exists (#60): a contact on a phone is usually a
         // number, so requiring an address meant dropping most of an address book. The schema
@@ -284,6 +305,12 @@ export type Database = {
        * function is the ONLY writer -- a host cannot put an arbitrary time on an arbitrary
        * row, only record that these invitees went out now.
        */
+      /** #59. Copies a saved list onto an event BY COPY; returns how many were new. */
+      attach_guest_list: { Args: { p_event_id: string; p_list_id: string }; Returns: number };
+      /** Saves the event's current roster under a name, merging into one of that name. */
+      save_guest_list: { Args: { p_event_id: string; p_name: string }; Returns: string };
+      /** Removes somebody from every list you own and every event you host. */
+      forget_person: { Args: { p_email: string | null; p_phone: string | null }; Returns: number };
       mark_invited: {
         Args: { p_event_id: string; p_ids: string[] };
         Returns: number;

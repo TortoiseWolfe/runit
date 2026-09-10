@@ -36,6 +36,9 @@ export const useMyUploads = () => useObservable(useRepository().photos.mine);
 export const useHosts = () => useObservable(useRepository().hosts.all);
 /** Host-only by policy; a guest observes an empty list rather than an error (#25). */
 export const useInvitees = () => useObservable(useRepository().invitees.all);
+
+/** Saved lists this identity owns (#59). Empty for a guest, by policy and by design. */
+export const useGuestLists = () => useObservable(useRepository().guestLists.all);
 /** Live tier + usage. For ADVISORY checks only -- the write methods enforce. */
 export const useEntitlements = () => useObservable(useRepository().entitlements);
 /** Whether live updates are actually arriving (#45). `live` on MemoryRepository always. */
