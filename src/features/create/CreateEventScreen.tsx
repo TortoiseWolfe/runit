@@ -29,7 +29,7 @@ import type { CreatedEvent } from '@/data/repository';
  * host, which is everyone who needs this screen.
  */
 export function CreateEventScreen() {
-  const { tokens, fade, depth, depthCss } = useTheme();
+  const { tokens, fade, depthCss } = useTheme();
   const router = useRouter();
   const { createEvent } = useCreateActions();
 

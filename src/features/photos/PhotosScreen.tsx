@@ -59,6 +59,22 @@ export function PhotosScreen() {
    * promise nobody should make about somebody else's storage bill.
    */
   const retentionDays = useEntitlements().tier.limits.albumRetentionDays;
+  /**
+   * WHY A PHOTO IS NOT HERE YET, on the one screen a guest would look for it.
+   *
+   * On a moderated tier every upload lands `pending` and stays invisible until a host
+   * approves it. The guest gets one toast at upload time ("awaiting host approval",
+   * `actions.ts:281`) and then nothing: `photos.mine` is fed from `UploadOverlay`, which
+   * holds in-flight and FAILED transfers only and drops a row the moment it lands
+   * (`SupabaseRepository.ts:457`). So a guest who missed the toast, or who checks the
+   * album five minutes later, finds no trace of their own photo and concludes it broke.
+   *
+   * This does not make their pending photo visible -- that is a real gap and needs the
+   * repository to read their own pending rows, which RLS already permits
+   * (`photos_read`, schema.sql:1185-1190). It states the RULE, which is the part that
+   * stops the album looking broken, and it costs nothing at a party to be told.
+   */
+  const moderated = useEntitlements().tier.features.photoModeration;
 
   const visible = approved.filter((p) => p.folderId === active?.id);
   const totalPhotos = folders.reduce((a, f) => a + f.photoCount, 0);
@@ -302,6 +318,15 @@ export function PhotosScreen() {
           >
             Photos here are kept for {retentionDays} days after the event. Tap one and
             choose Save to keep it on your phone.
+          </Text>
+        ) : null}
+
+        {moderated ? (
+          <Text
+            testID="album-moderated"
+            style={[s.retention, { color: alpha(tokens.baseContent, fade.muted) }]}
+          >
+            Photos you add appear here once a host approves them.
           </Text>
         ) : null}
       </ScrollView>

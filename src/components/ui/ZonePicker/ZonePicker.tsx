@@ -95,7 +95,7 @@ export function ZonePicker({ reading, value, onChange, choices, testIDPrefix }: 
             );
           })}
           <Text style={[s.note, { color: alpha(tokens.baseContent, fade.faint) }]}>
-            The list is short on purpose; your phone&rsquo;s own zone is always first.
+            Short on purpose. The event&rsquo;s own zone comes first, then this phone&rsquo;s.
           </Text>
         </View>
       ) : null}
