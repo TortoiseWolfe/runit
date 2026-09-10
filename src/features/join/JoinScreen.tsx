@@ -210,10 +210,22 @@ export function JoinScreen() {
                 { color: alpha(tokens.baseContent, fade.muted) },
               ]}
             >
-              You&apos;re invited to
+              {invite ? "You're invited to" : 'Join an event'}
             </Text>
+            {/* IT STOPS CLAIMING AN INVITATION IT CANNOT SHOW.
+                "You're invited to / An event" was the literal first two lines a guest read
+                after installing and opening the app themselves -- the commonest arrival
+                there is, because the code cannot survive an install on this distribution.
+                It asserts an invitation and then fails to name it, which reads as the app
+                having lost something.
+
+                A code that resolves to NOTHING renders identically, deliberately
+                (`hooks.ts` swallows the lookup failure), so a typo produced the same screen
+                as a cold open and the guest only learned after pressing Run it. Same words
+                now do honest work: with a preview it is an invitation, without one it is an
+                instruction. */}
             <Text style={[s.title, { color: tokens.baseContent }]}>
-              {invite?.name ?? "An event"}
+              {invite?.name ?? 'Enter your code'}
             </Text>
             <Text
               style={[
@@ -306,7 +318,9 @@ export function JoinScreen() {
               <Text
                 style={[s.hint, s.hintText, { color: alpha(tokens.baseContent, fade.body) }]}
               >
-                Scanned the QR? Your code is filled in. Otherwise type it.
+                {invite
+                  ? 'Scanned the QR? Your code is filled in. Otherwise type it.'
+                  : 'The host gives you a six-character code — in a text, an email or a QR at the door.'}
               </Text>
               <Pressable
                 onPress={() => setScanning(true)}
@@ -322,7 +336,7 @@ export function JoinScreen() {
             <TextInput
               value={code}
               onChangeText={setCode}
-              placeholder="Event code"
+              placeholder="Six-character code, e.g. S7Y9RX"
               placeholderTextColor={alpha(tokens.baseContent, fade.faint)}
               autoCapitalize="characters"
               autoCorrect={false}
@@ -339,7 +353,7 @@ export function JoinScreen() {
             <TextInput
               value={nickname}
               onChangeText={setNickname}
-              placeholder="Nickname (shown with your requests)"
+              placeholder="Your name, as the room will see it"
               placeholderTextColor={alpha(tokens.baseContent, fade.faint)}
               accessibilityLabel="Nickname"
               testID="join-nickname"

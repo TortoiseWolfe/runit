@@ -27,7 +27,21 @@ import { INVITATION_LINE, WEDDING, open } from './helpers';
  * this gap properly.
  */
 
-const FALLBACK = 'An event';
+/**
+ * THE FALLBACK CHANGED, AND THE CHANGE IS THE POINT rather than a rename.
+ *
+ * It was the literal `An event`, under an eyebrow reading "You're invited to" -- so the
+ * screen ASSERTED an invitation and then failed to name it, which is what this file's own
+ * docblock calls "an invitation screen that could not show the invitation". Worse, a code
+ * that resolves to nothing renders identically to a cold open by design (`hooks.ts`
+ * swallows the lookup), so a typo looked exactly like a fresh install.
+ *
+ * The same two lines now do honest work in both states: with a preview they are an
+ * invitation, without one they are an instruction -- `Join an event` / `Enter your code`.
+ * Every assertion below is unchanged in INTENT: the fallback must appear exactly once when
+ * no event was found, and never when one was.
+ */
+const FALLBACK = 'Enter your code';
 
 test.describe('an invitation arriving from a link', () => {
   test('names the event, its date and its venue before anyone has joined', async ({
@@ -36,8 +50,10 @@ test.describe('an invitation arriving from a link', () => {
     const scheme = testInfo.project.name as 'dark' | 'light';
     await open(page, scheme, '/join?invited=1&code=SR1017');
 
-    // The name is the claim that the lookup ran at all: without it the screen falls
-    // back to 'An event', which looks perfectly healthy in a screenshot.
+    // The name is the claim that the lookup ran at all: without it the screen falls back
+    // to the instruction, which is a legitimate screen and would look perfectly healthy
+    // in a screenshot. That is why this asserts the fallback is ABSENT as well as the
+    // name being present.
     await expect(page.getByText(WEDDING.name, { exact: true })).toHaveCount(1);
     await expect(page.getByText(FALLBACK, { exact: true })).toHaveCount(0);
 
@@ -90,9 +106,9 @@ test.describe('an invitation arriving from a link', () => {
     const scheme = testInfo.project.name as 'dark' | 'light';
     await open(page, scheme, '/join?invited=1&code=ZZ9999');
 
-    // A miss is zero rows and no exception -- not an error state. The screen shows
-    // exactly what it showed before any of this existed, which is the correct answer
-    // to a code nobody has heard of.
+    // A miss is zero rows and no exception -- not an error state. The screen falls back
+    // to asking for a code, which is the correct answer to a code nobody has heard of:
+    // it neither invents an event nor accuses the guest of anything.
     await expect(page.getByText(FALLBACK, { exact: true })).toHaveCount(1);
     await expect(page.getByText(INVITATION_LINE)).toHaveCount(0);
     await expect(page.getByTestId('join-add-calendar')).toHaveCount(0);
