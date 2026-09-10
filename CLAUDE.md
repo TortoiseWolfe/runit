@@ -362,7 +362,7 @@ undecodable, which is the contrast/quiet-zone/resolution class a camera in a dim
 would hit.
 
 **H — the adapter that ships, against the database that ships** (`pnpm export:web:live &&
-pnpm smoke:live`). Twenty-eight checks driving `SupabaseRepository` through a real browser against
+pnpm smoke:live`). Thirty checks driving `SupabaseRepository` through a real browser against
 the live project: `create_event`, the founding host seat, a broadcast round-tripping through
 realtime, a founder taking a guest seat (#37), her seat NOT counted in the room,
 `request_song` both inserting and merging (#44), and **the whole photo chain** — two objects
@@ -979,7 +979,7 @@ and `false`; a test demanding absence contradicts the remedy `audit:tiers` print
 removes the flag from the ladder-monotonicity test that was already covering it. FIDELITY
 note Z.
 
-**The reason the rest kept arriving by phone.** #20 — all 142 journeys boot
+**The reason the rest kept arriving by phone.** #20 — all ~294 journeys boot
 `MemoryRepository`.
 
 Still true and not an issue: the in-memory transfer completes instantly because nothing
