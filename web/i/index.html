@@ -199,8 +199,14 @@
     <li id="stepInstall">
       <b>Install RunIt</b>
       <span id="installNote">Choose your phone below.</span>
+      <!-- THE BUILD THIS POINTS AT IS NOW LOAD-BEARING, which it was not before #60.
+           Android verifies app links at INSTALL time against the APK's own signing
+           certificate. A guest who installs an OLDER build gets an app that can never open
+           an https link, however correct `/.well-known/assetlinks.json` is -- because that
+           build declares no https intent filter at all. So this must be repointed at a build
+           that has one, in the same deploy as any change to the association file. -->
       <p style="margin:10px 0 0">
-        <a class="cta" id="android" href="https://expo.dev/accounts/turtlewolfe/projects/runit/builds/f94ab911-6300-4b2b-b7cd-9b6057a7b67e">Android &middot; install now</a>
+        <a class="cta" id="android" href="https://expo.dev/artifacts/eas/MdM6ByT4CEOsE7kVCEhf3VkN3T1LJCP8mw2uh9Bvc-I.apk">Android &middot; install now</a>
       </p>
       <p style="margin:10px 0 0">
         <a class="cta" id="ios" href="#ask">iPhone &middot; how to get it</a>
