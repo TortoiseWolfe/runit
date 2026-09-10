@@ -1,0 +1,223 @@
+<title>RunIt Invite Builder</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap">
+<style>
+:root{
+  --ground:#F5F0EB; --surface:#FFF; --sunk:#EBE5DD;
+  --ink:#1F2937; --muted:#6A6459; --faint:#8C8578;
+  --line:#DDD5CB; --rule:#C9BFB2; --amber:#9C6C15; --stage:#1A1A2E;
+  --shadow:0 1px 2px rgba(31,41,55,.06),0 10px 28px rgba(31,41,55,.08);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --ground:#0B0F1D; --surface:#141A2E; --sunk:#080C18;
+  --ink:#E2E8F0; --muted:#98A0B4; --faint:#6E7793;
+  --line:#232B44; --rule:#2E3752; --amber:#F2B84B; --stage:#1A1A2E;
+  --shadow:0 1px 2px rgba(0,0,0,.5),0 12px 32px rgba(0,0,0,.45);
+}}
+:root[data-theme="dark"]{
+  --ground:#0B0F1D; --surface:#141A2E; --sunk:#080C18;
+  --ink:#E2E8F0; --muted:#98A0B4; --faint:#6E7793;
+  --line:#232B44; --rule:#2E3752; --amber:#F2B84B; --stage:#1A1A2E;
+  --shadow:0 1px 2px rgba(0,0,0,.5),0 12px 32px rgba(0,0,0,.45);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--ink);
+  font:400 16px/1.6 "Instrument Sans",ui-sans-serif,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1140px;margin:0 auto;padding:44px 24px 80px;display:flex;flex-direction:column;gap:30px}
+h1{font-family:"Bricolage Grotesque",ui-sans-serif,sans-serif;font-weight:800;font-size:clamp(30px,4.5vw,44px);
+  line-height:1.03;letter-spacing:-.03em;margin:0}
+h1 em{font-style:normal;color:var(--amber)}
+h2{font-family:"Bricolage Grotesque",sans-serif;font-weight:600;font-size:15px;letter-spacing:.02em;margin:0}
+.eyebrow{font:400 11px/1 "JetBrains Mono",ui-monospace,monospace;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--faint);margin:0}
+.lede{font-size:17.5px;color:var(--muted);max-width:64ch;margin:0}
+.lede strong{color:var(--ink);font-weight:600}
+.cols{display:grid;grid-template-columns:minmax(300px,380px) 1fr;gap:26px;align-items:start}
+@media (max-width:820px){.cols{grid-template-columns:1fr}}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:15px;padding:20px;box-shadow:var(--shadow);
+  display:flex;flex-direction:column;gap:15px}
+label{display:flex;flex-direction:column;gap:6px}
+label span{font:400 11px/1 "JetBrains Mono",monospace;letter-spacing:.11em;text-transform:uppercase;color:var(--faint)}
+input,textarea{font:400 15px/1.45 "Instrument Sans",sans-serif;color:var(--ink);background:var(--sunk);
+  border:1px solid var(--line);border-radius:9px;padding:10px 12px;width:100%;resize:vertical}
+input:focus,textarea:focus{outline:2px solid var(--amber);outline-offset:1px}
+.hint{font-size:12.5px;color:var(--faint);line-height:1.45;margin:0}
+.preview-shell{display:flex;flex-direction:column;gap:12px}
+.frame{border:1px solid var(--line);border-radius:15px;overflow:hidden;background:#EDEAE6;padding:22px;
+  box-shadow:var(--shadow)}
+button{font:500 13px/1 "JetBrains Mono",monospace;letter-spacing:.06em;text-transform:uppercase;cursor:pointer;
+  background:var(--amber);color:#12121F;border:0;border-radius:999px;padding:13px 18px}
+button.ghost{background:transparent;color:var(--amber);border:1px solid var(--amber)}
+button:focus-visible{outline:2px solid var(--amber);outline-offset:3px}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.said{font-size:13px;color:var(--amber);min-height:1.2em}
+details{background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+summary{cursor:pointer;padding:15px 19px;list-style:none;display:flex;gap:12px;align-items:baseline;font-size:16px}
+summary::-webkit-details-marker{display:none}
+summary::before{content:"+";font:400 15px/1 "JetBrains Mono",monospace;color:var(--amber)}
+details[open] summary::before{content:"\2013"}
+.inner{padding:0 19px 18px 44px;display:flex;flex-direction:column;gap:11px}
+.inner p{margin:0;color:var(--muted);font-size:14.5px;line-height:1.6}
+pre{font:400 11.5px/1.5 "JetBrains Mono",monospace;background:var(--sunk);border:1px solid var(--line);
+  border-radius:10px;padding:13px;overflow:auto;max-height:260px;margin:0;color:var(--muted);white-space:pre-wrap;
+  word-break:break-all}
+hr{border:0;border-top:1px solid var(--line);margin:0}
+</style>
+
+<div class="wrap">
+  <header style="display:flex;flex-direction:column;gap:13px">
+    <p class="eyebrow">RunIt &middot; invitation template</p>
+    <h1>Fill it in, copy it, <em>send it</em>.</h1>
+    <p class="lede">Type your event's details and this builds the invitation email. Press
+    <strong>Copy email HTML</strong>, then paste straight into Gmail, Apple Mail or Outlook —
+    it uses tables and inline styles, so it survives all three. Loaded with a real event as
+    the example.</p>
+  </header>
+
+  <div class="cols">
+    <form class="panel" id="f" autocomplete="off">
+      <h2>The event</h2>
+      <label><span>What is it called</span><input id="name" value="Kayden &amp; Kason's Birthday"></label>
+      <label><span>When</span><input id="when" value="Friday, September 11 &middot; from 6pm"></label>
+      <label><span>Where</span><input id="where" value="Melva's"></label>
+      <label><span>Join code</span><input id="code" value="S7Y9RX" maxlength="12"></label>
+      <label><span>A line from you (optional)</span><textarea id="note" rows="3">Hot dogs, chips and dip, cake, brownies and ice cream. Come say happy birthday.</textarea></label>
+      <hr>
+      <h2>Who is sending it</h2>
+      <label><span>Your name</span><input id="from" value="Melva"></label>
+      <p class="hint">Guests join with the code and a nickname. No account, no phone number,
+      nothing to sign up for.</p>
+    </form>
+
+    <div class="preview-shell">
+      <p class="eyebrow">What lands in their inbox</p>
+      <div class="frame"><div id="preview"></div></div>
+      <div class="row">
+        <button type="button" id="copy">Copy email HTML</button>
+        <button type="button" class="ghost" id="copytext">Copy plain text</button>
+        <span class="said" id="said"></span>
+      </div>
+    </div>
+  </div>
+
+  <section style="display:flex;flex-direction:column;gap:11px">
+    <h2 style="font-size:20px">Worth knowing before you send it</h2>
+
+    <details open>
+      <summary>The install link points at one address that never goes stale.</summary>
+      <div class="inner">
+        <p>The invitation links to <strong>runit-app.pages.dev/i/&lt;your code&gt;</strong> rather
+        than at a download. That page is where install instructions live, so an email you sent
+        in March still works in October — the page changes, your email does not.</p>
+        <p>Do not paste a build link into an invitation. Those point at one specific build and
+        go stale the moment a new one exists.</p>
+      </div>
+    </details>
+
+    <details>
+      <summary>iPhone and Android are not the same right now.</summary>
+      <div class="inner">
+        <p><strong>Android</strong> installs from a link, no account, no store, no waiting.</p>
+        <p><strong>iPhone</strong> still needs each person added by hand, because Apple requires
+        it while an app is in private testing. Ask them to reply, and they get added. That
+        changes once RunIt is through Apple's beta review, after which one public link works
+        for everyone.</p>
+      </div>
+    </details>
+
+    <details>
+      <summary>Change the code for every event. Everything else is yours.</summary>
+      <div class="inner">
+        <p>The join code is per-event and comes from the app when the event is made. It is the
+        only field that has to be right — the rest is wording you can rewrite freely.</p>
+        <p>Copy plain text if you would rather send it as a message than an email.</p>
+      </div>
+    </details>
+  </section>
+
+  <details>
+    <summary>See the HTML it produces</summary>
+    <div class="inner"><pre id="src"></pre></div>
+  </details>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+/* Email HTML, deliberately old-fashioned: tables, bgcolor, inline styles, a system font
+   stack and no images. Flexbox, grid, <style> blocks and webfonts are all unreliable or
+   stripped across Gmail, Apple Mail and Outlook, and a blocked image would take the
+   wordmark with it -- so "RunIt" is real text with a coloured letter. */
+function build() {
+  const v = {
+    name: $('name').value.trim() || 'The party',
+    when: $('when').value.trim(),
+    where: $('where').value.trim(),
+    code: ($('code').value.trim() || 'CODE').toUpperCase(),
+    note: $('note').value.trim(),
+    from: $('from').value.trim(),
+  };
+  const line = [v.when, v.where].filter(Boolean).join(' &middot; ');
+  const url = 'https://runit-app.pages.dev/i/' + encodeURIComponent(v.code);
+  const cell = "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;";
+
+  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" bgcolor="#EDEAE6" style="background:#EDEAE6;padding:24px 12px;">
+<tr><td align="center">
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="600" style="max-width:600px;width:100%;background:#1A1A2E;border-radius:16px;">
+<tr><td style="padding:34px 32px 8px 32px;${cell}color:#9AA3B2;font-size:11px;letter-spacing:2px;text-transform:uppercase;">You&rsquo;re invited to</td></tr>
+<tr><td style="padding:0 32px;${cell}color:#F5F0EB;font-size:30px;line-height:1.15;font-weight:700;">${esc(v.name)}</td></tr>
+${line ? `<tr><td style="padding:12px 32px 0 32px;${cell}color:#E8D4B8;font-size:16px;">${line}</td></tr>` : ''}
+${v.note ? `<tr><td style="padding:18px 32px 0 32px;${cell}color:#C9D1DE;font-size:15px;line-height:1.55;">${esc(v.note)}</td></tr>` : ''}
+<tr><td style="padding:26px 32px 0 32px;">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#12162A;border-radius:12px;">
+  <tr><td style="padding:18px 20px;${cell}color:#9AA3B2;font-size:12px;letter-spacing:1.5px;text-transform:uppercase;">Join with this code</td></tr>
+  <tr><td style="padding:0 20px 6px 20px;${cell}color:#F2B84B;font-size:30px;font-weight:700;letter-spacing:6px;">${esc(v.code)}</td></tr>
+  <tr><td style="padding:0 20px 18px 20px;${cell}color:#9AA3B2;font-size:13px;line-height:1.5;">Pick any nickname. No account, no phone number.</td></tr>
+  </table>
+</td></tr>
+<tr><td align="center" style="padding:24px 32px 4px 32px;">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+  <td bgcolor="#38BDF8" style="border-radius:999px;"><a href="${url}" style="display:inline-block;padding:14px 30px;${cell}color:#0B1020;font-size:16px;font-weight:700;text-decoration:none;">Get the app &amp; join</a></td>
+  </tr></table>
+</td></tr>
+<tr><td align="center" style="padding:12px 32px 30px 32px;${cell}color:#6E7793;font-size:12px;line-height:1.5;">
+  <a href="${url}" style="color:#6E7793;text-decoration:underline;">runit-app.pages.dev/i/${esc(v.code)}</a>
+</td></tr>
+<tr><td align="center" style="padding:0 32px 30px 32px;${cell}color:#6E7793;font-size:12px;">
+  Shared photos, song requests and updates &mdash; on <span style="color:#E8D4B8;font-weight:700;">Run<span style="color:#F2B84B;">I</span>t</span>${v.from ? ', from ' + esc(v.from) : ''}
+</td></tr>
+</table>
+</td></tr></table>`;
+}
+
+function plain() {
+  const v = ['name','when','where','code','note','from'].reduce((a,k)=>(a[k]=$(k).value.trim(),a),{});
+  const code = (v.code || 'CODE').toUpperCase();
+  return [
+    `You're invited to ${v.name}`,
+    [v.when, v.where].filter(Boolean).join(' · '),
+    '', v.note, '',
+    `Join in RunIt with code ${code}`,
+    'Pick any nickname. No account, no phone number.',
+    '', `https://runit-app.pages.dev/i/${code}`,
+  ].filter((l,i,a)=>!(l==='' && a[i-1]==='')).join('\n').trim();
+}
+
+function render() {
+  const html = build();
+  $('preview').innerHTML = html;
+  $('src').textContent = html;
+}
+$('f').addEventListener('input', render);
+render();
+
+const say = (m) => { $('said').textContent = m; setTimeout(() => { $('said').textContent = ''; }, 2600); };
+const copy = async (text, what) => {
+  try { await navigator.clipboard.writeText(text); say(what + ' copied'); }
+  catch { say('Press Ctrl+C — selection is ready'); }
+};
+$('copy').addEventListener('click', () => copy(build(), 'Email HTML'));
+$('copytext').addEventListener('click', () => copy(plain(), 'Plain text'));
+</script>

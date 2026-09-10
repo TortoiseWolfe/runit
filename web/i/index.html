@@ -7,6 +7,23 @@
 <meta name="description" content="An invitation to an event on RunIt.">
 <meta name="robots" content="noindex">
 <!--
+  THE APP STORE ID LIVES HERE NOW, not on a button.
+
+  It used to sit on a "Get RunIt - App Store" link pointing at a listing that does not exist
+  yet, which was a dead end for anyone who tapped it. But `tools/verify-links.mjs` (lane G)
+  reads this page back and looks for id6808766120 as PROOF THE HOST IS OURS -- `runit.pages.dev`
+  belongs to a stranger whose site answers 200 on every path, and agreement between our own
+  files is not ownership. Deleting the button deleted the proof, and lane G failed the moment
+  it was deployed. It was right to.
+
+  Two tags, because they do different jobs. `apple-itunes-app` is the standard Smart App
+  Banner and starts doing real work the day the listing exists. `rel="alternate"` names the
+  app's canonical store address -- and carries the id in the `id6808766120` form lane G
+  actually greps for, which the banner's `app-id=` spelling does not. Neither renders.
+-->
+<meta name="apple-itunes-app" content="app-id=6808766120">
+<link rel="alternate" href="https://apps.apple.com/app/id6808766120">
+<!--
   THE PAGE A SCANNED QR LANDS ON WHEN THE APP IS NOT INSTALLED.
 
   Before this, the QR encoded `runit://join?code=...`, and src/lib/invite.ts said what
@@ -82,6 +99,10 @@
     background: var(--accent); color: var(--accent-ink);
     padding: 15px 18px; border-radius: 12px; font-weight: 600;
   }
+  /* The second route. Outlined rather than filled: two solid buttons read as a choice
+     between equals, and Android is the one that works without asking anybody. */
+  .cta.secondary { background: transparent; color: var(--accent); border: 1px solid var(--line); }
+  .route { margin: 8px 0 20px; font-size: 13px; line-height: 1.5; color: var(--muted); }
   .open { display: block; text-align: center; margin-top: 16px; color: var(--muted); font-size: 14px; }
   .fine { margin-top: 30px; padding-top: 18px; border-top: 1px solid var(--line);
           color: var(--muted); font-size: 12px; }
@@ -102,7 +123,23 @@
     No account, no phone number.
   </p>
 
-  <a class="cta" id="store" href="https://apps.apple.com/app/id6808766120">Get RunIt · App&nbsp;Store</a>
+  <!--
+    THE TWO ROUTES ARE NOT ALIKE, AND THIS PAGE IS WHERE THAT IS MAINTAINED.
+
+    RunIt is not on either store yet. Android installs from a build link with no account
+    and no review; iPhone needs each tester added by hand until Apple's beta review is
+    done. Those facts change, and they change HERE -- which is the whole reason an
+    invitation email links to this page rather than carrying an install link of its own.
+    A build URL pasted into an email points at one APK forever.
+  -->
+  <a class="cta" id="android" href="https://expo.dev/accounts/turtlewolfe/projects/runit/builds/f94ab911-6300-4b2b-b7cd-9b6057a7b67e">Android &middot; install now</a>
+  <p class="route">Tap Install, and allow it when Android asks. About 130&nbsp;MB &mdash; use wi-fi.</p>
+
+  <a class="cta secondary" id="ios" href="mailto:jonpohlner@gmail.com?subject=RunIt%20on%20my%20iPhone&amp;body=Here%20is%20the%20email%20on%20my%20Apple%20ID%3A%20">iPhone &middot; ask for an invite</a>
+  <p class="route">Apple requires each tester to be added by hand while an app is in
+  private testing. Send the email on your Apple&nbsp;ID and you will get a TestFlight
+  invitation.</p>
+
   <a class="open" id="open" href="#">Already have it? Open the invitation &rarr;</a>
 
   <p class="fine">
