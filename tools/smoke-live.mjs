@@ -396,6 +396,13 @@ try {
   // firing against real Postgres and the composer reading the folded number.
   await page.getByTestId('host-segment-event').click();
   await page.waitForSelector('[data-testid="host-event-details"]', { timeout: 20_000 });
+  // THE SECTION FOLDS NOW, AND THIS LANE DID NOT KNOW. `Disclosure` landed on this panel
+  // and `invitee-email` moved inside it, collapsed by default -- so this line timed out
+  // waiting for a field that renders only when the fold is open. It went unnoticed because
+  // lane H is deliberately NOT in `run-checks.sh` (every run writes to production), so
+  // nothing had exercised it since. A lane nobody runs guards nothing, which is the
+  // sentence this repo keeps re-earning.
+  await page.getByTestId('invitees-toggle').click();
   await page.getByTestId('invitee-email').fill(`smoke-${STAMP}@example.test`);
   await page.getByTestId('invitee-add').click();
   await page.waitForSelector('[data-testid="invitee-row"]', { timeout: 20_000 });
@@ -414,6 +421,119 @@ try {
     .catch(() => page.getByTestId('host-broadcast').innerText());
   check(/Send to 1 guest/.test(composer), 'and invited_count folds into the composer',
         composer.match(/Send to \d+ guests?/)?.[0] ?? 'no count');
+
+  // ================================================================ #60
+  //
+  // WHAT THIS LANE CAN AND CANNOT REACH HERE, said before the assertions rather than
+  // discovered by somebody reading them charitably.
+  //
+  // The contact picker cannot be driven: `contacts.web.ts` returns null by design, so the
+  // browser has no address book and `invitees.addMany` has no UI path on this platform.
+  // What IS reachable is everything downstream of it -- the schema accepting a phone-only
+  // row, `phone_key` folding a duplicate, and `mark_invited`'s argument names -- and those
+  // are the parts no other lane can see. Lane E proves the RULES against a local build of
+  // the migration; this proves PRODUCTION has them and that we can call them.
+  //
+  // Reached by REST with the session token, the same way the sweep below does, because
+  // there is no repository on `window` and putting one there to make a test easier would
+  // ship a handle to the adapter in every web build.
+  // FROM NODE, NOT FROM THE PAGE, and the first version got this wrong in a way worth
+  // recording. Running these probes with `fetch` inside the browser made their deliberate
+  // 4xx responses land in the console -- and this lane has a global "no page errors during
+  // the journey" check, which they then failed. The negative assertions were correct and the
+  // guard was correct; the two simply must not share a console.
+  //
+  // So the session token is lifted out ONCE and every probe runs here. It also means a probe
+  // cannot disturb the app's own state, which is the other half of why the reload below was
+  // wrong.
+  const token = await page.evaluate((b) => {
+    const raw = localStorage.getItem(`sb-${b.match(/https:\/\/([a-z0-9]+)\./)[1]}-auth-token`);
+    if (!raw) return null;
+    const json = raw.startsWith('base64-') ? atob(raw.slice(7)) : raw;
+    return JSON.parse(json).access_token;
+  }, url);
+  check(typeof token === 'string' && token.length > 20, 'the host session is readable for direct probes');
+
+  const rest = async (path, init = {}) => {
+    const res = await fetch(`${url}${path}`, {
+      ...init,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        apikey: key,
+        'Content-Type': 'application/json',
+        Prefer: 'return=representation',
+        ...(init.headers ?? {}),
+      },
+    });
+    const text = await res.text();
+    let body = null;
+    try { body = text ? JSON.parse(text) : null; } catch { body = text; }
+    return { status: res.status, body };
+  };
+
+  // The event's ID, which this lane has never needed before -- it works in codes. Resolved
+  // once, and ASSERTED: a null id would make every insert below fail for the wrong reason
+  // and every 4xx check pass for it.
+  const evRow = await rest(`/rest/v1/events?code=eq.${code}&select=id`, { method: 'GET' });
+  const eventId = Array.isArray(evRow.body) && evRow.body[0] ? evRow.body[0].id : null;
+  check(typeof eventId === 'string' && eventId.length === 36,
+        'the event this run created is readable by id', String(eventId));
+
+  // A PHONE-ONLY INVITEE. `email` was `not null` until #60, so this row could not exist --
+  // which meant importing an address book kept only the contacts that happened to have an
+  // email saved.
+  const phoneRow = await rest('/rest/v1/invitees', {
+    method: 'POST',
+    body: JSON.stringify({ event_id: eventId, phone: '(555) 010-4242', display_name: 'Smoke Phone' }),
+  });
+  check(phoneRow.status === 201, 'a phone-only invitee is accepted by the live schema (#60)',
+        `http ${phoneRow.status} ${JSON.stringify(phoneRow.body).slice(0, 120)}`);
+
+  // THE FOLD, against real Postgres. The same person saved in another format must collide.
+  const dupe = await rest('/rest/v1/invitees', {
+    method: 'POST',
+    body: JSON.stringify({ event_id: eventId, phone: '+1 555 010 4242' }),
+  });
+  check(dupe.status === 409, 'and phone_key folds a second saved format onto it (409)',
+        `http ${dupe.status}`);
+
+  // THE CHECK CONSTRAINT. A name with no way to reach anybody is not an invitee, and
+  // `invited_count` would otherwise be counting rows nothing can address.
+  const unreachable = await rest('/rest/v1/invitees', {
+    method: 'POST',
+    body: JSON.stringify({ event_id: eventId, display_name: 'Nobody At All' }),
+  });
+  check(unreachable.status === 400, 'an invitee with no email and no phone is refused (400)',
+        `http ${unreachable.status}`);
+
+  // MARK_INVITED, AND THIS IS THE ONE NO OTHER LANE CAN SEE. PostgREST resolves overloads
+  // BY ARGUMENT NAME, so `p_event` instead of `p_event_id` is a 404 against a function that
+  // exists -- and `database.types.ts` is hand-written, so a typo there is invisible until a
+  // real call is made. Lane E calls it as SQL and would never notice.
+  const ids = await rest(`/rest/v1/invitees?event_id=eq.${eventId}&select=id`, { method: 'GET' });
+  const idList = Array.isArray(ids.body) ? ids.body.map((r) => r.id) : [];
+  const stamp = await rest('/rest/v1/rpc/mark_invited', {
+    method: 'POST',
+    body: JSON.stringify({ p_event_id: eventId, p_ids: idList }),
+  });
+  check(
+    stamp.status === 200 && stamp.body === idList.length,
+    'mark_invited is callable with the argument names the adapter sends',
+    `http ${stamp.status}, stamped ${JSON.stringify(stamp.body)} of ${idList.length}`,
+  );
+
+  // AND IT COMES BACK THROUGH THE MAPPER. `toInvitee` is hand-written; a column added to the
+  // schema and forgotten in the mapper reads as null forever.
+  // THE MAPPER IS CHECKED AT THE END OF THE RUN, not here, and the reason is a real finding
+  // rather than a workaround. `invitees.all` is loaded by `loadFetchOnce` and does NOT
+  // refetch on navigation, so a row inserted out-of-band by the probe above never appears --
+  // the fold read "1 invited" with two rows in the table.
+  //
+  // That is correct for the product: the app is normally the only writer, and the real send
+  // path calls `loadFetchOnce()` itself right after `mark_invited`. It just means proving the
+  // MAPPER needs a fresh load, and a reload mid-journey destroys everything after it -- which
+  // it did, twice, before this was moved.
+
 
   // ------------------------------------------------------- a SECOND guest
   //
@@ -627,6 +747,20 @@ if (sweepPaths.size) {
   console.log(`  swept ${sweepPaths.size} storage object(s): ${swept}`);
 }
 
+/**
+ * WHY THE MAPPER IS NOT CHECKED HERE, since it was and then was removed.
+ *
+ * `toInvitee` needed pinning -- nothing covered it, so a column added to the schema and
+ * forgotten there would read as null forever. But proving it in THIS lane meant reloading
+ * the page to get a fresh `loadFetchOnce`, and after a reload `event.current` is null on a
+ * cold start, so the host lands on /join and the host console is several taps away. That is
+ * a fragile dance for a fact that is not about the live backend at all.
+ *
+ * It is pinned in `src/data/supabase/mappers.test.ts` instead, walking the type the way the
+ * photo comparator does, where it is deterministic and runs on every check. This lane keeps
+ * what only it can prove: that PRODUCTION carries the constraint, the partial index and the
+ * function, and that `mark_invited` answers to the argument names the adapter sends.
+ */
 await page.context().tracing.stop().catch(() => {});
 await browser.close();
 server.close();
