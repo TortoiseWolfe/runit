@@ -50,3 +50,48 @@ describe('the camera permission, which two plugins both write (#28)', () => {
     expect(configured('expo-image-picker')?.microphonePermission).toBe(false);
   });
 });
+
+/**
+ * THE PRODUCT'S OWN NAME, IN THE FOUR SENTENCES IT INTRODUCES ITSELF WITH -- #57.
+ *
+ * `tools/audit-brand-casing.mjs` is the repo-wide gate and it covers these too. This exists
+ * anyway, and not as a duplicate: the audit knows only that `Runit` is wrong, while these
+ * assert the strings say `RunIt` AT ALL. A permission sentence rewritten to drop the product
+ * name -- "Lets you add a photo you already have" -- passes the audit and is a worse dialog,
+ * because a system prompt with no app name in it reads as though something else is asking.
+ *
+ * These four are the highest-stakes copy in the app by a distance. They appear once, in an
+ * OS dialog, on a real phone, and the answer is permanent until somebody digs through
+ * Settings. Nothing else here can see them: the plist is prebuild output and `/ios` is
+ * gitignored, so `app.json` is the only committed source.
+ */
+describe('the permission dialogs name the product, and spell it right (#57)', () => {
+  const strings = () => [
+    configured('expo-image-picker')?.photosPermission,
+    configured('expo-image-picker')?.cameraPermission,
+    configured('expo-camera')?.cameraPermission,
+    configured('expo-media-library')?.savePhotosPermission,
+  ];
+
+  it('found all four, so the assertions below are measuring something', () => {
+    // A coverage floor, the same doctrine as the static audits: if a plugin is renamed
+    // these silently become `undefined`, and `undefined` contains no wrong spelling.
+    const found = strings();
+    expect(found).toHaveLength(4);
+    for (const s of found) expect(typeof s).toBe('string');
+  });
+
+  it.each([
+    ['expo-image-picker', 'photosPermission'],
+    ['expo-image-picker', 'cameraPermission'],
+    ['expo-camera', 'cameraPermission'],
+    ['expo-media-library', 'savePhotosPermission'],
+  ])('%s.%s introduces the app as RunIt', (plugin, key) => {
+    const text = String(configured(plugin)?.[key]);
+    expect(text).toContain('RunIt');
+    // The failure this is really about. `Runit` is correct in the bundle id, the scheme,
+    // the Pages host and the repo name, so it is the spelling everyone's fingers know --
+    // and these four sentences shipped with it for the life of the app.
+    expect(text).not.toMatch(/\bRunit\b/);
+  });
+});
