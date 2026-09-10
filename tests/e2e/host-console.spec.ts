@@ -78,6 +78,29 @@ test.describe('host console', () => {
     await expect(page.getByText('Riley · Bride')).toBeVisible();
   });
 
+  test('the header names the party you are about to broadcast to, and changes when you switch (#58)', async ({
+    page,
+  }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await joinAsGuest(page, scheme);
+    await switchToHost(page);
+
+    // BEFORE. The header used to print the literal `Host` here, so two parties open at
+    // once looked identical from the one screen where the mistake is unrecoverable --
+    // Broadcast is the first segment, `broadcasts` has no delete path, and #27's fan-out
+    // pushes a sent announcement to every phone in the room.
+    const title = page.getByTestId('host-console-title');
+    await expect(title).toHaveText(WEDDING.name);
+
+    // AFTER, and this is the half that has teeth. A header that merely RENDERS a name
+    // passes whether or not the name follows the event -- it would pass on a hardcoded
+    // string. Switching is what proves it reads `event.current`.
+    await page.getByTestId('host-segment-event').click();
+    await page.getByTestId('event-switcher-toggle').click();
+    await page.getByTestId('my-event-RH2210').click();
+    await expect(title).toHaveText('Rehearsal Dinner');
+  });
+
   test('the composer addresses all 180 invited, not the 173 standing in the room', async ({
     page,
   }, testInfo) => {

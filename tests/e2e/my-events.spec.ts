@@ -72,8 +72,10 @@ test.describe('the events this identity hosts', () => {
     await switchToHost(page);
     await page.getByTestId('host-segment-event').click();
 
-    // The switcher folds now. Its summary names the event you are standing in -- which
-    // the console header never does -- and the list itself is one tap behind it.
+    // The switcher folds now, and its summary names the event you are standing in. That
+    // used to be the ONLY place the console said which party you were in; #58 put the name
+    // in the header too, so this is no longer the last word on it -- it is the fold saying
+    // what is behind it, which is what a Disclosure summary is for.
     await expect(page.getByTestId('event-switcher-summary')).toHaveText("Sam & Riley's Wedding");
     await page.getByTestId('event-switcher-toggle').click();
 
