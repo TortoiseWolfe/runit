@@ -20,8 +20,16 @@ import { WEDDING, joinAsGuest, switchToHost } from './helpers';
  * list. Lane E proves all of that against the live database — including the DELETE arm of
  * the fold, which had never executed before this issue. This file proves the screen.
  *
- * NOTHING HERE SENDS ANYTHING, and there is no control that could. `invitedAt` is written
- * by no code path in the product.
+ * SOMETHING SENDS NOW, AND THIS FILE'S OLD DOCBLOCK SAID OTHERWISE. It read "nothing here
+ * sends anything, and there is no control that could" -- true for the life of the repo, and
+ * false as of #60. `invitees.send` hands the invitation to the phone's own composer and
+ * stamps `invitedAt` through `mark_invited`.
+ *
+ * WHAT THE SEND ASSERTIONS BELOW ACTUALLY PROVE, said rather than implied: that the control
+ * exists, that it addresses the UNSENT, that the rows change state and that the label follows.
+ * They do NOT prove a composer opened -- `MemoryRepository` has no OS and `share.web.ts` is a
+ * stub that resolves false without building anything. Only a phone witnesses the sheet, and
+ * nothing witnesses delivery, because the OS reports that the sheet was used and nothing after.
  */
 
 const ADDRESS = 'sam@example.test';
@@ -100,5 +108,96 @@ test.describe('who is invited', () => {
     // The address STAYS in the field. Vanishing it on a rejection leaves the host unable
     // to see what they typed, which is the moment they most need to.
     await expect(page.getByTestId('invitee-email')).toHaveValue(ADDRESS.toUpperCase());
+  });
+});
+
+/**
+ * BUILDING THE LIST FROM THE ADDRESS BOOK, AND WHAT THE WEB CAN SEE OF IT (#60).
+ *
+ * `contacts.web.ts` returns null -- deliberately, and for the reason `expo-secure-store`
+ * taught this repo: an Expo native module's web build is a stub by DEFAULT, so a shared-code
+ * caller throws rather than degrading. So the harness cannot open a picker.
+ *
+ * That makes these tests about the CALLER's behaviour, which is the half that has been wrong
+ * before: the control must be drawn, must be reachable, must not be aria-disabled, and a
+ * dismissed picker must leave the list alone and say nothing. A toast apologising for a
+ * decision the host made is the failure `capture.ts` states the rule for.
+ */
+test.describe('adding from contacts', () => {
+  test('the control is there and is not a dead button', async ({ page }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await joinAsGuest(page, scheme);
+    await switchToHost(page);
+    await page.getByTestId('host-segment-event').click();
+    await page.getByTestId('invitees-toggle').click();
+
+    await expect(page.getByTestId('invitee-from-contacts')).toBeVisible();
+    // The class assertion, same as empty-world.spec.ts. A control that cannot act must not
+    // be drawn disabled -- it reads as broken software, which is how three of these were
+    // found, each separately, on a phone.
+    await expect(page.locator('[aria-disabled="true"]')).toHaveCount(0);
+  });
+
+  test('a picker that returns nothing changes nothing and does not apologise', async ({
+    page,
+  }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await joinAsGuest(page, scheme);
+    await switchToHost(page);
+    await page.getByTestId('host-segment-event').click();
+    await page.getByTestId('invitees-toggle').click();
+
+    const before = await page.getByTestId('invitee-row').count();
+    await page.getByTestId('invitee-from-contacts').click();
+
+    // Backing out is a decision. The list is untouched and no toast fires -- on web the
+    // stub returns null, which is the same shape as a dismissal on a phone.
+    await expect(page.getByTestId('invitee-row')).toHaveCount(before);
+    await expect(page.getByTestId('toast')).toHaveCount(0);
+  });
+});
+
+/**
+ * SENDING -- the column that had no writer.
+ */
+test.describe('sending the invitation', () => {
+  test('there is nobody to send to until somebody is on the list', async ({ page }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await joinAsGuest(page, scheme);
+    await switchToHost(page);
+    await page.getByTestId('host-segment-event').click();
+    await page.getByTestId('invitees-toggle').click();
+
+    // `weddingSeed` seeds no invitee rows, so the control must not be drawn at all --
+    // the same rule as the invite row on BroadcastPanel.
+    await expect(page.getByTestId('invitee-row')).toHaveCount(0);
+    await expect(page.getByTestId('invitee-send')).toHaveCount(0);
+  });
+
+  test('it names how many are UNSENT, and stops offering them once they are sent', async ({
+    page,
+  }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await joinAsGuest(page, scheme);
+    await switchToHost(page);
+    await page.getByTestId('host-segment-event').click();
+    await page.getByTestId('invitees-toggle').click();
+
+    await page.getByTestId('invitee-email').fill(ADDRESS);
+    await page.getByTestId('invitee-add').click();
+    await expect(page.getByTestId('invitee-row')).toHaveCount(1);
+
+    // BEFORE: one person, nobody sent to. The number on the button is the UNSENT count,
+    // which is the whole reason it is not just "Send".
+    const send = page.getByTestId('invitee-send');
+    await expect(send).toHaveText('Send the invitation to 1');
+
+    await send.click();
+
+    // AFTER: the row says so, and the button stops offering to send to somebody who has
+    // already been sent to. A button that always reads "Send to 1" would pass a mere
+    // existence check and tell the host nothing.
+    await expect(page.getByTestId('invitee-row')).toContainText('sent');
+    await expect(send).toHaveText('Send the invitation again');
   });
 });

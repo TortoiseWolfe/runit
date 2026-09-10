@@ -26,6 +26,7 @@ import {
 import { checkFeature, checkLimit, type Entitlements } from '@/domain/entitlements';
 import { TIERS } from '@/domain/tiers';
 import { songKey } from '@/domain/songKey';
+import { phoneKey } from '@/domain/phoneKey';
 import { hueForPhotoSeq } from '@/theme/oklch';
 
 export interface Seed {
@@ -712,35 +713,95 @@ export class MemoryRepository implements RunitRepository {
 
   // --------------------------------------------------------------- invitees
 
+  /**
+   * THE TWO UNIQUE INDEXES, MIRRORED. `invitees_event_email` folds case;
+   * `invitees_event_phone` folds through `phone_key`. This adapter is what the whole e2e
+   * suite runs, so a rejection nobody can reach here is a rejection nobody ever tests --
+   * the same argument `hosts.invite` makes for mirroring the server's caps.
+   */
+  private inviteeClash(person: { email?: string; phone?: string }): boolean {
+    const email = person.email?.trim().toLowerCase();
+    const phone = person.phone ? phoneKey(person.phone) : '';
+    return this.inviteeList.some(
+      (i) =>
+        (!!email && i.email?.trim().toLowerCase() === email) ||
+        (!!phone && !!i.phone && phoneKey(i.phone) === phone),
+    );
+  }
+
+  private makeInvitee(person: { email?: string; phone?: string; displayName?: string }): Invitee {
+    return {
+      id: this.id('inv'),
+      email: person.email?.trim() || null,
+      phone: person.phone?.trim() || null,
+      displayName: person.displayName?.trim() || null,
+      // On the list is not sent. `send` is what stamps this, and only when the composer
+      // was actually used.
+      invitedAt: null,
+      joinedGuestId: null,
+    };
+  }
+
   invitees = {
     all: undefined as unknown as Observable<Invitee[]>,
 
-    add: async ({ email, displayName }: { email: string; displayName?: string }) => {
-      const addr = email.trim();
-      if (!addr) return;
-
-      // CASE-INSENSITIVE, mirroring the `invitees_event_email` unique index. This adapter
-      // is what the whole e2e suite runs, so a rejection nobody can reach here is a
-      // rejection nobody ever tests -- the same argument `hosts.invite` makes for
-      // mirroring the server's caps.
-      if (this.inviteeList.some((i) => i.email.toLowerCase() === addr.toLowerCase())) {
-        throw new Error('That address is already on the list.');
+    add: async (person: { email?: string; phone?: string; displayName?: string }) => {
+      const email = person.email?.trim();
+      const phone = person.phone?.trim();
+      // The check constraint, client-side. A name with no way to reach them is not an
+      // invitee, and the server refuses it too (`invitees_reachable`).
+      if (!email && !phone) throw new Error('Add an email or a phone number.');
+      if (this.inviteeClash({ email, phone })) {
+        throw new Error('They are already on the list.');
       }
-
-      this.inviteeList = [
-        ...this.inviteeList,
-        {
-          id: this.id('inv'),
-          email: addr,
-          displayName: displayName?.trim() || null,
-          // NOTHING SENDS, so nothing is invited yet. The schema keeps "on the list" and
-          // "was emailed" apart and so does this.
-          invitedAt: null,
-          joinedGuestId: null,
-        },
-      ];
+      this.inviteeList = [...this.inviteeList, this.makeInvitee({ ...person, email, phone })];
       this.shiftInvitedCount(1);
       this.recompute();
+    },
+
+    /**
+     * DUPLICATES ARE SKIPPED, NOT THROWN, and that is the whole difference from `add`.
+     * A contact picker run twice, or a family list that overlaps a friends list, is the
+     * NORMAL case -- failing the batch on the first repeat would make importing forty
+     * people an exercise in finding which one you already had.
+     *
+     * It also folds WITHIN the batch, because two contacts can carry one number.
+     */
+    addMany: async (people: { email?: string; phone?: string; displayName?: string }[]) => {
+      let added = 0;
+      let skipped = 0;
+      for (const person of people) {
+        const email = person.email?.trim();
+        const phone = person.phone?.trim();
+        if ((!email && !phone) || this.inviteeClash({ email, phone })) {
+          skipped += 1;
+          continue;
+        }
+        this.inviteeList = [...this.inviteeList, this.makeInvitee({ ...person, email, phone })];
+        added += 1;
+      }
+      if (added) this.shiftInvitedCount(added);
+      this.recompute();
+      return { added, skipped };
+    },
+
+    /**
+     * IN MEMORY THERE IS NO COMPOSER, so this stamps and reports true.
+     *
+     * That is a real limit and it is stated rather than hidden: Lane B can prove the list
+     * updates, the count moves and the row reads "Sent" -- it cannot prove Messages opened,
+     * because `MemoryRepository` has no OS. `co-host.spec.ts` makes the same admission about
+     * capped events. The composer itself lives in `src/lib/share.ts` and only a phone
+     * witnesses it.
+     */
+    send: async (ids: InviteeId[]) => {
+      const wanted = new Set(ids);
+      const at = this.now();
+      this.inviteeList = this.inviteeList.map((i) =>
+        wanted.has(i.id) ? { ...i, invitedAt: i.invitedAt ?? at } : i,
+      );
+      this.recompute();
+      return true;
     },
 
     remove: async (id: InviteeId) => {

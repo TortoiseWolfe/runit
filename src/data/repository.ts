@@ -386,7 +386,33 @@ export interface RunitRepository {
      * are one person and double-mailing them is the fastest way to look broken. The
      * server holds the same rule as a unique index; this is not the only guard.
      */
-    add(input: { email: string; displayName?: string }): Promise<void>;
+    add(input: { email?: string; phone?: string; displayName?: string }): Promise<void>;
+    /**
+     * MANY AT ONCE, because a contact picker returns many at once and forty round trips is
+     * forty chances to half-fail. Returns how many were actually NEW -- a host who imports
+     * her contacts twice should be told "0 added", not shown a silent success over rows
+     * that already existed.
+     *
+     * Duplicates inside one batch, and against rows already present, are the adapter's
+     * problem rather than the caller's: the server holds the same rule as two partial
+     * unique indexes, so this is not the only guard.
+     */
+    addMany(
+      people: { email?: string; phone?: string; displayName?: string }[],
+    ): Promise<{ added: number; skipped: number }>;
+    /**
+     * HANDS THE INVITATION TO THE PHONE'S OWN COMPOSER and records that it happened.
+     *
+     * There is no mail server here (#18) and no SMS gateway, so "send" means opening
+     * Messages or Mail pre-addressed with `shareMessage`. That is exactly what a host does
+     * by hand today; the difference is that the list is addressed for her and `invitedAt`
+     * stops being a column nothing writes.
+     *
+     * Resolves FALSE when the composer was dismissed, and nothing is stamped in that case --
+     * a host who backs out has not invited anybody, and recording otherwise would put a
+     * date beside a message that was never sent.
+     */
+    send(ids: InviteeId[]): Promise<boolean>;
     /**
      * Removing someone strands nothing -- unlike a folder or a photo, no bytes hang off
      * an invitee -- which is why the schema grants DELETE here and nowhere else.

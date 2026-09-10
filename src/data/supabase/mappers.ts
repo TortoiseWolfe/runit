@@ -120,6 +120,7 @@ export function toInvitee(r: Row<'invitees'>): Invitee {
   return {
     id: r.id,
     email: r.email,
+    phone: r.phone,
     displayName: r.display_name,
     invitedAt: r.invited_at,
     joinedGuestId: r.joined_guest_id,

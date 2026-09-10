@@ -47,7 +47,10 @@ export function EventDetailsPanel() {
   // the list has to be loaded from this side too (#17).
   useLoadMyEvents();
   const event = useEvent();
-  const { saveEventDetails, rotateHostKey, invite, addInvitee, removeInvitee } = useHostActions();
+  const {
+    saveEventDetails, rotateHostKey, invite, addInvitee, removeInvitee,
+    addFromContacts, sendInvitations,
+  } = useHostActions();
   const hosts = useHosts();
   const invitees = useInvitees();
 
@@ -105,6 +108,30 @@ export function EventDetailsPanel() {
   const atHostCap = hosts.length >= tier.limits.maxHosts;
   const hostCap = Number.isFinite(tier.limits.maxHosts) ? String(tier.limits.maxHosts) : null;
 
+
+  /**
+   * WHO HAS NOT BEEN SENT TO YET. `invitedAt` is the schema's own distinction between "on
+   * the list" and "was sent", so the button offers the unsent by default rather than
+   * re-sending to everybody -- a host adding one late name should not re-open a composer
+   * addressed to the thirty who already have it.
+   */
+  const unsent = invitees.filter((i) => i.invitedAt === null);
+
+  const onAddFromContacts = async () => {
+    if (busy) return;
+    setBusy(true);
+    await addFromContacts();
+    setBusy(false);
+  };
+
+  const onSendInvitations = async () => {
+    if (busy) return;
+    setBusy(true);
+    // The unsent, or everybody if they have all been sent to once -- which is what the
+    // button's own label already said it would do.
+    await sendInvitations((unsent.length > 0 ? unsent : invitees).map((i) => i.id));
+    setBusy(false);
+  };
 
   const onAddInvitee = async () => {
     const addr = inviteeEmail.trim();
@@ -407,8 +434,19 @@ export function EventDetailsPanel() {
 
           {invitees.map((i) => (
             <View key={i.id} testID="invitee-row" style={s.seatRow}>
+              {/* NAME, THEN WHATEVER REACHES THEM. A contact picked from the address book
+                  usually carries a number and no address, so a row that printed `email`
+                  alone would read blank for most of the list (#60). */}
               <Text style={[s.seatName, { color: tokens.baseContent }]}>
-                {i.displayName ?? i.email}
+                {i.displayName ?? i.email ?? i.phone}
+                {i.invitedAt ? (
+                  // "On the list" and "sent" are different facts and the schema keeps them
+                  // apart, so the row does too. It says SENT rather than DELIVERED on
+                  // purpose: the OS reports that a composer was used and nothing after.
+                  <Text style={[s.seatRole, { color: alpha(tokens.baseContent, fade.muted) }]}>
+                    {'  · sent'}
+                  </Text>
+                ) : null}
               </Text>
               {/* A per-row control, so this one gets its own id -- unlike the row wrapper,
                   which is static so a count assertion cannot be fooled by a text match.
@@ -416,7 +454,7 @@ export function EventDetailsPanel() {
               <Pressable
                 onPress={() => void removeInvitee(i.id)}
                 accessibilityRole="button"
-                accessibilityLabel={`Remove ${i.displayName ?? i.email} from the guest list`}
+                accessibilityLabel={`Remove ${i.displayName ?? i.email ?? i.phone} from the guest list`}
                 testID={`invitee-remove-${i.id}`}
                 hitSlop={12}
               >
@@ -453,6 +491,50 @@ export function EventDetailsPanel() {
           >
             <Text style={[s.rotateText, { color: tokens.baseContent }]}>Add to the list</Text>
           </Pressable>
+
+          {/* THE PHONE ALREADY KNOWS WHO TO INVITE (#60). One typed address at a time is how
+              a guest list comes to be forty keyboard entries with no autocomplete, and a
+              reusable list (#59) is worth nothing if building the first one costs an evening.
+
+              The OS picker returns ONE contact per presentation on both platforms -- there is
+              no multi-select without reading the whole address book, which is a different
+              product. So this loops, and says how many landed rather than pretending a batch
+              happened. */}
+          <Pressable
+            onPress={onAddFromContacts}
+            accessibilityRole="button"
+            accessibilityLabel="Add someone from your contacts"
+            testID="invitee-from-contacts"
+            style={[s.rotate, { borderColor: tokens.base300 }]}
+          >
+            <Text style={[s.rotateText, { color: tokens.baseContent }]}>
+              + Add from contacts
+            </Text>
+          </Pressable>
+
+          {/* SENDING, WHICH NOTHING COULD DO. `invited_at` has existed since the first
+              migration with no writer, and the panel said so: "NOTHING HERE SENDS ANYTHING".
+              There is still no mail server (#18) and no SMS gateway -- what this does is open
+              the phone's own composer with the invitation in it, which is exactly what a host
+              does by hand today, and then record that it went out.
+
+              Drawn only when there is somebody to send to, the same rule as the invite row on
+              BroadcastPanel: a control that cannot act is not drawn. */}
+          {invitees.length > 0 ? (
+            <Pressable
+              onPress={onSendInvitations}
+              accessibilityRole="button"
+              accessibilityLabel={`Send the invitation to ${unsent.length || invitees.length} people`}
+              testID="invitee-send"
+              style={[s.rotate, { borderColor: tokens.base300 }]}
+            >
+              <Text style={[s.rotateText, { color: tokens.accent }]}>
+                {unsent.length > 0
+                  ? `Send the invitation to ${unsent.length}`
+                  : 'Send the invitation again'}
+              </Text>
+            </Pressable>
+          ) : null}
         </Disclosure>
       ) : null}
 

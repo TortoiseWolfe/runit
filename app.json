@@ -66,6 +66,12 @@
         }
       ],
       [
+        "expo-contacts",
+        {
+          "contactsPermission": "RunIt shows your contacts so you can pick who to invite. It reads only the person you choose, and never uploads your address book."
+        }
+      ],
+      [
         "expo-media-library",
         {
           "savePhotosPermission": "RunIt saves a photo from this event's album to your phone, so you still have it after the album is gone.",
