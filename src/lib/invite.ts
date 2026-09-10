@@ -1,4 +1,5 @@
 import type { RunitEvent } from '@/data/types';
+import { formatEventDate } from './format';
 
 /**
  * Turning an event into something you can hand to a person: a link, a message, and a
@@ -70,16 +71,59 @@ export function appSchemeLink(code: string): string {
   return `runit://join?code=${encodeURIComponent(code.trim().toUpperCase())}`;
 }
 
-/** What goes in the message body when a host shares an event. */
-export function shareMessage(event: Pick<RunitEvent, 'name' | 'code' | 'venue' | 'doorsLabel'>): string {
-  const lines = [
-    `You're invited to ${event.name}.`,
+/**
+ * THE MESSAGE IS THE INVITATION, and for a while nothing was.
+ *
+ * `web/i/index.html` used to headline the word "RunIt" and print the join code at 42px with
+ * no sentence saying what to do with it, because it was hand-written as a universal-link
+ * fallback and then became the first screen a guest ever saw. It cannot be fixed into an
+ * invitation either: it CANNOT name the event, deliberately -- `event_preview` is granted to
+ * `authenticated` only, so that guessing codes stays behind the anonymous sign-in rate limit.
+ *
+ * So the split is: the message says WHAT and WHEN and WHERE, the page gets the app onto the
+ * phone, the app runs the evening. This function is the message, and it is the only artefact
+ * in the product that has ever explained what the code is for.
+ *
+ * NUMBERED STEPS, because the failure it exists to prevent is not "the guest cannot find the
+ * link" -- it is the guest installing the app, opening it cold, and meeting an empty field
+ * with no idea what a code is. There is no deferred deep link on this distribution and there
+ * cannot be one: that mechanism rides on the Play Install Referrer, which a sideloaded APK
+ * never receives, and TestFlight carries no payload. The code cannot survive the install, so
+ * the message carries it in a form a person can still read after installing.
+ *
+ * THE DATE IS COMPOSED IN THE EVENT'S OWN ZONE, never the phone's, for the same reason
+ * `JoinScreen` does it: a guest standing in the barn should read the same time as the sign on
+ * the door. `formatEventDate` is the same function that screen uses, so a guest who reads the
+ * text and then the app does not meet two different descriptions of one evening.
+ *
+ * PLAIN TEXT, and it has to stay that way. This goes through `Share.share({ message })` into
+ * whatever the host picked -- SMS, a group chat, mail. Markdown, HTML and smart quotes all
+ * arrive as literal characters somewhere.
+ */
+export function shareMessage(
+  event: Pick<RunitEvent, 'name' | 'code' | 'venue' | 'doorsLabel' | 'startsAt' | 'timezone'>,
+): string {
+  const code = event.code.toUpperCase();
+  const when = [
+    formatEventDate(event.startsAt, event.timezone),
+    event.doorsLabel.trim(),
+    event.venue.trim(),
+  ]
+    // Only what the event actually has. An empty " · · " reads as a bug, and this is the
+    // same composition JoinScreen makes from the same three fields.
+    .filter(Boolean)
+    .join(' · ');
+
+  const lines = [`You're invited to ${event.name}.`];
+  if (when) lines.push(when);
+  lines.push(
     '',
-    `Join in RunIt with code ${event.code.toUpperCase()}`,
-  ];
-  // Only include what the event actually has. An empty "at ." reads as a bug.
-  if (event.venue.trim()) lines.push(`${event.venue}${event.doorsLabel.trim() ? ` · ${event.doorsLabel}` : ''}`);
-  lines.push('', joinLink(event.code));
+    `1. Get RunIt:  ${joinLink(event.code)}`,
+    '2. Open it and tap Join',
+    `3. Your code is  ${code}`,
+    '',
+    'No account, no phone number.',
+  );
   return lines.join('\n');
 }
 
