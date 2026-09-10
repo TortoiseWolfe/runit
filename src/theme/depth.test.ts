@@ -1,3 +1,4 @@
+import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -84,7 +85,43 @@ it('RN can parse every colour these emit', () => {
   }
 });
 
+/**
+ * THE STRING GOES THROUGH REACT NATIVE'S OWN PARSER, and this is the assertion that has
+ * teeth. Everything below it only inspects the string as text -- counting `rgba(` and
+ * `inset` -- and a review proved that is not enough: swapping `blurRadius` and
+ * `spreadDistance` in `css()` produces `0px 6px -5px 12px rgba(...)`, which passes every
+ * textual check while `processBoxShadow` returns `[]` for it, because RN rejects a
+ * negative blur. Every TextInput's groove would vanish on device and the suite would stay
+ * green. Lane A has the same doctrine for colours: parse it the way the DEVICE will.
+ *
+ * Resolved through react-native's own tree rather than by a bare import. There is only one
+ * copy of `processBoxShadow` today -- react-native-web ships none -- so there is no hoist
+ * race to lose, but the day one appears this keeps asking the runtime that actually
+ * renders the app.
+ */
+const rnRequire = createRequire(require.resolve('react-native/package.json'));
+const processBoxShadow = rnRequire('react-native/Libraries/StyleSheet/processBoxShadow')
+  .default as (v: string) => Array<Record<string, unknown>>;
+
 describe.each(['dark', 'light'] as const)('depth · %s · the CSS string', (scheme) => {
+  it.each(['plate', 'well', 'groove'] as const)(
+    '%s survives RN\'s own parser and resolves to the object form',
+    (name) => {
+      const parsed = processBoxShadow(DEPTH_CSS[scheme][name]);
+      // `[]` is how processBoxShadow reports "I could not read this" -- it does not throw.
+      // A serialiser bug therefore reads as a shadow that simply is not there.
+      expect(parsed).toHaveLength(DEPTH[scheme][name].length);
+      parsed.forEach((layer, i) => {
+        const source = DEPTH[scheme][name][i]!;
+        expect(layer.offsetX).toBe(source.offsetX);
+        expect(layer.offsetY).toBe(source.offsetY);
+        expect(layer.blurRadius ?? 0).toBe(source.blurRadius ?? 0);
+        expect(layer.spreadDistance ?? 0).toBe(source.spreadDistance ?? 0);
+        expect(Boolean(layer.inset)).toBe(Boolean(source.inset));
+      });
+    },
+  );
+
   it.each(['plate', 'well', 'groove'] as const)(
     '%s says the same thing as the object form it was generated from',
     (name) => {
@@ -103,4 +140,40 @@ describe.each(['dark', 'light'] as const)('depth · %s · the CSS string', (sche
       expect(DEPTH_CSS[scheme][name].split('inset').length - 1).toBe(insets);
     },
   );
+});
+
+/**
+ * DOES EITHER INK ACTUALLY SHOW UP ON ITS OWN GROUND?
+ *
+ * The "carries BOTH inks" test above is a SHAPE check -- it counts layers and matches
+ * `rgba(`, and would pass unchanged if an alpha were set to zero. That is not the claim
+ * `depth.ts` makes. Its claim is the two ramps have complementary headroom, "so their sum
+ * is constant and at least one always has room".
+ *
+ * This composites each ink over the scheme's real base-100 and measures. It deliberately
+ * does NOT demand both be visible: the light scheme's edge lands 6/255 from its ground and
+ * is meant to, the same way dark's shadow is meant to be quiet. What must never happen is
+ * BOTH going quiet on one ground, which is the single-ink failure the two-ink design exists
+ * to prevent -- and which no other assertion here could see.
+ */
+const over = (rgba: string, hex: string): number => {
+  const [r, g, b, a] = rgba.match(/[\d.]+/g)!.map(Number) as [number, number, number, number];
+  const bg = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  return Math.max(...[r, g, b].map((c, i) => Math.abs(a * c + (1 - a) * bg[i]! - bg[i]!)));
+};
+
+describe.each([
+  ['dark', DARK.base100] as const,
+  ['light', LIGHT.base100] as const,
+])('depth · %s · at least one ink has room on this ground', (scheme, ground) => {
+  it('one of shadow or edge clears 24/255 against base-100', () => {
+    // Both inks are on the plate: the outer drop carries shadow, the inset line carries edge.
+    const deltas = DEPTH[scheme].plate.map((l) => over(String(l.color), ground));
+    expect(Math.max(...deltas)).toBeGreaterThanOrEqual(24);
+  });
+
+  it('the well is cut visibly, not just declared inset', () => {
+    const deltas = DEPTH[scheme].well.map((l) => over(String(l.color), ground));
+    expect(Math.max(...deltas)).toBeGreaterThanOrEqual(24);
+  });
 });

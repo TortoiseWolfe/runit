@@ -42,7 +42,7 @@ const ROLE_CHOICES: { role: HostRole; label: string }[] = [
 ];
 
 export function EventDetailsPanel() {
-  const { tokens, fade, depth, depthCss } = useTheme();
+  const { tokens, fade, depthCss } = useTheme();
   // A host who created an event and came straight here never passed the join screen, so
   // the list has to be loaded from this side too (#17).
   useLoadMyEvents();
@@ -456,6 +456,19 @@ export function EventDetailsPanel() {
         </Disclosure>
       ) : null}
 
+      {/*
+        GETTING BACK IN (#32), AND WHY THIS SECTION DOES NOT FOLD.
+
+        A host's seat is bound to an anonymous auth session living in a keystore that a
+        reinstall wipes. The recovery key is the only thing that binds it to a new one --
+        `claim_host` rebinds `hosts.auth_user_id` to whoever presents it.
+
+        `rotate_host_key` issues a replacement and RETIRES the old one, so a key written
+        down on Tuesday stops working the moment a new one is minted. Both the freshly
+        rotated key here and the co-host key above are shown EXACTLY ONCE and stored only
+        as a bcrypt hash -- which is why neither sits inside a Disclosure. A one-time
+        string behind a closed fold is a string destroyed.
+      */}
       {event ? (
         <View style={s.keyBlock}>
           <Text style={[s.sectionTitle, { color: alpha(tokens.baseContent, fade.muted) }]}>
