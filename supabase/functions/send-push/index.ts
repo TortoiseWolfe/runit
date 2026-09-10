@@ -107,7 +107,7 @@ Deno.serve(async (req) => {
   const messages = tokens.map((to) => ({
     to,
     sound: 'default',
-    title: title ?? 'Runit',
+    title: title ?? 'RunIt',
     body,
     // The app reads this on tap to decide where to land. `kind` distinguishes a host
     // announcement from a run-of-show cue, which the trigger already knows and the

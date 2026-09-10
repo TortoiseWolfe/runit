@@ -103,6 +103,9 @@ pnpm audit:keyboard
 step "tier claim audit  (the ladder may not advertise what nothing enforces)"
 pnpm audit:tiers
 
+step "brand casing audit  (the product is RunIt; eight strings said Runit)"
+pnpm audit:brand
+
 step "tests"
 pnpm test
 

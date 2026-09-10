@@ -145,7 +145,7 @@ export function PhotoViewer({
                 result === 'saved'
                   ? 'Saved to your photos.'
                   : result === 'denied'
-                    ? 'Runit needs permission to add to your photos.'
+                    ? 'RunIt needs permission to add to your photos.'
                     : 'Could not save that photo.',
               );
             }}

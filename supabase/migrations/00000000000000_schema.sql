@@ -865,7 +865,7 @@ begin
                ),
     body    := jsonb_build_object(
                  'event_id', new.event_id,
-                 'title',    coalesce(v_title, 'Runit'),
+                 'title',    coalesce(v_title, 'RunIt'),
                  'body',     new.body,
                  'kind',     new.kind
                )
@@ -938,7 +938,7 @@ begin
     body    := jsonb_build_object(
                  'event_id', new.event_id,
                  'guest_id', new.requested_by_guest_id,
-                 'title',    coalesce(v_title, 'Runit'),
+                 'title',    coalesce(v_title, 'RunIt'),
                  'body',     'Your song is coming up: ' || new.title,
                  'kind',     'song_accepted'
                )

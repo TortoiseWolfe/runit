@@ -39,15 +39,15 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Runit lets you add a photo you already have to this event's shared album.",
-          "cameraPermission": "Runit uses the camera so you can scan an invitation QR and add photos to this event's shared album.",
+          "photosPermission": "RunIt lets you add a photo you already have to this event's shared album.",
+          "cameraPermission": "RunIt uses the camera so you can scan an invitation QR and add photos to this event's shared album.",
           "microphonePermission": false
         }
       ],
       [
         "expo-camera",
         {
-          "cameraPermission": "Runit uses the camera so you can scan an invitation QR and add photos to this event's shared album.",
+          "cameraPermission": "RunIt uses the camera so you can scan an invitation QR and add photos to this event's shared album.",
           "microphonePermission": false,
           "recordAudioAndroid": false
         }
@@ -68,7 +68,7 @@
       [
         "expo-media-library",
         {
-          "savePhotosPermission": "Runit saves a photo from this event's album to your phone, so you still have it after the album is gone.",
+          "savePhotosPermission": "RunIt saves a photo from this event's album to your phone, so you still have it after the album is gone.",
           "photosPermission": false,
           "isAccessMediaLocationEnabled": false
         }
