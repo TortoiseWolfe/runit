@@ -20,7 +20,8 @@ import {
   HostedEvent,
 } from '../repository';
 import type {
-  BlockedGuest, Broadcast, BroadcastId, Folder, FolderId, GuestId, Host, Invitee, InviteeId,
+  BlockedGuest, Broadcast, BroadcastId, Folder, FolderId, GuestId, GuestList, GuestListId,
+  Host, Invitee, InviteeId,
   NowPlaying, Photo,
   PhotoId, Report, ReportId, ReportReason, ReportResolution, ReportSubject, RunitEvent,
   ScheduleItem, ScheduleItemId, Session, SongRequest, SongRequestId,
@@ -212,6 +213,7 @@ export class SupabaseRepository implements RunitRepository {
   private readonly sigInvitees = new Signal<Invitee[]>([]);
   /** Bucket keys -> signed URLs (#10). The mirror of UploadOverlay: remote state, not device state. */
   private readonly signed: SignedUrls;
+  private readonly sigGuestLists = new Signal<GuestList[]>([], shallowArrayEqual);
   private readonly sigEvent = new Signal<RunitEvent | null>(null, (a, b) =>
     a === b ||
     (a !== null && b !== null &&
@@ -298,6 +300,7 @@ export class SupabaseRepository implements RunitRepository {
     this.session.current = this.sigSession;
     this.session.holdsHostSeat = this.sigHoldsHostSeat;
     this.invitees.all = this.sigInvitees;
+    this.guestLists.all = this.sigGuestLists;
     this.event.current = this.sigEvent;
     this.event.preview = this.sigPreview;
     this.event.mine = this.sigMyEvents;
@@ -1349,6 +1352,107 @@ export class SupabaseRepository implements RunitRepository {
   };
 
   /* ---------------------------------------------------------------- invitees */
+
+  /**
+   * SAVED GUEST LISTS (#59). Three definer functions and one plain read.
+   *
+   * THE READ NEEDS NO DEFINER, unlike `my_events()`. That one is definer because #34 revoked
+   * `hosts.auth_user_id` from every client role, so the identity filter could not live in a
+   * client. `guest_lists.owner` has no such history: a plain RLS policy on `auth.uid()` does
+   * the same job with less machinery.
+   *
+   * NOT REALTIME, deliberately, and not an oversight. These change only when this device
+   * changes them -- there is no second client editing your address book -- so the signal is
+   * refreshed after each write rather than subscribed. A channel per identity for a table one
+   * person writes would be cost with no reader.
+   */
+  guestLists = {
+    all: undefined as unknown as Observable<GuestList[]>,
+
+    saveCurrent: async (name: string) => {
+      const eventId = this.requireEvent();
+      const label = name.trim();
+      if (!label) throw new Error('Give the list a name.');
+      const { data, error } = await this.db.rpc('save_guest_list', {
+        p_event_id: eventId,
+        p_name: label,
+      });
+      if (error) throw error;
+      await this.loadGuestLists();
+      return data as string;
+    },
+
+    attach: async (id: GuestListId) => {
+      const eventId = this.requireEvent();
+      const { data, error } = await this.db.rpc('attach_guest_list', {
+        p_event_id: eventId,
+        p_list_id: id,
+      });
+      if (error) throw error;
+      // The roster changed underneath us, and `invitees` is fetched rather than subscribed.
+      await this.loadFetchOnce();
+      this.recompute();
+      return (data as number) ?? 0;
+    },
+
+    remove: async (id: GuestListId) => {
+      const { error } = await this.db.from('guest_lists').delete().eq('id', id);
+      if (error) throw error;
+      await this.loadGuestLists();
+    },
+
+    forget: async (who: { email?: string; phone?: string }) => {
+      const { data, error } = await this.db.rpc('forget_person', {
+        p_email: who.email?.trim() || null,
+        p_phone: who.phone?.trim() || null,
+      });
+      if (error) throw error;
+      // It reaches BOTH sides, so both have to be re-read.
+      await this.loadGuestLists();
+      await this.loadFetchOnce();
+      this.recompute();
+      return (data as number) ?? 0;
+    },
+  };
+
+  /**
+   * TWO FLAT QUERIES, NOT AN EMBEDDED ONE, and the reason is worth recording because the
+   * embedded version is the obvious first attempt.
+   *
+   * `select('id, name, guest_list_members(count)')` would be one round trip -- and it made
+   * EVERY table in `database.types.ts` resolve to `never`, because PostgREST infers an
+   * embedded select through each table's `Relationships`, this file is hand-written, and my
+   * new tables carried none. Eight errors appeared across unrelated methods, which is what
+   * a broken `Database` generic looks like rather than eight bugs.
+   *
+   * The fix could have been to hand-maintain `Relationships` for the new tables. Two flat
+   * queries and a fold is less to keep true: it is two round trips for any number of lists,
+   * not one per list, and nothing has to stay in sync.
+   */
+  private async loadGuestLists(): Promise<void> {
+    const { data: lists, error } = await this.db
+      .from('guest_lists')
+      .select('id, name, created_at')
+      .order('created_at', { ascending: true });
+    if (error) {
+      // A guest has no lists and no policy admitting any; an empty list is the right answer
+      // rather than an error the screen would have to render.
+      this.sigGuestLists.set([]);
+      return;
+    }
+    const { data: members } = await this.db.from('guest_list_members').select('list_id');
+    const counts = new Map<string, number>();
+    for (const m of members ?? []) counts.set(m.list_id, (counts.get(m.list_id) ?? 0) + 1);
+
+    this.sigGuestLists.set(
+      (lists ?? []).map((r) => ({
+        id: r.id,
+        name: r.name,
+        memberCount: counts.get(r.id) ?? 0,
+        createdAt: r.created_at,
+      })),
+    );
+  }
 
   invitees = {
     all: undefined as unknown as Observable<Invitee[]>,

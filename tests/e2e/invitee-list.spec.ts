@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 import { WEDDING, joinAsGuest, switchToHost } from './helpers';
 
@@ -199,5 +199,71 @@ test.describe('sending the invitation', () => {
     // existence check and tell the host nothing.
     await expect(page.getByTestId('invitee-row')).toContainText('sent');
     await expect(send).toHaveText('Send the invitation again');
+  });
+});
+
+/**
+ * A GUEST LIST THAT OUTLIVES THE EVENT (#59).
+ *
+ * `invitees` is keyed to the event and cascades with it -- right for a roster, wrong for an
+ * address book. These prove the SCREEN: that a roster can be saved, that a saved list is
+ * offered back, and that attaching it copies rather than points.
+ *
+ * WHAT THEY CANNOT PROVE, because Lane B is `MemoryRepository`: that the RLS holds, that
+ * another identity cannot read your lists, or that `forget_person` reaches an event you host
+ * but not one you do not. Lane E proves all four against a real database.
+ */
+test.describe('saved guest lists', () => {
+  const open = async (page: Page, scheme: 'dark' | 'light') => {
+    await joinAsGuest(page, scheme);
+    await switchToHost(page);
+    await page.getByTestId('host-segment-event').click();
+    await page.getByTestId('invitees-toggle').click();
+  };
+
+  test('there is nothing to save until somebody is on the list', async ({ page }, testInfo) => {
+    await open(page, testInfo.project.name as 'dark' | 'light');
+    // A control that cannot act is not drawn -- the rule three dead buttons were found for.
+    await expect(page.getByTestId('guest-list-save')).toHaveCount(0);
+    await expect(page.locator('[aria-disabled="true"]')).toHaveCount(0);
+  });
+
+  test('saving the roster offers it back, with its size', async ({ page }, testInfo) => {
+    await open(page, testInfo.project.name as 'dark' | 'light');
+    await page.getByTestId('invitee-email').fill(ADDRESS);
+    await page.getByTestId('invitee-add').click();
+    await expect(page.getByTestId('invitee-row')).toHaveCount(1);
+
+    await expect(page.getByTestId('guest-list-save')).toHaveText('Save these 1 as a list');
+    await page.getByTestId('guest-list-save').click();
+
+    // The COUNT is the assertion with teeth. A list that renders its name proves a row
+    // exists; only the size proves the members were copied into it.
+    await expect(page.locator('[data-testid^="guest-list-gl"]')).toContainText(/\(1\)/);
+  });
+
+  test('attaching a saved list copies people in, and twice adds nobody', async ({
+    page,
+  }, testInfo) => {
+    await open(page, testInfo.project.name as 'dark' | 'light');
+    await page.getByTestId('invitee-email').fill(ADDRESS);
+    await page.getByTestId('invitee-add').click();
+    await page.getByTestId('guest-list-save').click();
+    const saved = page.locator('[data-testid^="guest-list-gl"]').first();
+    await expect(saved).toBeVisible();
+
+    // Clear the roster, then bring it back from the list. This is the whole feature: the
+    // people survive the event they were typed into.
+    await page.getByTestId('invitee-row').first().getByText('Remove').click();
+    await expect(page.getByTestId('invitee-row')).toHaveCount(0);
+
+    await saved.click();
+    await expect(page.getByTestId('invitee-row')).toHaveCount(1);
+
+    // ATTACHING AGAIN ADDS NOBODY, which is what "by copy with deduplication" means and
+    // what a host doing it twice by accident must not be punished for.
+    await saved.click();
+    await expect(page.getByTestId('invitee-row')).toHaveCount(1);
+    await expect(page.getByTestId('toast')).toContainText(/already invited/i);
   });
 });

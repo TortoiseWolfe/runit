@@ -1,24 +1,24 @@
 {
   "capturedFrom": "the LIVE project qwusbxallkbzfladvgfx, via the Supabase MCP",
   "capturedAt": "2026-09-10",
-  "verifiedAgainst": "Re-captured after #60 -- invitees gained `phone`, `email` became nullable, `invitees_reachable` was added, `invitees_event_email` became partial, `invitees_event_phone` was created, and `phone_key`/`mark_invited` were deployed. columns 119->120, functions 33->35, indexes 29->30, policies and triggers UNCHANGED -- which is the check that this added no access. tier_limits ALSO moved and that one is NOT part of #60: max_guests 10->40 and max_hosts 1->2 on house_party are the temporary party overrides recorded in issue #63, which the committed migration deliberately does NOT carry. So this baseline currently describes production, and production and the migration disagree on two numbers BY DESIGN until #63 is reverted after 2026-09-12. Re-capture then.",
+  "verifiedAgainst": "Re-captured after #59. columns 120->130 (guest_lists 4 + guest_list_members 6), functions 35->38 (attach_guest_list, save_guest_list, forget_person), indexes 30->35 (2 primary keys + 3 unique), policies 34->36 (one per new table, FOR ALL). TRIGGERS UNCHANGED, which is the check that #59 added no fold and no side effect. tier_limits is unchanged from the previous capture and still carries the #63 party overrides -- max_guests 40 and max_hosts 2 on house_party -- which the committed migration deliberately does NOT have. Production and the file still disagree on those two numbers BY DESIGN until #63 is reverted after 2026-09-12.",
   "howToRefresh": "pnpm schema:fingerprint --write, and only after re-checking production. See docs/lane-e.md and issue #49.",
   "schema": {
     "columns": {
-      "n": 120,
-      "fingerprint": "249ecc4e00caf57b2bb2e5f9eb371deb"
+      "n": 130,
+      "fingerprint": "30d54cb2649e3d4925dee8b3e9374451"
     },
     "functions": {
-      "n": 35,
-      "fingerprint": "c93a1f62110a05293b9a56ac786b7066"
+      "n": 38,
+      "fingerprint": "0252ffb3d5a0a8b1cbcf2d9b22defbdb"
     },
     "indexes": {
-      "n": 30,
-      "fingerprint": "7634b72078521b336c6f1c7854fe7788"
+      "n": 35,
+      "fingerprint": "2f99bce6594a96ed068b86f337fc21a1"
     },
     "policies": {
-      "n": 34,
-      "fingerprint": "aa3aa81f02f84e83fe1af0d605e9b35e"
+      "n": 36,
+      "fingerprint": "2ed32833c81792beffa8267aac773044"
     },
     "tier_limits": {
       "n": 4,

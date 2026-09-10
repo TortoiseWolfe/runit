@@ -2204,6 +2204,201 @@ grant  update (email, phone, display_name) on public.invitees to authenticated;
 revoke execute on function public.fold_invited_count() from public, anon, authenticated;
 
 -- ========================================================================
+-- A GUEST LIST THAT OUTLIVES ONE EVENT -- #59
+-- ========================================================================
+--
+-- `invitees` is keyed to the event and cascades with it, which is correct for an event's
+-- roster and wrong for an address book. The same family gets retyped for every birthday,
+-- the same friends for every dinner, the same task force for every quarterly event -- and
+-- `create_event` allows TEN events per identity, so this is a state the schema already
+-- anticipates people reaching.
+--
+-- OWNED BY THE IDENTITY, and unlike `my_events()` this needs NO definer function. That one
+-- is definer because #34 revoked `hosts.auth_user_id` from every client role, so the
+-- identity filter could not live in a client. `guest_lists.owner` is a new column with no
+-- such history: a plain RLS policy on `auth.uid()` does the same job with less machinery,
+-- and less machinery is the right default when there is no reason for more.
+create table public.guest_lists (
+  id         uuid primary key default gen_random_uuid(),
+  owner      uuid not null references auth.users(id) on delete cascade,
+  name       text not null check (btrim(name) <> ''),
+  created_at timestamptz not null default now()
+);
+
+-- One list per name per person. A host who taps "save" twice should update her Family list,
+-- not acquire a second one she has to tell apart by created_at.
+create unique index guest_lists_owner_name on public.guest_lists (owner, lower(btrim(name)));
+
+create table public.guest_list_members (
+  id           uuid primary key default gen_random_uuid(),
+  list_id      uuid not null references public.guest_lists(id) on delete cascade,
+  email        text,
+  phone        text,
+  display_name text,
+  created_at   timestamptz not null default now(),
+  -- The same rule `invitees` holds, for the same reason: a name with no way to reach them
+  -- is not a person you can invite.
+  constraint guest_list_members_reachable check (email is not null or phone is not null)
+);
+
+-- The same two partial indexes as `invitees`, and the same argument for partial: a NULL in
+-- a composite unique index conflicts with nothing, so phone-only members would all collide
+-- on a shared NULL email, or none would.
+create unique index guest_list_members_email on public.guest_list_members (list_id, lower(email))
+  where email is not null;
+create unique index guest_list_members_phone
+  on public.guest_list_members (list_id, public.phone_key(phone))
+  where phone is not null;
+
+alter table public.guest_lists enable row level security;
+alter table public.guest_list_members enable row level security;
+
+-- YOURS AND NOBODY ELSE'S, all four commands. This is other people's contact details held
+-- past any event they were connected to -- the most personal thing in this schema -- so
+-- there is no shared-with, no co-host read, and no event-scoped access. A co-host who wants
+-- her own list makes her own.
+create policy guest_lists_own on public.guest_lists for all
+  using (owner = auth.uid()) with check (owner = auth.uid());
+
+create policy guest_list_members_own on public.guest_list_members for all
+  using (exists (select 1 from public.guest_lists l where l.id = list_id and l.owner = auth.uid()))
+  with check (exists (select 1 from public.guest_lists l where l.id = list_id and l.owner = auth.uid()));
+
+grant select, insert, update, delete on public.guest_lists to authenticated;
+grant select, insert, update, delete on public.guest_list_members to authenticated;
+-- `owner` is not writable: the policy's WITH CHECK already refuses somebody else's uid, but
+-- a column grant makes it impossible to try rather than merely refused, and keeps the
+-- failure at the same layer as `invitees`.
+revoke update on public.guest_lists from authenticated, anon;
+grant  update (name) on public.guest_lists to authenticated;
+
+/**
+ * ATTACH BY COPY, AND THIS IS THE LOAD-BEARING DECISION.
+ *
+ * If an event POINTED at a live list, editing the family list next March would retroactively
+ * change what last September's party says it invited: `invited_count` drifts, and
+ * "Send to 40 guests" on a finished event becomes a claim about a list that has moved.
+ * Copying keeps an event's roster a record of what it WAS. `invitees` gains a source, not a
+ * new owner.
+ *
+ * The copy also gets the deduplication for free: the two partial unique indexes on
+ * `invitees` mean attaching "Family" and then "Neighbours" adds Melva once.
+ */
+create or replace function public.attach_guest_list(p_event_id uuid, p_list_id uuid)
+returns integer
+language plpgsql security definer set search_path = public as $$
+declare
+  v_added integer;
+begin
+  -- BOTH halves checked, because a definer runs as the owner. Host of the event, and owner
+  -- of the list -- neither implies the other, and skipping either would let one identity
+  -- read another's address book into their own party.
+  if not public.is_host(p_event_id) then
+    raise exception 'not a host of this event' using errcode = '42501';
+  end if;
+  if not exists (select 1 from public.guest_lists l where l.id = p_list_id and l.owner = auth.uid()) then
+    raise exception 'not your list' using errcode = '42501';
+  end if;
+
+  insert into public.invitees (event_id, email, phone, display_name)
+  select p_event_id, m.email, m.phone, m.display_name
+    from public.guest_list_members m
+   where m.list_id = p_list_id
+  on conflict do nothing;
+
+  get diagnostics v_added = row_count;
+  return v_added;
+end $$;
+
+revoke execute on function public.attach_guest_list(uuid, uuid) from public, anon;
+grant  execute on function public.attach_guest_list(uuid, uuid) to authenticated;
+
+/**
+ * SAVING WHAT IS ALREADY ON AN EVENT, which is how a first list actually comes to exist.
+ * Nobody builds an address book in the abstract; they invite people to a party and then want
+ * the same forty next time.
+ *
+ * Upserts into a list of that name rather than refusing, so "save as Family" twice merges
+ * instead of erroring at somebody who has just added three people.
+ */
+create or replace function public.save_guest_list(p_event_id uuid, p_name text)
+returns uuid
+language plpgsql security definer set search_path = public as $$
+declare
+  v_list uuid;
+begin
+  if not public.is_host(p_event_id) then
+    raise exception 'not a host of this event' using errcode = '42501';
+  end if;
+
+  insert into public.guest_lists (owner, name) values (auth.uid(), btrim(p_name))
+  on conflict (owner, lower(btrim(name))) do update set name = excluded.name
+  returning id into v_list;
+
+  insert into public.guest_list_members (list_id, email, phone, display_name)
+  select v_list, i.email, i.phone, i.display_name
+    from public.invitees i
+   where i.event_id = p_event_id
+  on conflict do nothing;
+
+  return v_list;
+end $$;
+
+revoke execute on function public.save_guest_list(uuid, text) from public, anon;
+grant  execute on function public.save_guest_list(uuid, text) to authenticated;
+
+/**
+ * FORGET SOMEBODY, EVERYWHERE YOU HOLD THEM -- the question #59 was filed asking.
+ *
+ * A reusable address book persists other people's contact details indefinitely, past any
+ * event they were connected to, for people who have never heard of RunIt. The honest
+ * position is that "delete me" has to mean it, so this reaches BOTH the saved lists and the
+ * copies already made into events -- including finished ones. An event's roster being a
+ * historical record is a good argument right up until it is being used to justify keeping
+ * somebody who asked to be removed.
+ *
+ * SCOPED TO WHAT THE CALLER OWNS OR HOSTS. It cannot touch another host's list or another
+ * event's roster, so it is a deletion tool rather than a weapon.
+ *
+ * It matches on either identifier, folded the same way the indexes fold them, because the
+ * person asking will give you one of the two and not necessarily the one you stored.
+ */
+create or replace function public.forget_person(p_email text default null, p_phone text default null)
+returns integer
+language plpgsql security definer set search_path = public as $$
+declare
+  v_email text := nullif(btrim(lower(coalesce(p_email, ''))), '');
+  v_phone text := nullif(public.phone_key(coalesce(p_phone, '')), '');
+  v_gone  integer := 0;
+  v_n     integer;
+begin
+  if v_email is null and v_phone is null then
+    raise exception 'give an email or a phone' using errcode = '22023';
+  end if;
+
+  delete from public.guest_list_members m
+   using public.guest_lists l
+   where m.list_id = l.id
+     and l.owner = auth.uid()
+     and ((v_email is not null and lower(m.email) = v_email)
+       or (v_phone is not null and public.phone_key(m.phone) = v_phone));
+  get diagnostics v_n = row_count;
+  v_gone := v_gone + v_n;
+
+  delete from public.invitees i
+   where public.is_host(i.event_id)
+     and ((v_email is not null and lower(i.email) = v_email)
+       or (v_phone is not null and public.phone_key(i.phone) = v_phone));
+  get diagnostics v_n = row_count;
+  v_gone := v_gone + v_n;
+
+  return v_gone;
+end $$;
+
+revoke execute on function public.forget_person(text, text) from public, anon;
+grant  execute on function public.forget_person(text, text) to authenticated;
+
+-- ========================================================================
 -- SENDING, WHICH NOTHING COULD DO -- #60
 -- ========================================================================
 --
