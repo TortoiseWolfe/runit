@@ -1,4 +1,4 @@
-import { photoCache, toBroadcast, toEvent, toHost, toPhoto, toSongRequest } from './mappers';
+import { photoCache, toBroadcast, toEvent, toHost, toInvitee, toPhoto, toSongRequest } from './mappers';
 import type { Row } from './database.types';
 import type { Photo } from '../types';
 
@@ -144,5 +144,56 @@ describe('photoCache comparator covers every field the UI can read', () => {
     const [first] = cache.reconcile([{ ...base }]);
     const [second] = cache.reconcile([{ ...base }]);
     expect(second).toBe(first);
+  });
+});
+
+describe('toInvitee carries every column the schema has (#60)', () => {
+  /**
+   * NOTHING COVERED THIS MAPPER, and #60 is what made that expensive. `invitees` gained a
+   * `phone` column and `email` became nullable; a mapper that forgot either would read as
+   * null forever, on every device, with no error anywhere -- the same silent shape the photo
+   * comparator above exists to prevent.
+   *
+   * It walks the ROW type rather than listing fields by hand, so a column added to
+   * `database.types.ts` and forgotten in `toInvitee` fails here rather than in somebody's
+   * guest list. Lane H proves production HAS the columns; this proves we read them.
+   */
+  const row: Row<'invitees'> = {
+    id: 'inv1',
+    event_id: 'e1',
+    email: 'sam@example.test',
+    phone: '(555) 010-1234',
+    display_name: 'Sam',
+    invited_at: '2026-09-10T12:00:00Z',
+    joined_guest_id: 'g1',
+    created_at: '2026-09-04T12:00:00Z',
+  };
+
+  // `event_id` and `created_at` are deliberately not on the domain type: the list is always
+  // read scoped to one event, and nothing renders when a row was created.
+  const CARRIED: Record<string, unknown> = {
+    id: 'inv1',
+    email: 'sam@example.test',
+    phone: '(555) 010-1234',
+    displayName: 'Sam',
+    invitedAt: '2026-09-10T12:00:00Z',
+    joinedGuestId: 'g1',
+  };
+
+  it.each(Object.keys(CARRIED))('carries %s through unchanged', (field) => {
+    expect((toInvitee(row) as unknown as Record<string, unknown>)[field]).toEqual(CARRIED[field]);
+  });
+
+  it('maps every column that is not deliberately dropped', () => {
+    // A coverage floor. If `database.types.ts` gains a column, this count moves and somebody
+    // has to decide whether the domain type wants it -- rather than it being silently absent.
+    const dropped = ['event_id', 'created_at'];
+    expect(Object.keys(row).length - dropped.length).toBe(Object.keys(CARRIED).length);
+  });
+
+  it('keeps a phone-only invitee, which is the whole of #60', () => {
+    const out = toInvitee({ ...row, email: null });
+    expect(out.email).toBeNull();
+    expect(out.phone).toBe('(555) 010-1234');
   });
 });
