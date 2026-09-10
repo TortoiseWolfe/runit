@@ -32,6 +32,7 @@
 
 do $$
 declare
+  ts        timestamptz;
   guid uuid := '11111111-1111-1111-1111-111111111111';
   huid uuid := '44444444-4444-4444-4444-444444444444';
   eid  uuid := '22222222-2222-2222-2222-222222222222';
@@ -379,6 +380,89 @@ begin
     out := out || format('FAIL a host forged an arrival');
   exception when others then
     out := out || format('%s a client cannot forge joined_guest_id (%s)',
+                         case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  -- ======================================================================
+  -- #60: a contact is usually a PHONE NUMBER, and sending finally has a writer
+  -- ======================================================================
+
+  -- The check constraint. `email` stopped being `not null` so an address book could be
+  -- imported at all; without this a row could be a name with no way to reach anybody, and
+  -- `invited_count` would be counting nothing.
+  begin
+    insert into public.invitees (event_id, display_name) values (eid, 'Nobody');
+    out := out || format('FAIL an invitee with no email and no phone was accepted');
+  exception when check_violation then
+    out := out || format('PASS an invitee must carry an email or a phone (23514)');
+  end;
+
+  -- A phone with no email, which is what a picked contact usually is.
+  insert into public.invitees (event_id, phone, display_name)
+  values (eid, '(555) 010-1234', 'Aunt Sam');
+  out := out || format('PASS a host can add a phone-only invitee');
+
+  -- THE PARTIAL INDEX, and the reason it is partial. A non-partial unique index over an
+  -- expression of a nullable column behaves differently per engine; more importantly a
+  -- SECOND phone-only row must not collide with the first on a NULL email.
+  insert into public.invitees (event_id, phone, display_name)
+  values (eid, '555-010-5678', 'Uncle Ray');
+  out := out || format('PASS two phone-only invitees do not collide on a null email');
+
+  -- `phone_key` folds one person's three saved formats to one row.
+  begin
+    insert into public.invitees (event_id, phone) values (eid, '+1 (555) 010-1234');
+    out := out || format('FAIL one person was added twice under two phone formats');
+  exception when unique_violation then
+    out := out || format('PASS phone_key folds +1 (555) 010-1234 onto 555-010-1234 (23505)');
+  end;
+
+  out := out || format('%s phone_key keeps only the last ten digits',
+                       case when public.phone_key('+1 (555) 010-1234') = '5550101234'
+                            then 'PASS' else 'FAIL' end);
+
+  -- The email index is still case-insensitive AND still partial, so phone-only rows above
+  -- did not consume it.
+  begin
+    insert into public.invitees (event_id, email) values (eid, 'SAM@example.test');
+    out := out || format('FAIL a duplicate address survived the partial email index');
+  exception when unique_violation then
+    out := out || format('PASS the email index is still case-insensitive alongside phones');
+  end;
+
+  -- MARK_INVITED. `invited_at` is revoked from every client role -- asserted above -- so
+  -- this definer function is its only writer. A definer runs as the OWNER, which means its
+  -- own is_host check is the ONLY thing scoping it: without that, any signed-in host could
+  -- stamp any event's guest list.
+  select count(*) into n from public.invitees where event_id = eid and invited_at is not null;
+  out := out || format('%s nobody is marked invited before sending (%s, want 0)',
+                       case when n = 0 then 'PASS' else 'FAIL' end, n);
+
+  select public.mark_invited(eid, array(select id from public.invitees where event_id = eid))
+    into n;
+  out := out || format('%s mark_invited stamps the list it was given (%s rows)',
+                       case when n = 3 then 'PASS' else 'FAIL' end, n);
+
+  select count(*) into n from public.invitees where event_id = eid and invited_at is null;
+  out := out || format('%s and none are left unstamped (%s, want 0)',
+                       case when n = 0 then 'PASS' else 'FAIL' end, n);
+
+  -- IDEMPOTENT BY coalesce: re-sending keeps the FIRST time, because the honest answer to
+  -- "when was this person invited" is the first time, and a host adding one late name must
+  -- not restamp the thirty who already went out.
+  select min(invited_at) into ts from public.invitees where event_id = eid;
+  perform pg_sleep(0.01);
+  perform public.mark_invited(eid, array(select id from public.invitees where event_id = eid));
+  out := out || format('%s re-sending keeps the original timestamp',
+                       case when (select min(invited_at) from public.invitees where event_id = eid) = ts
+                            then 'PASS' else 'FAIL' end);
+
+  -- THE LOAD-BEARING ONE. A host of THIS event calling it against ANOTHER event.
+  begin
+    perform public.mark_invited(eid2, array[gen_random_uuid()]);
+    out := out || format('FAIL a host stamped an event that is not theirs');
+  exception when others then
+    out := out || format('%s mark_invited refuses a host of another event (%s)',
                          case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
   end;
 
