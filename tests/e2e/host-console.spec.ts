@@ -101,6 +101,42 @@ test.describe('host console', () => {
     await expect(title).toHaveText('Rehearsal Dinner');
   });
 
+  test('the host can send the date, not just the code and the venue (#61)', async ({
+    page,
+  }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await joinAsGuest(page, scheme);
+    await switchToHost(page);
+
+    // `icsFor` was written, tested and reachable from ONE screen: the guest's join
+    // screen, in the app, after they arrived. The message that reaches everyone else is
+    // the one the host sends from this row, and it carried the start time as prose or
+    // not at all.
+    const calendar = page.getByTestId('host-share-calendar');
+    await expect(calendar).toBeVisible();
+    await calendar.click();
+    // The honest outcome either way: headless Chromium has no share sheet, so `shareIcs`
+    // resolves false and the toast must SAY so rather than leave a control that appears to
+    // do nothing.
+    const toast = page.getByTestId('toast');
+    await expect(toast).toContainText(/calendar/i);
+    // AND NOT THE OTHER HANDLER'S MESSAGE. `toContainText(/calendar/i)` alone passes if
+    // this Pressable is wired to `onShare` by a copy-paste -- both live in one row, both
+    // toast on a missing sheet. The share-invite toast names the CODE; this one must not,
+    // which is what separates "the calendar control ran" from "a control ran".
+    await expect(toast).not.toContainText(WEDDING.code);
+  });
+
+  /**
+   * WHAT THE TEST ABOVE CANNOT PROVE, said rather than implied. `share.web.ts` is a stub --
+   * `shareIcs` returns false without building anything, because a real download is blocked
+   * in the harness sandbox. So no lane here has ever seen the BYTES this control hands over.
+   * What covers those is `invite.test.ts`, which has eleven assertions on `icsFor` itself:
+   * the envelope, CRLF, UTC stamps, the stable UID, escaping, octet folding and an omitted
+   * LOCATION. The seam between them -- that this button passes THIS event to THAT function
+   * -- is proven by the toast and by nothing else, and only a phone closes it.
+   */
+
   test('the composer addresses all 180 invited, not the 173 standing in the room', async ({
     page,
   }, testInfo) => {

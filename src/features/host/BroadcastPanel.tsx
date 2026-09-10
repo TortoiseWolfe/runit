@@ -3,8 +3,8 @@ import {
   Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import { EventQr } from '@/components/ui/EventQr';
-import { shareMessage } from '@/lib/invite';
-import { shareText } from '@/lib/share';
+import { icsFilename, icsFor, shareMessage } from '@/lib/invite';
+import { shareIcs, shareText } from '@/lib/share';
 import { useToast } from '@/state/ToastProvider';
 
 import { formatClock } from '@/lib/format';
@@ -37,6 +37,36 @@ export function BroadcastPanel() {
     if (!event) return;
     const shared = await shareText(shareMessage(event));
     if (!shared) show(`No share sheet here. The code is ${event.code.toUpperCase()}.`);
+  };
+
+  /**
+   * THE HOST COULD NOT SEND THE DATE (#61).
+   *
+   * `icsFor` has existed and been tested since the invitation work -- eleven assertions
+   * covering CRLF, octet folding, escaping and a stable UID -- and it was reachable from
+   * exactly ONE place: the guest's join screen, in the app, AFTER they arrived. The person
+   * who most needs a date on their calendar is the one who has not got that far, and the
+   * only message that reaches them is the one the HOST sends from here. `shareMessage`
+   * carries the name, the code, the venue and the doors label; the start time went out as
+   * prose or not at all.
+   *
+   * A SEPARATE CONTROL RATHER THAN FOLDING IT INTO `Share invite`. A share sheet takes one
+   * payload -- `Share.share` takes `message` OR `url`, and platforms disagree about what
+   * happens when you pass both -- so combining them would make the text invitation worse on
+   * some phones to make the calendar file possible on others. Two controls, each doing one
+   * legible thing, is also what the guest side already offers.
+   *
+   * The same `Pick<RunitEvent, ...>` the guest path uses, which the full event satisfies --
+   * including `id`, the calendar UID, so a host adding it and a guest adding it produce ONE
+   * entry rather than two.
+   */
+  const onAddToCalendar = async () => {
+    if (!event) return;
+    const shared = await shareIcs(icsFilename(event), icsFor(event));
+    // Reporting the outcome rather than assuming it, exactly as JoinScreen does: on a
+    // desktop browser there is no share sheet at all, and a control that silently does
+    // nothing is the failure the calendar pill spent months demoted to a View to avoid.
+    show(shared ? 'Calendar file ready.' : 'Calendar export needs the app on a phone.');
   };
 
   const onSend = async () => {
@@ -109,6 +139,15 @@ export function BroadcastPanel() {
           <Text style={[s.inviteAction, { color: tokens.accent }]}>
             {showQr ? 'Hide QR' : 'Show QR'}
           </Text>
+        </Pressable>
+        <Pressable
+          onPress={onAddToCalendar}
+          accessibilityRole="button"
+          accessibilityLabel="Share a calendar file for this event"
+          hitSlop={8}
+          testID="host-share-calendar"
+        >
+          <Text style={[s.inviteAction, { color: tokens.accent }]}>Calendar</Text>
         </Pressable>
       </View>
       ) : null}
@@ -288,10 +327,14 @@ export function BroadcastPanel() {
 
 const s = StyleSheet.create({
   inviteRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  // ~15pt of text, under SC 2.5.8's 24x24 AA minimum, so both carry hitSlop. They are
+  // ~15pt of text, under SC 2.5.8's 24x24 AA minimum, so all three carry hitSlop. They are
   // each other's nearest neighbour, hence the space-between rather than flush siblings:
   // RN's own docs note slop "never extends past the parent view bounds and the Z-index of
   // sibling views always takes precedence".
+  //
+  // THREE now, not two (#61). 'Calendar' rather than '+ Add to calendar' -- the guest's
+  // pill has a row to itself and this one does not, and the same rule the segment track
+  // records applies here: at 402pt the shortest true label is the one that survives.
   inviteAction: { fontSize: 15, fontWeight: weight.semibold },
   qrHolder: { alignItems: 'center', paddingVertical: 8 },
   scroll: { flex: 1 },
