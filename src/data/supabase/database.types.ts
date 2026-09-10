@@ -113,16 +113,22 @@ export type Database = {
         Relationships: [];
       };
       invitees: {
+        // `email` is NULLABLE now and `phone` exists (#60): a contact on a phone is usually a
+        // number, so requiring an address meant dropping most of an address book. The schema
+        // holds "at least one" as a check constraint rather than the type system holding it.
         Row: {
-          id: string; event_id: string; email: string; display_name: string | null;
+          id: string; event_id: string; email: string | null; phone: string | null;
+          display_name: string | null;
           invited_at: string | null; joined_guest_id: string | null; created_at: string;
         };
         Insert: {
-          id?: string; event_id: string; email: string; display_name?: string | null;
+          id?: string; event_id: string; email?: string | null; phone?: string | null;
+          display_name?: string | null;
           invited_at?: string | null; joined_guest_id?: string | null; created_at?: string;
         };
         Update: {
-          id?: string; event_id?: string; email?: string; display_name?: string | null;
+          id?: string; event_id?: string; email?: string | null; phone?: string | null;
+          display_name?: string | null;
           invited_at?: string | null; joined_guest_id?: string | null; created_at?: string;
         };
         Relationships: [];
@@ -272,6 +278,16 @@ export type Database = {
         }[];
       };
       /** Returns exactly one row. The host_key is the only copy that will ever exist. */
+      /**
+       * Stamps `invited_at` on rows a host has just handed to a composer. Returns how many
+       * were stamped. `invited_at` is revoked from every client role, so this definer
+       * function is the ONLY writer -- a host cannot put an arbitrary time on an arbitrary
+       * row, only record that these invitees went out now.
+       */
+      mark_invited: {
+        Args: { p_event_id: string; p_ids: string[] };
+        Returns: number;
+      };
       create_event: {
         Args: {
           p_name: string;

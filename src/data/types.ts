@@ -116,13 +116,31 @@ export type Session =
  */
 export interface Invitee {
   id: InviteeId;
-  email: string;
+  /**
+   * EITHER of these identifies an invitee and at least one is present -- the schema holds
+   * that as a check constraint (#60). `email` was `not null` until a guest list could be
+   * built from the phone's own contacts, at which point requiring an address meant dropping
+   * most of an address book on the floor, because a contact is usually a phone number.
+   *
+   * Nullable in BOTH directions on purpose. A relative saved with only a mobile is a phone
+   * and no email; a work list pasted from a spreadsheet is the reverse.
+   */
+  email: string | null;
+  phone: string | null;
   /** Optional, purely so an invite could say "Hi Sam". Never required. */
   displayName: string | null;
   /**
-   * NULL until an invite is actually SENT -- which nothing does yet, deliberately.
-   * "On the list" and "was emailed" are different facts and the schema keeps them apart:
-   * a host who adds forty addresses and sends none has invited nobody.
+   * WHEN THE INVITATION REACHED A COMPOSER -- not when it reached a person, and the
+   * distinction is the whole reason this field is not a boolean.
+   *
+   * It was null forever and by design: "nothing may set it until something actually sends".
+   * `invitees.send` now hands the message to the phone's own SMS or mail composer and
+   * stamps this through `mark_invited`, because that is the closest thing to sending that
+   * exists on this distribution. There is no delivery receipt on that path and there will
+   * not be one -- the OS reports that the sheet was used and nothing after.
+   *
+   * So "on the list", "handed to a composer" and "actually arrived" are three facts and the
+   * schema can honestly hold the first two.
    */
   invitedAt: Instant | null;
   /** Set when this address turns up. Nothing writes it yet. */

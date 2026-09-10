@@ -751,12 +751,78 @@ describe('the guest list', () => {
     expect(r.invitees.all.get()[0]!.joinedGuestId).toBeNull();
   });
 
-  it('ignores an empty address rather than adding a blank row', async () => {
+  /**
+   * IT REFUSES NOW RATHER THAN SILENTLY IGNORING, and that is a deliberate change of
+   * behaviour, not a test bent to fit an implementation.
+   *
+   * This used to `return` on a blank address and assert only that no row appeared. Since
+   * #60 the schema holds `invitees_reachable` -- `check (email is not null or phone is not
+   * null)` -- so the SERVER refuses it with 23514. An adapter that swallows what the
+   * backend rejects is exactly the drift this file exists to prevent: Lane B would go green
+   * over a path that throws in production.
+   *
+   * The old assertion survives inside the new one. No row, no movement in the count, AND
+   * the caller is told.
+   */
+  it('refuses a contact with no way to reach them, and adds nothing', async () => {
     const r = make();
     const before = r.event.current.get()!.invitedCount;
-    await r.invitees.add({ email: '   ' });
+    await expect(r.invitees.add({ email: '   ' })).rejects.toThrow(/email or a phone/i);
     expect(r.invitees.all.get()).toHaveLength(0);
     expect(r.event.current.get()!.invitedCount).toBe(before);
+  });
+
+  it('takes a phone with no email, which is what an address book actually holds', async () => {
+    const r = make();
+    await r.invitees.add({ phone: '(555) 010-1234', displayName: 'Aunt Sam' });
+    const [row] = r.invitees.all.get();
+    expect(row!.phone).toBe('(555) 010-1234');
+    expect(row!.email).toBeNull();
+  });
+
+  it('folds one person saved three ways into one row', async () => {
+    // The `invitees_event_phone` index folds through `phone_key`; this mirrors it. An
+    // address book holds one relative as all three of these across a decade of phones.
+    const r = make();
+    await r.invitees.add({ phone: '555-010-1234' });
+    const { added, skipped } = await r.invitees.addMany([
+      { phone: '(555) 010-1234' },
+      { phone: '+1 555 010 1234' },
+      { phone: '555-010-9999' },
+    ]);
+    expect(added).toBe(1);
+    expect(skipped).toBe(2);
+    expect(r.invitees.all.get()).toHaveLength(2);
+  });
+
+  it('addMany skips duplicates instead of failing the batch', async () => {
+    // Importing an address book twice is ORDINARY. Throwing on the first repeat would make
+    // a forty-person import an exercise in finding which name you already had.
+    const r = make();
+    const people = [{ email: 'a@x.test' }, { email: 'b@x.test' }];
+    expect(await r.invitees.addMany(people)).toEqual({ added: 2, skipped: 0 });
+    expect(await r.invitees.addMany(people)).toEqual({ added: 0, skipped: 2 });
+    expect(r.invitees.all.get()).toHaveLength(2);
+  });
+
+  it('send stamps only who was asked for, and keeps the FIRST time', async () => {
+    const r = make();
+    await r.invitees.addMany([{ email: 'a@x.test' }, { email: 'b@x.test' }]);
+    const [first, second] = r.invitees.all.get();
+
+    await r.invitees.send([first!.id]);
+    const afterFirst = r.invitees.all.get();
+    expect(afterFirst[0]!.invitedAt).not.toBeNull();
+    // The one NOT asked for stays unsent -- otherwise "send to the unsent" would be a lie
+    // the second time a host used it.
+    expect(afterFirst.find((i) => i.id === second!.id)!.invitedAt).toBeNull();
+
+    // Idempotent: re-sending keeps the original stamp, because the honest answer to "when
+    // was this person invited" is the first time.
+    const stamp = afterFirst[0]!.invitedAt;
+    await r.invitees.send([first!.id, second!.id]);
+    expect(r.invitees.all.get()[0]!.invitedAt).toBe(stamp);
+    expect(r.invitees.all.get().every((i) => i.invitedAt !== null)).toBe(true);
   });
 });
 

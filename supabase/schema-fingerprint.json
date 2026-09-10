@@ -1,20 +1,20 @@
 {
   "capturedFrom": "the LIVE project qwusbxallkbzfladvgfx, via the Supabase MCP",
-  "capturedAt": "2026-09-09",
-  "verifiedAgainst": "Re-checked after deploying photo_moderation_50 (#50): the live project and a local build of the committed migration match on all six groups. The tier_limits expression now also covers photo_moderation \u2014 it did not when the column landed, so a drift in that VALUE would have been invisible while the columns group only caught its existence.",
+  "capturedAt": "2026-09-10",
+  "verifiedAgainst": "Re-captured after #60 -- invitees gained `phone`, `email` became nullable, `invitees_reachable` was added, `invitees_event_email` became partial, `invitees_event_phone` was created, and `phone_key`/`mark_invited` were deployed. columns 119->120, functions 33->35, indexes 29->30, policies and triggers UNCHANGED -- which is the check that this added no access. tier_limits ALSO moved and that one is NOT part of #60: max_guests 10->40 and max_hosts 1->2 on house_party are the temporary party overrides recorded in issue #63, which the committed migration deliberately does NOT carry. So this baseline currently describes production, and production and the migration disagree on two numbers BY DESIGN until #63 is reverted after 2026-09-12. Re-capture then.",
   "howToRefresh": "pnpm schema:fingerprint --write, and only after re-checking production. See docs/lane-e.md and issue #49.",
   "schema": {
     "columns": {
-      "n": 119,
-      "fingerprint": "adfd4bad2915c17d5e6a7f568470787d"
+      "n": 120,
+      "fingerprint": "249ecc4e00caf57b2bb2e5f9eb371deb"
     },
     "functions": {
-      "n": 33,
-      "fingerprint": "8c57cf6ac2708dd1423975ecc8a6f107"
+      "n": 35,
+      "fingerprint": "c93a1f62110a05293b9a56ac786b7066"
     },
     "indexes": {
-      "n": 29,
-      "fingerprint": "fbce5e4289a90b4b9bf378ff8d9fce40"
+      "n": 30,
+      "fingerprint": "7634b72078521b336c6f1c7854fe7788"
     },
     "policies": {
       "n": 34,
@@ -22,7 +22,7 @@
     },
     "tier_limits": {
       "n": 4,
-      "fingerprint": "514a6d0ac563b8652c7b89c8ee97d5b8"
+      "fingerprint": "9f6aee12d1d17c3216bf6019650048f4"
     },
     "triggers": {
       "n": 21,

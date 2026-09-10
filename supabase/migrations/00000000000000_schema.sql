@@ -2091,10 +2091,37 @@ grant  execute on function public.invite_host(uuid, text, text, text) to authent
 -- third-party data: the host has the relationship, Runit holds it on their behalf. It
 -- gets the strictest treatment in this schema for exactly that reason.
 
+-- A CONTACT ON A PHONE IS USUALLY A PHONE NUMBER, and this table could not hold one --
+-- #60. `email` was `not null` with a unique index over it, so building a guest list from
+-- the address book everybody already has meant silently dropping most of it. A host with
+-- forty relatives in her contacts could import the handful who happened to have an email
+-- saved and would reasonably conclude the picker was broken.
+--
+-- So EITHER identifies an invitee and the check demands at least one. Two partial unique
+-- indexes rather than one composite: a person with both must not be able to exist twice,
+-- and a NULL in a composite unique index does not conflict with anything, which would have
+-- let the same address in twice as long as the phone differed.
+create or replace function public.phone_key(p_phone text)
+returns text
+language sql immutable set search_path = public as $$
+  -- DE-DUPLICATION, NOT VALIDATION, and the difference matters. This never refuses a
+  -- number; it decides whether two of them are the same person. Digits only, last ten --
+  -- so (555) 010-1234, 555-010-1234 and +1 555 010 1234 are one contact, which is exactly
+  -- the mess an address book contains for one person across a decade of phones.
+  --
+  -- LAST TEN IS US-CENTRIC AND SAID OUT LOUD rather than discovered later. An
+  -- international number dedupes on its final ten digits, which is enough to stop one
+  -- person entering twice from one phone and is not enough to be a general identity.
+  -- Nothing here dials anything, so a wrong fold costs a duplicate row, never a message
+  -- to a stranger.
+  select right(regexp_replace(coalesce(p_phone, ''), '[^0-9]', '', 'g'), 10);
+$$;
+
 create table public.invitees (
   id              uuid primary key default gen_random_uuid(),
   event_id        uuid not null references public.events(id) on delete cascade,
-  email           text not null,
+  email           text,
+  phone           text,
   -- Optional, purely so an invite can say "Hi Sam" rather than "Hello". Never required.
   display_name    text,
   -- NULL until an invite is actually sent, so "on the list" and "was emailed" stay
@@ -2106,9 +2133,18 @@ create table public.invitees (
   created_at      timestamptz not null default now()
 );
 
+-- At least one way to reach them, or the row is a name with no address and the invited
+-- count is counting nothing.
+alter table public.invitees
+  add constraint invitees_reachable check (email is not null or phone is not null);
+
 -- One invite per address per event. Case-insensitive, because Sam@x.com and sam@x.com are
--- one person and double-emailing them is the fastest way to look broken.
-create unique index invitees_event_email on public.invitees (event_id, lower(email));
+-- one person and double-emailing them is the fastest way to look broken. PARTIAL now, so a
+-- phone-only invitee does not collide with every other phone-only invitee on a NULL email.
+create unique index invitees_event_email on public.invitees (event_id, lower(email))
+  where email is not null;
+create unique index invitees_event_phone on public.invitees (event_id, public.phone_key(phone))
+  where phone is not null;
 create index on public.invitees (event_id, invited_at);
 
 alter table public.invitees enable row level security;
@@ -2163,9 +2199,56 @@ create trigger invitees_fold
 -- "on the list" from "was emailed", and nothing may set it until something actually
 -- sends -- least of all the client, which cannot send.
 revoke update on public.invitees from authenticated, anon;
-grant  update (email, display_name) on public.invitees to authenticated;
+grant  update (email, phone, display_name) on public.invitees to authenticated;
 
 revoke execute on function public.fold_invited_count() from public, anon, authenticated;
+
+-- ========================================================================
+-- SENDING, WHICH NOTHING COULD DO -- #60
+-- ========================================================================
+--
+-- `invited_at` has existed since the first migration and NO CODE PATH HAS EVER WRITTEN IT.
+-- The comment above it said why: it is the flag separating "on the list" from "was sent",
+-- "and nothing may set it until something actually sends -- least of all the client, which
+-- cannot send." That was true. The client can now hand a message to the phone's own SMS or
+-- mail composer, which is the closest thing to sending that exists here, so the flag gets a
+-- writer -- and the writer is a definer function rather than a column grant, for the reason
+-- the original comment implies: a host must not be able to stamp an arbitrary time on an
+-- arbitrary row, only to record that she just handed THESE invitees to a composer NOW.
+--
+-- WHAT IT DOES AND DOES NOT CLAIM, and the name is chosen to keep the two apart. It records
+-- that the invitation reached a COMPOSER, not that it reached a person. `Share.share`
+-- resolves `sharedAction` when the sheet was used and the OS tells us nothing after that;
+-- there is no delivery receipt on this path and there never will be. A host reading "sent"
+-- should understand "I handed this to Messages", which is also all she knows when she does
+-- it by hand today.
+--
+-- IDEMPOTENT BY `coalesce`: re-sending to somebody already sent to keeps the FIRST time,
+-- because the honest answer to "when was this person invited" is the first time, and a
+-- host who re-opens the composer to add one name should not restamp the other thirty.
+create or replace function public.mark_invited(p_event_id uuid, p_ids uuid[])
+returns integer
+language plpgsql security definer set search_path = public as $$
+declare
+  v_count integer;
+begin
+  -- The event's own host, checked here rather than trusted from the client, because a
+  -- definer function runs as the owner and would otherwise stamp any event's list.
+  if not public.is_host(p_event_id) then
+    raise exception 'not a host of this event' using errcode = '42501';
+  end if;
+
+  update public.invitees i
+     set invited_at = coalesce(i.invited_at, now())
+   where i.event_id = p_event_id
+     and i.id = any(p_ids);
+
+  get diagnostics v_count = row_count;
+  return v_count;
+end $$;
+
+revoke execute on function public.mark_invited(uuid, uuid[]) from public, anon;
+grant  execute on function public.mark_invited(uuid, uuid[]) to authenticated;
 
 -- ========================================================================
 -- MODERATION -- App Review Guideline 1.2

@@ -30,6 +30,9 @@ import {
   checkFeature, checkLimit, firstTierWith, nextTierFor, type Entitlements,
 } from '@/domain/entitlements';
 import { TIERS } from '@/domain/tiers';
+import { phoneKey } from '@/domain/phoneKey';
+import { shareMessage } from '@/lib/invite';
+import { shareText } from '@/lib/share';
 
 /**
  * The Supabase adapter.
@@ -1350,28 +1353,37 @@ export class SupabaseRepository implements RunitRepository {
   invitees = {
     all: undefined as unknown as Observable<Invitee[]>,
 
-    add: async ({ email, displayName }: { email: string; displayName?: string }) => {
+    add: async (person: { email?: string; phone?: string; displayName?: string }) => {
       const eventId = this.requireEvent();
-      const addr = email.trim();
-      if (!addr) return;
+      const email = person.email?.trim() || null;
+      const phone = person.phone?.trim() || null;
+      // The check constraint, refused here so the host learns before a round trip.
+      if (!email && !phone) throw new Error('Add an email or a phone number.');
 
       const { data, error } = await this.db
         .from('invitees')
         .insert({
           event_id: eventId,
-          email: addr,
-          display_name: displayName?.trim() || null,
-          // invited_at is NOT set. Nothing sends, so nobody has been invited -- the
-          // schema's own way of saying so, and the line this feature deliberately
-          // stops short of.
+          email,
+          phone,
+          display_name: person.displayName?.trim() || null,
+          // invited_at is NOT set here and cannot be: it is revoked from every client
+          // role. `send` stamps it through `mark_invited`, and only after a composer was
+          // actually opened.
         })
         .select('id');
 
       if (error) {
-        // 23505 is `invitees_event_email`, which is case-insensitive on purpose:
-        // Sam@x.com and sam@x.com are one person.
+        // 23505 is either unique index now -- `invitees_event_email` (case-insensitive:
+        // Sam@x.com and sam@x.com are one person) or `invitees_event_phone` (folded
+        // through `phone_key`, so one person's three saved formats are one row).
         if (isPgError(error) && error.code === '23505') {
-          throw new Error('That address is already on the list.');
+          throw new Error('They are already on the list.');
+        }
+        // 23514 is `invitees_reachable`. Reachable only if the client guard above was
+        // bypassed, which is exactly why the server holds the rule too.
+        if (isPgError(error) && error.code === '23514') {
+          throw new Error('Add an email or a phone number.');
         }
         throw error;
       }
@@ -1383,6 +1395,94 @@ export class SupabaseRepository implements RunitRepository {
 
       await this.loadFetchOnce();
       this.recompute();
+    },
+
+    /**
+     * ONE ROUND TRIP FOR THE WHOLE PICK, and `upsert` with `ignoreDuplicates` rather than
+     * `insert`, because importing an address book is the one case where a repeat is
+     * ORDINARY. A host who picks her family list twice, or whose friends list overlaps it,
+     * must not get a failed batch and no way to tell which name caused it.
+     *
+     * `count: 'exact'` is what makes the return value honest: PostgREST reports how many
+     * rows it actually wrote, so "12 added, 3 already there" is the server's number rather
+     * than an optimistic guess made before the insert.
+     *
+     * DE-DUPED WITHIN THE BATCH FIRST, because `ON CONFLICT DO NOTHING` cannot resolve two
+     * conflicting rows inside ONE statement -- Postgres raises 21000 ("ON CONFLICT DO
+     * UPDATE command cannot affect row a second time" has a DO NOTHING sibling) rather than
+     * picking a winner, and two contacts carrying one number is common in a real address
+     * book.
+     */
+    addMany: async (people: { email?: string; phone?: string; displayName?: string }[]) => {
+      const eventId = this.requireEvent();
+
+      const seenEmail = new Set<string>();
+      const seenPhone = new Set<string>();
+      const rows: { event_id: string; email: string | null; phone: string | null; display_name: string | null }[] = [];
+      let skipped = 0;
+
+      for (const person of people) {
+        const email = person.email?.trim() || null;
+        const phone = person.phone?.trim() || null;
+        if (!email && !phone) { skipped += 1; continue; }
+        const ek = email?.toLowerCase() ?? '';
+        const pk = phone ? phoneKey(phone) : '';
+        if ((ek && seenEmail.has(ek)) || (pk && seenPhone.has(pk))) { skipped += 1; continue; }
+        if (ek) seenEmail.add(ek);
+        if (pk) seenPhone.add(pk);
+        rows.push({ event_id: eventId, email, phone, display_name: person.displayName?.trim() || null });
+      }
+
+      if (rows.length === 0) {
+        await this.loadFetchOnce();
+        this.recompute();
+        return { added: 0, skipped };
+      }
+
+      const { data, error, count } = await this.db
+        .from('invitees')
+        .upsert(rows, { ignoreDuplicates: true, count: 'exact' })
+        .select('id');
+      if (error) throw error;
+
+      // NOT `assertWrote`. Zero written is a legitimate outcome here -- everybody picked was
+      // already on the list -- so the guard that is right on `add` would be wrong on this
+      // one. `count` distinguishes "wrote nothing because duplicates" from "wrote nothing
+      // because refused", which is the distinction assertWrote exists to make elsewhere.
+      const added = count ?? data?.length ?? 0;
+
+      await this.loadFetchOnce();
+      this.recompute();
+      return { added, skipped: skipped + (rows.length - added) };
+    },
+
+    /**
+     * HANDS THE INVITATION TO THE PHONE'S OWN COMPOSER, then records that it happened.
+     *
+     * ORDER IS THE POINT. The composer opens FIRST and `mark_invited` runs only if the sheet
+     * was actually used -- `shareText` resolves false on a dismissal. Stamping first would
+     * put a date beside every invitation a host started and abandoned, and `invitedAt` is the
+     * only thing distinguishing "on the list" from "sent"; a flag that lies is worse than a
+     * flag that is always null, which is what this column was.
+     *
+     * WHAT IT CANNOT KNOW, and the field's own docblock says so: whether anything arrived.
+     * The OS reports that the sheet was used and nothing after. There is no delivery receipt
+     * on this path and no mail server to ask (#18).
+     */
+    send: async (ids: InviteeId[]) => {
+      const eventId = this.requireEvent();
+      const event = this.sigEvent.get();
+      if (!event || ids.length === 0) return false;
+
+      const shared = await shareText(shareMessage(event));
+      if (!shared) return false;
+
+      const { error } = await this.db.rpc('mark_invited', { p_event_id: eventId, p_ids: ids });
+      if (error) throw error;
+
+      await this.loadFetchOnce();
+      this.recompute();
+      return true;
     },
 
     remove: async (id: InviteeId) => {

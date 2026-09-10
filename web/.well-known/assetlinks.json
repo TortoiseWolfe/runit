@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.turtlewolfe.runit",
+      "sha256_cert_fingerprints": [
+        "2B:E5:34:E8:11:9F:6A:FD:9D:EC:29:80:78:23:4E:A0:98:FF:FD:B5:1B:32:F0:ED:BF:07:4A:3D:02:85:D0:F3"
+      ]
+    }
+  }
+]

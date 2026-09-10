@@ -14,6 +14,7 @@ import {
   type UploadOutcome,
 } from '@/data/repository';
 import { capturePhoto } from '@/lib/capture';
+import { pickContact } from '@/lib/contacts';
 import { registerForPush } from '@/lib/push';
 import { checkLimit } from '@/domain/entitlements';
 import { useEntitlements } from './hooks';
@@ -390,6 +391,56 @@ export function useHostActions() {
         }
       },
       removeInvitee: (id: InviteeId) => repo.invitees.remove(id),
+
+      /**
+       * THE ADDRESS BOOK, ONE CONTACT AT A TIME BECAUSE THAT IS THE OS'S RULE (#60).
+       *
+       * Both platforms' system pickers return a single contact per presentation; a
+       * multi-select needs full READ_CONTACTS and our own list UI, which is a whole
+       * address-book read in exchange for a nicer control -- not a trade worth making with
+       * somebody else's contacts.
+       *
+       * It reports what actually happened rather than assuming. A picked contact can be a
+       * duplicate (a family list run twice) or carry no way to reach anybody at all, and
+       * both are ordinary. Silence after a tap is the failure this repo keeps closing.
+       */
+      addFromContacts: async () => {
+        const picked = await pickContact();
+        // Dismissal is a decision, not a failure. No toast, the same as backing out of the
+        // camera.
+        if (!picked) return false;
+        if (!picked.email && !picked.phone) {
+          show(`${picked.name ?? 'That contact'} has no email or phone saved.`);
+          return false;
+        }
+        const { added, skipped } = await repo.invitees.addMany([
+          { email: picked.email ?? undefined, phone: picked.phone ?? undefined, displayName: picked.name ?? undefined },
+        ]);
+        show(added > 0 ? `${picked.name ?? 'Added'} is on the list.` : 'They are already on the list.');
+        return added > 0 || skipped === 0;
+      },
+
+      /**
+       * HANDS THE INVITATION TO THE PHONE'S OWN COMPOSER, and stamps `invited_at` only if
+       * the sheet was used. A dismissal leaves the list exactly as it was -- a host who
+       * backed out has invited nobody, and a date beside a message that was never sent is
+       * worse than no date, which is what this column held for the life of the repo.
+       */
+      sendInvitations: async (ids: InviteeId[]) => {
+        if (ids.length === 0) return false;
+        try {
+          const sent = await repo.invitees.send(ids);
+          show(
+            sent
+              ? `Invitation sent to ${ids.length}.`
+              : 'No share sheet here — nothing was sent.',
+          );
+          return sent;
+        } catch (e) {
+          show(e instanceof Error ? e.message : 'Could not send that.');
+          return false;
+        }
+      },
       /**
        * Forwards through the run of show. A tap that would move the cursor
        * BACKWARDS is refused and explained rather than performed -- the row above

@@ -19,6 +19,16 @@
     },
     "android": {
       "package": "com.turtlewolfe.runit",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            { "scheme": "https", "host": "runit-app.pages.dev", "pathPrefix": "/i" }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#1A1A2E"
@@ -63,6 +73,12 @@
         {
           "icon": "./assets/notification-icon.png",
           "color": "#1A1A2E"
+        }
+      ],
+      [
+        "expo-contacts",
+        {
+          "contactsPermission": "RunIt shows your contacts so you can pick who to invite. It reads only the person you choose, and never uploads your address book."
         }
       ],
       [
