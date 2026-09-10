@@ -116,6 +116,87 @@ if (parsed) {
   }
 }
 
+/* ------------------------------------------- the ANDROID association file */
+
+/**
+ * ANDROID HAS ITS OWN FILE AND ITS OWN FAILURE MODE, and lane G has never looked for it.
+ *
+ * The Apple half above has been checked since this lane existed; `assetlinks.json` did not
+ * exist at all, so a texted link opened Chrome rather than the app for every Android guest
+ * and nothing on the board said so.
+ *
+ * IT FAILS SILENTLY AND PERMANENTLY, which is why it is worth a gate. Android verifies app
+ * links at INSTALL time: if this file is missing, malformed, or names the wrong signing
+ * certificate, the system quietly declines to associate the app and the link opens a
+ * browser forever. Nobody sees an error -- not the guest, not the host, not a build log.
+ *
+ * THE FINGERPRINT IS THE OWNERSHIP CLAIM, exactly as the appID is on the Apple side. Any
+ * host can serve valid JSON; only ours can name the certificate our APK is actually signed
+ * with. It comes from `apksigner verify --print-certs` on the built APK -- EAS reuses the
+ * project keystore across builds, so it survives rebuilds and would change only if the
+ * keystore were replaced, which is precisely when this check should go red.
+ */
+const local = JSON.parse(read('web/.well-known/assetlinks.json'));
+const LOCAL_PKG = local?.[0]?.target?.package_name;
+const LOCAL_FP = local?.[0]?.target?.sha256_cert_fingerprints?.[0];
+
+if (LOCAL_PKG !== appJson.expo.android.package) {
+  note(
+    `web/.well-known/assetlinks.json names package "${LOCAL_PKG}", app.json says ` +
+      `"${appJson.expo.android.package}". They must agree or Android refuses the association.`,
+  );
+}
+
+// The intent filter is the half that lives in the APK. A perfect assetlinks.json against a
+// build that declares no https filter associates nothing -- which was the state until #60,
+// and is invisible without asking.
+const filters = appJson.expo.android.intentFilters ?? [];
+const https = filters.find((f) =>
+  (f.data ?? []).some((d) => d.scheme === 'https' && d.host === new URL(ORIGIN).host),
+);
+if (!https) {
+  note(
+    `app.json declares no https intent filter for ${new URL(ORIGIN).host}.\n` +
+      `    Without it the APK cannot open an https link no matter what this host serves.`,
+  );
+} else if (https.autoVerify !== true) {
+  note(
+    'the Android intent filter does not set autoVerify.\n' +
+      '    On Android 12+ an unverified https filter does not open the app at all -- the user\n' +
+      '    must enable "Open supported links" by hand, which nobody does.',
+  );
+}
+
+try {
+  const al = await get('/.well-known/assetlinks.json');
+  if (al.res.status !== 200) {
+    note(`/.well-known/assetlinks.json returned ${al.res.status}; Android links cannot verify.`);
+  } else {
+    let served = null;
+    try {
+      served = JSON.parse(al.body);
+    } catch {
+      note('the served assetlinks.json is not JSON, so Android will reject the association.');
+    }
+    if (served) {
+      const t = served?.[0]?.target ?? {};
+      if (t.package_name !== LOCAL_PKG) {
+        note(`served assetlinks.json names "${t.package_name}", we expect "${LOCAL_PKG}". DEPLOY IT.`);
+      }
+      if (!(t.sha256_cert_fingerprints ?? []).includes(LOCAL_FP)) {
+        note(
+          'the served assetlinks.json does not carry our signing fingerprint.\n' +
+            `    want: ${LOCAL_FP}\n` +
+            `    got:  ${(t.sha256_cert_fingerprints ?? []).join(', ') || '(none)'}\n` +
+            '    Android verifies at INSTALL time and does not retry loudly. This fails silently.',
+        );
+      }
+    }
+  }
+} catch (e) {
+  note(`could not fetch /.well-known/assetlinks.json: ${e instanceof Error ? e.message : e}`);
+}
+
 /* ------------------------------------------------------- the landing page */
 
 try {

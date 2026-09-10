@@ -19,6 +19,16 @@
     },
     "android": {
       "package": "com.turtlewolfe.runit",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            { "scheme": "https", "host": "runit-app.pages.dev", "pathPrefix": "/i" }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#1A1A2E"
