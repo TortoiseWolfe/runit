@@ -2752,3 +2752,64 @@ strings shipping before this were simple outer drops with no `inset` keyword. Wh
 string parser honours `inset` on a device is a claim only a build answers. The object form,
 used on every View, is not exposed to that question. `depth.test.ts` asserts the two
 spellings agree layer for layer, including the count of `inset`s.
+
+## AX. The console said "Host" while the host had ten parties
+The canvas prints a literal at `design/Runit.dc.html:212`:
+
+```html
+<div style="font-size:19px;font-weight:600;">Host</div>
+```
+
+and it names the event on **every guest surface** — the join screen at 34px (`:43`), the
+chat header at 19/600 (`:72`), the canvas page title (`:24`) — and on no host one. That is
+not an oversight in the drawing. It is a prototype's luxury: in a prototype there is one
+party, so the word "Host" is unambiguous.
+
+`create_event` has allowed **ten events per identity since it shipped**. The cap is in the
+function, not the schema, and #17 built the list and the switcher that make ten reachable.
+So the console the canvas drew for one party is the console a host now opens holding
+several, and it says the same word in all of them.
+
+### The screen it fails on is the one where the mistake cannot be taken back
+Broadcast is the **first** segment (`HostConsoleChrome.tsx`, segment list). `broadcasts` has
+no delete path — nothing in the schema, nothing in the console. And #27's `fan_out_push`
+fires on insert, so a sent announcement is already on every phone in the room before the
+host has finished reading what she typed.
+
+A host with two parties open was therefore one tap from announcing to the wrong room, from a
+screen that gave her nothing to check against. `EventDetailsPanel`'s switcher fold does name
+the event she is standing in — but it is the last element of the **fifth** segment, and a
+check you have to go looking for is not one anybody performs before a tap they think is safe.
+
+### So the title slot holds the event's name, and `Host` becomes the null case
+`{event?.name ?? 'Host'}` at 19/600, `numberOfLines={1}`, in the slot the canvas spent on the
+literal. A host can genuinely stand here with no current event, and "Host" is the honest word
+for that — a real state with a plain answer, the shape `loadBlocks` uses for a null guest id,
+not a fallback papering over one.
+
+This makes the two headers agree rather than inventing a treatment: `EventHeader.tsx:41`
+already renders `{event?.name ?? ''}` at exactly 19/600 for guests. The letter-spacing was
+matched at the same time (`tracking(-0.01, 19)`), because two headers printing one string in
+one type size and differing by an optical detail nobody chose is drift.
+
+### `flex: 1` is the load-bearing part, and its absence is invisible until a real name arrives
+The title row is `space-between` at 402pt, carrying the title, `ConnectionPill`, `RoleSwitch`
+and the role pill inside 362pt of usable width. `s.title` had no flex basis — with the word
+"Host" that never mattered. With "Kayden & Kason's Birthday" it would grow and crush its
+siblings, and the two it crushes are **the way out of the console** ("Guest view →") and the
+only thing saying which seat the host holds.
+
+The name is what should truncate, so the name is what flexes. `EventHeader` met this first
+and its own comment states the same rule from the other side: *"a long name cannot push the
+event's own name off the header."*
+
+### What proves it, and what would have passed without proving anything
+`host-console.spec.ts` asserts the header before **and after** a switch. A header that merely
+renders a name passes on a hardcoded string; only changing events proves it reads
+`event.current`. That is the same doctrine as the rest of that file, whose docblock says the
+assertions are *"before/after on a value, never 'the heading rendered'"*.
+
+**Lane D moves and does not fail.** `03-host-broadcast`, `-dj` and `-photos` pair with renders
+that draw `Host`; the pairing gate only checks that a declared render file exists, so it
+cannot catch this. The human read is where the difference shows, and this note is what makes
+it a decision rather than a surprise. #58.

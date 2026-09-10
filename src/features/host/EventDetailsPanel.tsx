@@ -529,9 +529,12 @@ export function EventDetailsPanel() {
           you are in, and a list of the others should not be the first thing on it. */}
       <Disclosure
         title="Your events"
-        // The event you are STANDING IN, which the console header never says out loud --
-        // it reads "Host" and nothing else. A host running two parties otherwise has no
-        // indication which console she is looking at, and Broadcast is one tap away.
+        // The event you are STANDING IN. This was the only place the console said which
+        // party that was, and it is four segments from Broadcast -- so #58 put the name in
+        // the header, where the tap that matters is. It stays here because a Disclosure
+        // summary states what is behind the fold, and what is behind this one is a list of
+        // events with the current one marked; naming it is the summary doing its job, not
+        // a duplicate of the header.
         summary={event?.name ?? 'None open'}
         testID="event-switcher"
       >

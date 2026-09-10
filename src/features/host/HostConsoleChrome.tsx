@@ -4,8 +4,8 @@ import { usePathname, useRouter } from 'expo-router';
 
 import { ConnectionPill } from '@/components/ui/ConnectionPill';
 import { RoleSwitch } from '@/components/ui/RoleSwitch';
-import { useIncoming, usePendingPhotos, useReports, useSession } from '@/state/hooks';
-import { border, insetDelta, radius, useTheme, weight } from '@/theme';
+import { useEvent, useIncoming, usePendingPhotos, useReports, useSession } from '@/state/hooks';
+import { border, insetDelta, radius, tracking, useTheme, weight } from '@/theme';
 
 type Segment = {
   href: '/host/broadcast' | '/host/dj' | '/host/photos' | '/host/reports' | '/host/event';
@@ -21,6 +21,10 @@ type Segment = {
  * The canvas models the segments as `hostTab` local state. They are routes here
  * so /host/dj is directly addressable -- which is what lets the screenshot
  * harness reach each one, and removes a second copy of navigation state.
+ *
+ * TWO MORE DIVERGENCES FROM THAT DESCRIPTION, both recorded rather than silent: the track
+ * is five-up, not three (Reports and Event, see the segment list), and the title slot holds
+ * the EVENT'S NAME rather than the word "Host" (#58, FIDELITY note AX).
  */
 export function HostConsoleChrome() {
   const { tokens } = useTheme();
@@ -28,6 +32,7 @@ export function HostConsoleChrome() {
   const router = useRouter();
   const pathname = usePathname();
   const session = useSession();
+  const event = useEvent();
   const incoming = useIncoming();
   const pending = usePendingPhotos();
   const reports = useReports();
@@ -58,7 +63,26 @@ export function HostConsoleChrome() {
       ]}
     >
       <View style={s.titleRow}>
-        <Text style={[s.title, { color: tokens.baseContent }]}>Host</Text>
+        {/*
+          THE EVENT'S OWN NAME, not the word "Host" (#58).
+
+          NOT IN THE CANVAS -- FIDELITY note AX. The canvas prints the literal `Host` here
+          (`design/Runit.dc.html:212`) and names the event on every GUEST surface and no host
+          one, which is a prototype's luxury: in a prototype there is one party. `create_event`
+          has allowed TEN per identity since it shipped, and Broadcast is the first segment --
+          so a host with two parties open was one tap from announcing to the wrong room, with
+          no delete path for a sent announcement and #27's fan-out pushing it to every phone.
+
+          `Host` survives as the null case rather than as a fallback: a host can stand here
+          with no current event, and that is a real state with an honest word for it.
+        */}
+        <Text
+          style={[s.title, { color: tokens.baseContent }]}
+          numberOfLines={1}
+          testID="host-console-title"
+        >
+          {event?.name ?? 'Host'}
+        </Text>
         {/*
           THE HOST NEEDS THIS MOST, and `EventHeader` is not on her console -- so a
           guest-only pill would leave the person who POSTS the announcements without one.
@@ -103,7 +127,24 @@ export function HostConsoleChrome() {
 const s = StyleSheet.create({
   header: { paddingHorizontal: 20, paddingBottom: 10, gap: 12, borderBottomWidth: border },
   titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
-  title: { fontSize: 19, fontWeight: weight.semibold },
+  /**
+   * `flex: 1` IS LOAD-BEARING, and its absence is invisible until a real event name arrives.
+   * This row is `space-between` at 402pt carrying the title, ConnectionPill, RoleSwitch and
+   * the role pill inside 362pt. Without a flex basis a long name grows and crushes its
+   * siblings -- "Guest view →" is how a host leaves the console, and the role pill is the
+   * only thing saying which seat she holds. The name is what should truncate, so the name is
+   * what flexes. `EventHeader` solved this first and its comment says the same in reverse:
+   * "a long name cannot push the event's own name off the header."
+   *
+   * The tracking matches `EventHeader.tsx` deliberately. Same 19/600 slot, same string, and
+   * two headers that differ only by an optical detail nobody chose is drift, not design.
+   */
+  title: {
+    flex: 1,
+    fontSize: 19,
+    fontWeight: weight.semibold,
+    letterSpacing: tracking(-0.01, 19),
+  },
   rolePill: { paddingVertical: 4, paddingHorizontal: 10, borderRadius: radius.pill },
   roleText: { fontSize: 12 },
   track: { flexDirection: 'row', gap: 4, padding: 4, borderRadius: radius.selector }, // .75rem
