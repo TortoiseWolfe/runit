@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>You're invited · RunIt</title>
-<meta name="description" content="An invitation to an event on RunIt.">
+<title>Get RunIt · your code is inside</title>
+<meta name="description" content="Install RunIt and join the event you were invited to.">
 <meta name="robots" content="noindex">
 <!--
   THE APP STORE ID LIVES HERE NOW, not on a button.
@@ -24,43 +24,75 @@
 <meta name="apple-itunes-app" content="app-id=6808766120">
 <link rel="alternate" href="https://apps.apple.com/app/id6808766120">
 <!--
-  THE PAGE A SCANNED QR LANDS ON WHEN THE APP IS NOT INSTALLED.
+  ==========================================================================================
+  THIS PAGE IS NOT THE INVITATION. IT IS THE BRIDGE.
 
-  Before this, the QR encoded `runit://join?code=...`, and src/lib/invite.ts said what
-  that meant: "it only resolves on a phone that already has Runit installed. To anyone
-  else it is a dead string." A printed card handed to a stranger -- which is the whole
-  point of a printed card -- did nothing.
+  It used to try to be an invitation and was a bad one. It headlined the word "RunIt" -- the
+  APP's name, not the party's -- printed the join code at 42px as the largest thing on the
+  screen under an 11px label reading "Your code", and never once said what to do with it. The
+  owner opened it and asked, reasonably: how is anyone supposed to know what code you are
+  asking them to enter, or that they should enter anything at all?
 
-  With the association file beside this page, iOS opens the app directly and never renders
-  this. So this is the fallback, and it has exactly one job: show the code big enough to
-  type, and offer the App Store.
+  The design canvas never had that problem. `design/Runit.dc.html:42-43` headlines the EVENT
+  ("Sam & Riley's Wedding") and treats the code as an ordinary form field. There has never
+  been a canvas artboard for THIS page -- it was hand-written as a universal-link fallback and
+  then quietly became the first screen a guest ever sees.
 
-  NO EVENT NAME HERE, deliberately. The name lives behind `event_preview`, which is
-  granted to `authenticated` only so that guessing codes stays behind the anonymous
-  sign-in rate limit. A public web page reading event names would hand that away to anyone
-  with a loop and no session at all.
+  SO THE JOBS ARE SPLIT, and each artefact does one:
+
+    the message (SMS / email)   the invitation -- party, when, where, the code
+    THIS PAGE                   getting the app onto this phone, and getting back into it
+    the app                     the evening
+
+  WHY THIS PAGE STILL EXISTS AT ALL, since the message could carry install links too: because
+  of the FIRST button below. After a sideloaded Android install the browser tab is still open
+  on this URL, which is exactly where the guest lands when the installer finishes -- and this
+  page can hand them a `runit://` link that opens the app with the code already filled in. An
+  email cannot reliably do that; mail clients mangle custom schemes. That one button is the
+  only zero-typing path that works on Android today, and it was previously the smallest,
+  greyest, last thing here, worded for somebody who had NOT just installed.
+
+  There is no deferred deep link and there cannot be one. That mechanism rides on the Play
+  Install Referrer, and a sideloaded APK never gets one; TestFlight carries no payload either.
+  The code cannot survive the install. It can only be handed over again afterwards, which is
+  what the first button does.
+
+  NO EVENT NAME HERE, deliberately, and now for a second reason. The name lives behind
+  `event_preview`, which is granted to `authenticated` only so that guessing codes stays
+  behind the anonymous sign-in rate limit -- a public page reading event names would hand that
+  away to anyone with a loop and no session. That constraint is exactly why this page should
+  stop pretending to be an invitation: it CANNOT say what a guest most wants to know, so the
+  message says it instead.
+
+  ONE ROUTE IS SHOWN, NOT TWO. The page detects the platform and offers the install that
+  applies. Both buttons at once made a guest choose between things that are not choices.
 
   No build step, no framework, no analytics, no cookies. One file, and it works with the
   network off after first paint.
+  ==========================================================================================
 -->
 <style>
   :root {
     color-scheme: light dark;
     --bg: #F5F0EB;
+    --card: #FFFFFF;
     --ink: #1F2937;
     --muted: #6B7280;
     --line: #DDD5CB;
     --accent: #1F2937;
     --accent-ink: #F5F0EB;
+    --mark: #9A6408;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #1A1A2E;
+      --card: #21213A;
       --ink: #E2E8F0;
       --muted: #9AA3B2;
       --line: #2E2E48;
       --accent: #E2E8F0;
       --accent-ink: #1A1A2E;
+      --mark: #F2B84B;
     }
   }
   * { box-sizing: border-box; }
@@ -77,92 +109,206 @@
     -webkit-font-smoothing: antialiased;
   }
   main { width: 100%; max-width: 420px; }
-  .eyebrow {
-    font-size: 12px; letter-spacing: .12em; text-transform: uppercase;
-    color: var(--muted); margin: 0 0 10px;
-  }
-  h1 { font-size: 30px; line-height: 1.15; margin: 0 0 26px; font-weight: 600; }
-  .label {
-    font-size: 11px; letter-spacing: .06em; color: var(--muted);
-    margin: 0 0 6px; text-transform: uppercase;
-  }
-  /* Tabular so the characters line up, and large because it gets read aloud across a
-     room and typed by someone holding a drink. */
-  .code {
-    font-size: 42px; font-weight: 600; letter-spacing: .18em;
-    font-variant-numeric: tabular-nums; margin: 0 0 4px;
-    word-break: break-all;
-  }
-  .blurb { color: var(--muted); margin: 22px 0 28px; }
+
+  h1 { font-size: 26px; line-height: 1.2; margin: 0 0 6px; font-weight: 600; }
+  .sub { color: var(--muted); margin: 0 0 24px; font-size: 15px; }
+
+  /* FILLED IS FOR THE THING A FIRST-TIME VISITOR NEEDS, which is the install. The bridge
+     above it is outlined on purpose -- see the comment beside it. */
   .cta {
     display: block; text-align: center; text-decoration: none;
     background: var(--accent); color: var(--accent-ink);
     padding: 15px 18px; border-radius: 12px; font-weight: 600;
   }
-  /* The second route. Outlined rather than filled: two solid buttons read as a choice
-     between equals, and Android is the one that works without asking anybody. */
   .cta.secondary { background: transparent; color: var(--accent); border: 1px solid var(--line); }
-  .route { margin: 8px 0 20px; font-size: 13px; line-height: 1.5; color: var(--muted); }
-  .open { display: block; text-align: center; margin-top: 16px; color: var(--muted); font-size: 14px; }
+  .route { margin: 8px 0 0; font-size: 13px; line-height: 1.5; color: var(--muted); }
+
+  .rule { display: flex; align-items: center; gap: 12px; margin: 26px 0 20px; color: var(--muted); font-size: 12px; }
+  .rule::before, .rule::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+
+  ol.steps { margin: 0; padding: 0; list-style: none; counter-reset: s; }
+  ol.steps > li {
+    counter-increment: s;
+    position: relative;
+    padding-left: 34px;
+    margin-bottom: 18px;
+  }
+  ol.steps > li::before {
+    content: counter(s);
+    position: absolute; left: 0; top: 1px;
+    width: 22px; height: 22px; border-radius: 50%;
+    background: var(--accent); color: var(--accent-ink);
+    font-size: 12px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+  }
+  ol.steps > li > b { display: block; font-weight: 600; margin-bottom: 2px; }
+  ol.steps > li > span { color: var(--muted); font-size: 14px; }
+
+  /* THE CODE, and its whole job is to be typed into a field in the app a moment from now.
+     Inside the third step, under a sentence with a VERB in it -- not floating at the top of
+     the page as decoration, which is what it was. */
+  .codebox {
+    margin-top: 10px; padding: 12px 14px;
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .code {
+    font-size: 30px; font-weight: 700; letter-spacing: .16em;
+    font-variant-numeric: tabular-nums; color: var(--mark);
+    word-break: break-all; flex: 1;
+  }
+  .copy {
+    flex: none; cursor: pointer;
+    background: transparent; color: var(--accent);
+    border: 1px solid var(--line); border-radius: 8px;
+    padding: 8px 12px; font: inherit; font-size: 13px; font-weight: 600;
+  }
+  .copy:active { background: var(--line); }
+
   .fine { margin-top: 30px; padding-top: 18px; border-top: 1px solid var(--line);
           color: var(--muted); font-size: 12px; }
   .fine a { color: inherit; }
+  [hidden] { display: none !important; }
 </style>
 </head>
 <body>
 <main>
-  <p class="eyebrow">You're invited to an event on</p>
-  <h1>RunIt</h1>
 
-  <p class="label">Your code</p>
-  <!-- Filled from the URL. Falls back to a readable dash rather than an empty gap. -->
-  <p class="code" id="code">&mdash;</p>
+  <h1 id="head">Get RunIt</h1>
+  <p class="sub" id="sub">Announcements, a shared album and song requests, on one screen for the night. No account, no phone number.</p>
 
-  <p class="blurb">
-    Announcements, a shared album and song requests, on one screen for the night.
-    No account, no phone number.
-  </p>
+  <!-- THE BRIDGE, FIRST BUT NOT LOUDEST, and the order of these two elements is the point.
 
-  <!--
-    THE TWO ROUTES ARE NOT ALIKE, AND THIS PAGE IS WHERE THAT IS MAINTAINED.
+       It was a FILLED button above its own caption, which made the most prominent thing on
+       the page a dead end for the majority of visitors: tapping `runit://` with no app
+       installed does nothing visible on Android and offers a dismissible sheet on iOS. That
+       is the "disabled control with no explanation reads as broken software" failure this
+       repo has already paid for twice (#29, #37), rebuilt at the top of the funnel.
 
-    RunIt is not on either store yet. Android installs from a build link with no account
-    and no review; iPhone needs each tester added by hand until Apple's beta review is
-    done. Those facts change, and they change HERE -- which is the whole reason an
-    invitation email links to this page rather than carrying an install link of its own.
-    A build URL pasted into an email points at one APK forever.
-  -->
-  <a class="cta" id="android" href="https://expo.dev/accounts/turtlewolfe/projects/runit/builds/f94ab911-6300-4b2b-b7cd-9b6057a7b67e">Android &middot; install now</a>
-  <p class="route">Tap Install, and allow it when Android asks. About 130&nbsp;MB &mdash; use wi-fi.</p>
+       So the QUESTION comes first and the button is outlined. Somebody who has just
+       installed and come back reads one line and taps; somebody arriving for the first time
+       reads the same line, answers "no", and their eye lands on the filled install button
+       below. Neither is led into the other's path. -->
+  <p class="route" id="openRoute" style="margin-bottom:8px" hidden>Already installed it? This
+    opens the app with your code already filled in.</p>
+  <a class="cta secondary" id="open" href="#" hidden>Open RunIt &rarr;</a>
 
-  <a class="cta secondary" id="ios" href="mailto:jonpohlner@gmail.com?subject=RunIt%20on%20my%20iPhone&amp;body=Here%20is%20the%20email%20on%20my%20Apple%20ID%3A%20">iPhone &middot; ask for an invite</a>
-  <p class="route">Apple requires each tester to be added by hand while an app is in
-  private testing. Send the email on your Apple&nbsp;ID and you will get a TestFlight
-  invitation.</p>
+  <p class="rule" id="rule">Don't have it yet?</p>
 
-  <a class="open" id="open" href="#">Already have it? Open the invitation &rarr;</a>
+  <ol class="steps">
+    <li id="stepInstall">
+      <b>Install RunIt</b>
+      <span id="installNote">Choose your phone below.</span>
+      <p style="margin:10px 0 0">
+        <a class="cta" id="android" href="https://expo.dev/accounts/turtlewolfe/projects/runit/builds/f94ab911-6300-4b2b-b7cd-9b6057a7b67e">Android &middot; install now</a>
+      </p>
+      <p style="margin:10px 0 0">
+        <a class="cta" id="ios" href="#ask">iPhone &middot; how to get it</a>
+      </p>
+    </li>
+    <li>
+      <b>Open it and tap Join</b>
+      <span>It asks for a code and a nickname. Nothing else &mdash; no account, no phone number.</span>
+    </li>
+    <li>
+      <b>Enter this code</b>
+      <span id="codeHint">The host gave you this. It is only for this one event.</span>
+      <div class="codebox">
+        <span class="code" id="code">&mdash;</span>
+        <button class="copy" id="copy" type="button">Copy</button>
+      </div>
+    </li>
+  </ol>
+
+  <!-- THE IPHONE ROUTE, AND WHY IT IS NOT A mailto ANY MORE.
+       It used to be `mailto:` to a personal address asking a guest to paste their Apple ID and
+       wait -- asking somebody for their email, by email, before they can see the party they
+       were invited to. It also promised "a TestFlight invitation", which is not what Apple
+       sends: Apple sends an App Store Connect TEAM invitation asking a private person to join
+       a developer account, which reads like phishing to somebody expecting a party app.
+       Saying so plainly is the difference between an accepted invitation and a deleted one. -->
+  <div id="ask" hidden>
+    <p class="rule">iPhone</p>
+    <p class="route">Apple does not let a private app install itself. The host has to add your
+      Apple&nbsp;ID by hand first, and then Apple emails <em>you</em> an invitation to join a
+      developer team &mdash; that email is the real one, even though it does not mention
+      parties. Accept it, install <b>TestFlight</b> from the App&nbsp;Store, and RunIt appears
+      inside it.</p>
+    <p class="route"><b>Send the host the email address on your Apple&nbsp;ID</b> &mdash; reply
+      to whoever sent you this link. That is the only thing they need from you.</p>
+  </div>
 
   <p class="fine">
     <a href="https://tortoisewolfe.github.io/runit-legal/privacy/">Privacy</a> &middot;
     <a href="https://tortoisewolfe.github.io/runit-legal/support/">Support</a>
   </p>
 </main>
+
 <script>
   // The code is the last path segment: /i/HOUSE7 -> HOUSE7. Same alphabet the app mints
   // from (no 0/O, no 1/I/L), upper-cased because a QR may carry any case and a person
   // reading it aloud will not preserve one.
   var raw = decodeURIComponent(location.pathname.split('/').filter(Boolean).pop() || '');
   var code = raw.toUpperCase().replace(/[^A-HJ-NP-Z2-9]/g, '').slice(0, 12);
+
+  var el = function (id) { return document.getElementById(id); };
+
   if (code) {
-    document.getElementById('code').textContent = code;
-    document.title = code + ' · RunIt';
-    // The custom scheme still works and is instant when the app IS installed. It is the
-    // manual escape hatch for the case where iOS did not hand the link to the app --
-    // a fresh install that has not yet fetched the association file, most often.
-    document.getElementById('open').setAttribute('href', 'runit://join?code=' + encodeURIComponent(code));
+    el('code').textContent = code;
+    document.title = code + ' · Get RunIt';
+    // The custom scheme is registered on both platforms and works TODAY with no new build.
+    // This is the whole reason the page still exists -- see the header comment.
+    el('open').setAttribute('href', 'runit://join?code=' + encodeURIComponent(code));
+    el('open').hidden = false;
+    el('openRoute').hidden = false;
   } else {
-    document.getElementById('open').style.display = 'none';
+    // No code in the URL means somebody reached /i/ directly. Do not offer to "open the app
+    // with your code" when there is no code; the install steps still stand on their own.
+    el('rule').textContent = 'Getting started';
+    el('codeHint').textContent = 'The host gives you a six-character code for their event.';
+    // A long dash beside a Copy button is furniture. Hide the box rather than offer a
+    // control that can only refuse.
+    document.querySelector('.codebox').hidden = true;
   }
+
+  // ONE ROUTE, NOT TWO. Detected rather than asked, because a guest holding an iPhone has no
+  // decision to make here. The other route stays reachable -- this hides a button, it does
+  // not delete a path -- so a shared screenshot or a desktop visitor still sees both.
+  var ua = navigator.userAgent || '';
+  var isIOS = /iPad|iPhone|iPod/.test(ua) ||
+              (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1); // iPadOS lies about itself
+  var isAndroid = /Android/.test(ua);
+  if (isIOS) {
+    el('android').hidden = true;
+    el('ask').hidden = false;
+    el('ios').hidden = true;
+    el('installNote').textContent = 'On iPhone this takes a step from the host — see below.';
+  } else if (isAndroid) {
+    el('ios').hidden = true;
+    el('installNote').textContent = 'Tap Install, and allow it when Android asks. About 130 MB — use wi-fi.';
+  } else {
+    // A desktop or an unknown browser: show everything and say so, rather than guessing
+    // wrong and hiding the only route that would have worked.
+    el('ask').hidden = false;
+    el('installNote').textContent = 'Open this link on the phone you want RunIt on.';
+  }
+
+  // Reveal the iPhone explanation when someone taps through to it on a non-iOS browser.
+  el('ios').addEventListener('click', function () { el('ask').hidden = false; });
+
+  // COPY, inside the tap handler, which is what the Clipboard API requires -- an on-load
+  // write fails silently in Safari. Falls back rather than lying: if the write is refused,
+  // the code is still on screen to read, so the button says so instead of claiming success.
+  el('copy').addEventListener('click', function () {
+    var btn = el('copy');
+    if (!code) { btn.textContent = 'No code'; return; }
+    var done = function (ok) { btn.textContent = ok ? 'Copied ✓' : 'Type it in'; };
+    try {
+      navigator.clipboard.writeText(code).then(function () { done(true); }, function () { done(false); });
+    } catch (e) {
+      done(false);
+    }
+  });
 </script>
 </body>
 </html>

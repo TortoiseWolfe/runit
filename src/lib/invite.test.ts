@@ -18,6 +18,7 @@ const EVENT = {
   code: 'sr1017',
   venue: 'Willow Barn',
   startsAt: '2026-10-17T20:00:00.000Z',
+  timezone: 'America/New_York',
   doorsLabel: 'Doors 4:00 PM',
 };
 const FIXED = () => '2026-09-04T12:00:00.000Z';
@@ -35,22 +36,51 @@ describe('the join link', () => {
 });
 
 describe('the share message', () => {
-  it('still leads with the CODE, though no longer for the old reason', () => {
-    // It used to lead with the code because the link was a custom scheme that "only
-    // resolves if Runit is installed". That is no longer true -- an https link opens a
-    // page for everyone. It still leads with the code because a code is what a person
-    // reads aloud across a room and types, and because plenty of channels mangle,
-    // truncate or strip a URL while leaving six characters intact.
+  /**
+   * THE ORDER CHANGED, AND THE OLD ASSERTION WAS RIGHT UNTIL IT WASN'T. It used to require
+   * the code to appear BEFORE the link, on the reasoning that channels mangle URLs while
+   * leaving six characters intact. That reasoning still holds for a code being READ; it does
+   * not hold for the sequence a person follows. The link is step 1 because you cannot use a
+   * code before you have the app, and the code is step 3 because that is when it is asked
+   * for. Both are still in the message and neither depends on the other surviving.
+   */
+  it('names the party first, since that is what makes anyone act', () => {
     const m = shareMessage(EVENT);
-    expect(m).toContain('code SR1017');
-    expect(m.indexOf('SR1017')).toBeLessThan(m.indexOf(INVITE_ORIGIN));
+    expect(m.startsWith("You're invited to Sam & Riley's Wedding.")).toBe(true);
   });
 
-  it('omits the venue line entirely when there is no venue', () => {
-    // "at ." reads as a bug rather than as an absence.
+  it('gives the steps in the order a person walks them: get it, open it, then the code', () => {
+    // The failure this exists to prevent: a guest installs, opens the app cold, and meets an
+    // empty field having never been told what a code is. There is no deferred deep link on
+    // this distribution -- the code cannot survive the install, so the message has to carry
+    // it somewhere a person can still read afterwards.
+    const m = shareMessage(EVENT);
+    expect(m.indexOf('1. Get RunIt')).toBeLessThan(m.indexOf('2. Open it'));
+    expect(m.indexOf('2. Open it')).toBeLessThan(m.indexOf('3. Your code is'));
+    expect(m).toContain(`1. Get RunIt:  ${INVITE_ORIGIN}/i/SR1017`);
+    expect(m).toContain('3. Your code is  SR1017');
+  });
+
+  it('composes the date in the EVENT\'s zone, not the reader\'s', () => {
+    // 20:00Z on Saturday 17 October is 4:00 PM in New York -- still the 17th. A message
+    // formatted in the READER's zone would tell a guest in Sydney to come on Sunday.
+    expect(shareMessage(EVENT)).toContain('Sat, Oct 17 · Doors 4:00 PM · Willow Barn');
+  });
+
+  it('omits what the event does not have, rather than printing empty separators', () => {
+    // " ·  · " reads as a bug rather than as an absence.
     const m = shareMessage({ ...EVENT, venue: '  ', doorsLabel: '' });
+    expect(m).not.toMatch(/·\s*$/m);
     expect(m).not.toMatch(/^\s*·/m);
+    expect(m).toContain('Sat, Oct 17');
     expect(m).toContain("You're invited to Sam & Riley's Wedding.");
+  });
+
+  it('stays plain text, because the channel is whatever the host picked', () => {
+    // It goes through Share.share({ message }) into SMS, a group chat or mail. Markdown and
+    // HTML both arrive as literal characters somewhere.
+    const m = shareMessage(EVENT);
+    expect(m).not.toMatch(/[<>*_`]/);
   });
 });
 
