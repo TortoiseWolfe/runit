@@ -30,8 +30,32 @@ export function BroadcastPanel() {
   const [itemTime, setItemTime] = useState('');
   const { show } = useToast();
 
-  // Addressed to everyone invited, not just whoever is currently in the room.
-  const invited = event?.invitedCount ?? 0;
+  /**
+   * WHO THIS ANNOUNCEMENT IS ADDRESSED TO -- #70.
+   *
+   * `invitedCount` is the invitation list, and it is the right number when there is one:
+   * a wedding sends to all 180, not only the 172 who have walked in. That distinction is
+   * real and `host-console.spec.ts` exists to protect it.
+   *
+   * BUT NOTHING IN THE PRODUCT RAISES IT FOR AN EVENT A HOST MAKES HERSELF.
+   * `create_event` mints 0 (`schema.sql:77`), `fold_invited_count` fires only on
+   * `invitees` rows (`:2198-2209`), and `join_event` never writes one. A host who sent
+   * the code by text -- which is every host today, since #59's list has no send step
+   * behind it -- has an `invitedCount` of 0 forever. So the button read "Send to 0
+   * guests" while the room filled up, on three surfaces at once, on every event this app
+   * can create. Measured on the live project: S7Y9RX, doors tonight, 0 invitees.
+   *
+   * So: the list when there is one, the room when there is not. Never zero while there
+   * is somebody to announce to.
+   *
+   * IT IS A FALLBACK, NOT A REPLACEMENT, and the difference is deliberate. Collapsing
+   * these two into one field is its own bug (#25) and is what `host-console.spec.ts:140`
+   * catches by switching roles mid-test. `?fresh=1` is the world that makes the OTHER
+   * half testable.
+   */
+  const invitedList = event?.invitedCount ?? 0;
+  const inTheRoom = event?.guestCount ?? 0;
+  const invited = invitedList > 0 ? invitedList : inTheRoom;
   /**
    * Sharing lives on the HOST console and nowhere else, because handing out the code is
    * a host's job. It sits above the composer for the same reason: a guest who never got

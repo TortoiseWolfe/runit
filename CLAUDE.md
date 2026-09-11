@@ -1053,6 +1053,22 @@ the state where three buttons are dead", and only a journey-level look sees that
   journey still green. It proves the invitation SCREEN only: an `EventPreview` carries
   seven of `RunitEvent`'s twelve fields, so Memory cannot honestly model the join that
   follows, and `tests/e2e/invitation.spec.ts` says so rather than faking it.
+- **`?fresh=1` boots `freshSeed`** -- the event a host MADE IN THE APP, twenty minutes in:
+  `invitedCount` 0, `guestCount` 4, no schedule, no album, one host. That pairing exists in
+  no other seed, and its absence is why "Send to 0 guests" survived 326 journeys (#70).
+  `weddingSeed` hardcodes 180 invited and `housePartySeed` 8, so every assertion the suite
+  had ever made about the composer was made in a world where the number happens to be
+  true -- while `create_event` mints 0 and nothing in the product raises it
+  (`fold_invited_count` fires on `invitees`; `join_event` writes none). The journeys JOIN
+  first, so the number under test is live rather than seeded: the room goes 4 -> 5 and the
+  composer has to move with it.
+- **The composer's number is a FALLBACK, not a replacement, and both halves are tested.**
+  `invitedCount` when there is an invitation list, `guestCount` when there is not. Collapsing
+  the two is its own bug (#25) and `host-console.spec.ts:140` catches it -- mutation-checked:
+  wiring the composer to `guestCount` unconditionally turns that test red. The third surface,
+  the run-of-show `accessibilityHint`, is NOT asserted and cannot be: react-native-web does
+  not forward `accessibilityHint` at all, so it never reaches the DOM. Same class as
+  `hitSlop`; stated in the spec rather than faked.
 - **`aria-disabled` is the gate.** react-native-web renders a disabled `Pressable` that
   way, so `expect(page.locator('[aria-disabled="true"]')).toHaveCount(0)` is a DOM fact
   about a whole screen rather than an assertion per control

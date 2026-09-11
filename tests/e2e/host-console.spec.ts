@@ -666,3 +666,72 @@ test.describe('writing the run of show (#64)', () => {
     await expect(row).toContainText('TBD');
   });
 });
+
+/**
+ * THE COMPOSER NAMES SOMEBODY, ON THE EVENT A HOST ACTUALLY MADE -- #70.
+ *
+ * Every assertion above is made against `weddingSeed`, whose `invitedCount` is a
+ * hardcoded 180. `housePartySeed` hardcodes 8. So the suite has only ever read the
+ * composer in worlds where the number happens to be true, and "Send to 0 guests" -- on
+ * every event this product can create -- survived 326 journeys underneath that.
+ *
+ * `?fresh=1` is the missing world: `invitedCount` 0, `guestCount` 4, which is what twenty
+ * minutes into a first party looks like. `create_event` mints 0 and nothing raises it --
+ * `fold_invited_count` fires on `invitees`, and `join_event` writes none.
+ *
+ * IT JOINS FIRST, so the number under test is LIVE rather than a seeded constant: the
+ * room goes 4 -> 5 in the same session, and the composer has to move with it. A fallback
+ * wired to a literal passes the seeded reading and fails this one.
+ *
+ * THE TEST ABOVE STILL STANDS AND MUST. This is a fallback, not a replacement: with a
+ * real invitation list the composer still addresses the list, and 'the composer addresses
+ * all 180 invited, not the 173 standing in the room' is what proves it. Both halves, or
+ * the fix is a collapse of two numbers wearing a bug fix's clothes.
+ */
+test.describe('the composer on an event the host made herself', () => {
+  /** Join the fresh world, then cross to the console the way a host does. */
+  const asHost = async (page: import('@playwright/test').Page, scheme: 'dark' | 'light') => {
+    await open(page, scheme, '/join?fresh=1');
+    await page.getByTestId('join-nickname').fill('Ada');
+    await page.getByTestId('join-submit').click();
+    await expect(page.getByTestId('chat-feed')).toBeVisible();
+    await switchToHost(page);
+  };
+
+  test('names the room rather than saying nobody is there', async ({ page }, testInfo) => {
+    await asHost(page, testInfo.project.name as 'dark' | 'light');
+
+    // Four were here, Ada makes five, and the invitation list is empty. Five, not zero.
+    await expect(page.getByTestId('broadcast-send')).toHaveText('Send to 5 guests');
+    await expect(page.getByTestId('broadcast-draft')).toHaveAttribute(
+      'placeholder',
+      'Announce something to all 5 guests…',
+    );
+  });
+
+  test('and never says zero while there is somebody to announce to', async ({ page }, testInfo) => {
+    await asHost(page, testInfo.project.name as 'dark' | 'light');
+    // The class of bug rather than the instance: any future wiring that reaches 0 here
+    // fails, whatever the copy around it is reworded to.
+    await expect(page.getByTestId('broadcast-send')).not.toContainText('0 guests');
+  });
+
+  /**
+   * THE THIRD SURFACE IS NOT ASSERTED HERE, AND THIS LANE CANNOT ASSERT IT.
+   *
+   * `BroadcastPanel.tsx:297-300` carries the same number in a run-of-show
+   * `accessibilityHint` -- "Announces to all N guests. This cannot be undone." -- and
+   * react-native-web DOES NOT FORWARD `accessibilityHint` at all. It is absent from the
+   * forwarded-props table, so the rendered row has no `aria-describedby` and the string
+   * never reaches the DOM. Measured: an assertion on it received `""`.
+   *
+   * Same class as `hitSlop` and `keyboardShouldPersistTaps` -- a check written here would
+   * pass identically on a correct fix and on no fix at all, which is worse than the gap.
+   * So it is stated rather than faked, in the shape `join.spec.ts` set.
+   *
+   * WHAT STILL COVERS IT: all three surfaces read one variable, `invited`, and the two
+   * above pin that variable in this exact world. A regression in the fallback fails here.
+   * What would escape is somebody rewriting the HINT's own interpolation specifically --
+   * a narrow gap, and a real one.
+   */
+});
