@@ -18,6 +18,7 @@ import { Stack } from 'expo-router';
 import { MemoryRepository } from '@/data/memory/MemoryRepository';
 import { weddingSeed } from '@/data/memory/fixtures/wedding';
 import { emptySeed } from '@/data/memory/fixtures/empty';
+import { freshSeed } from '@/data/memory/fixtures/fresh';
 import { invitedSeed } from '@/data/memory/fixtures/invited';
 import { hostingSeed } from '@/data/memory/fixtures/hosting';
 import { flakyTransfer } from '@/data/memory/fixtures/flakyTransfer';
@@ -217,6 +218,25 @@ export default function RootLayout() {
     new URLSearchParams(window.location.search).get('invited') === '1';
 
   /**
+   * Boot the event a host MADE IN THE APP, twenty minutes in -- #70.
+   *
+   * `invitedCount` 0, `guestCount` 4. That pairing exists in no other seed, and its
+   * absence is exactly why "Send to 0 guests" survived 326 journeys: both furnished
+   * fixtures hardcode a non-zero `invitedCount` (180 and 8), so every assertion the suite
+   * has ever made about the composer was made in a world where the number happens to be
+   * true. `create_event` mints 0 and nothing in the product raises it.
+   *
+   * The same gap `?empty=1` and `?stale=1` were added to close, one more time: the
+   * failure is never "the control is wrong", it is "no test can reach the state where the
+   * control is wrong".
+   */
+  const freshWorld =
+    fidelity &&
+    typeof window !== 'undefined' &&
+    typeof window.location?.search === 'string' &&
+    new URLSearchParams(window.location.search).get('fresh') === '1';
+
+  /**
    * The one place an implementation is named.
    *
    * NOT a straight swap, and the reason is worth stating: all 142 e2e runs boot
@@ -241,19 +261,21 @@ export default function RootLayout() {
             // it has to be read before the plainer flag can claim the same request.
             // Order matters: each is a strictly more furnished empty world, so the richer
             // flags have to be read before a plainer one claims the same request.
-            hostingWorld
-              ? hostingSeed
-              : invitedWorld
-                ? invitedSeed
-                : emptyWorld
-                  ? emptySeed
-                  : weddingSeed,
+            freshWorld
+              ? freshSeed
+              : hostingWorld
+                ? hostingSeed
+                : invitedWorld
+                  ? invitedSeed
+                  : emptyWorld
+                    ? emptySeed
+                    : weddingSeed,
             {
               ...(flaky ? { transfer: flakyTransfer({ steps: [0.4], failAttempts: [1] }) } : {}),
               ...(staleWorld ? { connection: 'stale' as const } : {}),
             },
           ),
-    [flaky, emptyWorld, invitedWorld, staleWorld, hostingWorld],
+    [flaky, emptyWorld, invitedWorld, staleWorld, hostingWorld, freshWorld],
   );
 
   const app = (
