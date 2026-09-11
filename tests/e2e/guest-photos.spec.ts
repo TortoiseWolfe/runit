@@ -397,3 +397,66 @@ test.describe('what the empty album promises (#67)', () => {
     await expect(page.getByTestId('album-moderated')).toHaveCount(0);
   });
 });
+
+/**
+ * RETRY ON AN ALBUM WITH NOTHING IN IT -- #70.
+ *
+ * The retry journey above is real and could never have caught this: it waits for
+ * `album` before shooting, so it only ever enters the GRID branch, which is the one
+ * branch that draws Retry. `PhotosScreen` returned the shutter pane on
+ * `visible.length === 0` alone, and that pane references `mine` nowhere -- so a guest
+ * whose upload failed on an empty album was told "tap Retry" by `actions.ts:277` on a
+ * screen with no Retry on it.
+ *
+ * ON A MODERATED EVENT IT IS NOT A MOMENT, IT IS THE WHOLE NIGHT: uploads land `pending`,
+ * `pending` is never `approved`, so `visible` never fills from her own photos.
+ *
+ * `?fresh=1&flaky=1` is the world, and neither flag alone reaches it. `freshSeed` is the
+ * only fixture with an EMPTY active folder (`weddingSeed` and `housePartySeed` both seed
+ * approved photos, which is why every existing assertion starts in the grid); `?flaky=1`
+ * is the only way to reach `failed` at all, because the in-memory transfer completes
+ * instantly.
+ */
+test.describe('a failed upload on an empty album', () => {
+  const shootIntoNothing = async (page: Page, scheme: 'dark' | 'light') => {
+    await page.goto('/join?fresh=1&flaky=1');
+    await ready(page, scheme);
+    await page.getByTestId('join-nickname').fill('Ada');
+    await page.getByTestId('join-submit').click();
+    await expect(page.getByTestId('chat-feed')).toBeVisible();
+    await page.getByTestId('tab-photos').click();
+
+    // THE SHUTTER PANE, not the grid -- asserted rather than assumed, because if this
+    // fixture ever grows an approved photo the test below would still pass while proving
+    // something else entirely.
+    await expect(page.getByTestId('shutter')).toBeVisible();
+    await expect(page.getByTestId('album')).toHaveCount(0);
+    await page.getByTestId('shutter').click();
+  };
+
+  test('offers the Retry the toast promises, instead of a screen with no Retry on it', async ({
+    page,
+  }, testInfo) => {
+    await shootIntoNothing(page, testInfo.project.name as 'dark' | 'light');
+
+    await expect(page.getByTestId('toast')).toContainText('tap Retry');
+    // The control the toast just named, on the same screen, reachable.
+    await expect(page.locator('[data-testid^="retry-"]')).toHaveCount(1);
+  });
+
+  test('and the Retry works, so the photo lands rather than merely being offered', async ({
+    page,
+  }, testInfo) => {
+    await shootIntoNothing(page, testInfo.project.name as 'dark' | 'light');
+
+    const retry = page.locator('[data-testid^="retry-"]').first();
+    await expect(retry).toBeVisible();
+    await retry.click();
+
+    // flakyTransfer fails attempt 1 only, so the second lands. Without this clause the
+    // test proves a button is drawn and nothing about whether it does anything -- and a
+    // Retry that renders and no-ops is the defect one level down.
+    await expect(page.locator('[data-testid^="retry-"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid^="tile-"]')).toHaveCount(1);
+  });
+});
