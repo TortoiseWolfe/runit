@@ -811,6 +811,15 @@ was green and the half a guest actually walks was dead.
   and failed uploads go to `photos.mine`, scoped to the uploading guest. Putting
   `'uploading'` back into `pending` gives the host Approve/Hide over a photo with
   no bytes — it was that way once, and a test now fails if it returns.
+- **THE PHOTOS SCREEN BRANCHES ON `visible.length === 0 && mine.length === 0`, and the second
+  clause is load-bearing.** `visible` is APPROVED photos in the active folder; `mine` is this
+  guest's own uploading and failed transfers. The shutter pane references `mine` nowhere, and
+  the Retry control exists in exactly ONE place in the app -- inside `mine.map` in the grid
+  branch. With the first clause alone, a guest whose upload failed on an empty album was told
+  "tap Retry" by `actions.ts:277` on a screen with no Retry on it; on a moderated event that is
+  the whole night, because uploads land `pending` and `pending` is never `approved`, so
+  `visible` never fills from her own photos (#70). Do not simplify it back: three mutations
+  pin it, including forcing the grid branch always, which breaks #67's empty-album copy tests.
 - `Photo.localUri` (device path) and `Photo.storagePath` (remote key) are
   **separate fields on purpose**. Conflating them hands a `file://` to a
   signed-URL resolver the day an adapter exists.

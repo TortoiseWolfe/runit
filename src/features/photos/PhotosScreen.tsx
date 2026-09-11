@@ -125,7 +125,30 @@ export function PhotosScreen() {
     </ScrollView>
   );
 
-  if (visible.length === 0) {
+  /*
+   * THE SHUTTER PANE ONLY WHEN THERE IS GENUINELY NOTHING TO SHOW -- #70.
+   *
+   * This read `visible.length === 0` alone, and `visible` is APPROVED photos filtered to
+   * the active folder. `mine` -- this guest's own uploading and failed transfers -- is
+   * referenced nowhere in the branch below, and the Retry control exists in exactly one
+   * place in the whole app: inside `mine.map` in the grid branch.
+   *
+   * So a guest whose upload failed on an album with no approved photos was told
+   * "Upload failed. Your photo is saved -- tap Retry." (`actions.ts:277`) on a screen with
+   * no Retry on it, and no way to reach one. `actions.ts:275-276` even asserts in a
+   * comment that "the failed tile carries the reason and the Retry button"; it did not.
+   *
+   * ON A MODERATED EVENT THAT IS NOT A MOMENT, IT IS THE WHOLE NIGHT. Uploads land
+   * `pending` and `pending` is not `approved`, so `visible` never fills from this guest's
+   * own photos -- she would never see Retry at all.
+   *
+   * The second thing it fixes was not in the issue: an upload IN FLIGHT from an empty
+   * album showed nothing either. `mine` carries `uploading` as well as `failed`, so the
+   * pane now hands over to the grid the moment there is a transfer, and the progress tile
+   * at :215 is finally reachable from a cold album. In-memory transfers complete
+   * instantly, which is why only `?flaky=1` can see that half.
+   */
+  if (visible.length === 0 && mine.length === 0) {
     return (
       <View style={s.wrap}>
         <EventHeader eyebrow="Shared album" />
