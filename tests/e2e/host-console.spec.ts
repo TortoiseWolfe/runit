@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
-import { WEDDING, joinAsGuest, switchToHost } from './helpers';
+import { WEDDING, joinAsGuest, open, switchToHost } from './helpers';
 
 /**
  * The host console: /host/broadcast, /host/dj, /host/photos behind one
@@ -562,5 +562,107 @@ test.describe('host console · handing out the code', () => {
     await switchToHost(page);
     await page.getByTestId('host-share').click();
     await expect(page.getByTestId('toast')).toContainText(WEDDING.code);
+  });
+});
+
+/**
+ * AUTHORING THE RUN OF SHOW -- #64, and written BEFORE the code.
+ *
+ * The app sells a run of show and had no way to write one. `+ Add` inserted a row whose
+ * title was the literal string "New item", with no rename, no time, no place and no delete --
+ * and the helper text under it says "Tap a row when it starts", which broadcasts
+ * "New item is starting" to every guest, into a feed with no delete path.
+ *
+ * WHY 304 JOURNEYS WERE BLIND TO IT: `weddingSeed` seeds six fully-formed schedule rows, so
+ * every screenshot renders a run of show no host could have produced. The authoring path was
+ * exercised by nothing. Same shape as the now-playing loop in 6c7ef33 -- the fixture is
+ * richer than anything the product can create, so the gap is invisible.
+ *
+ * So this runs against a FRESHLY CREATED event, where the schedule is empty, which is the
+ * state every real host starts in.
+ */
+test.describe('writing the run of show (#64)', () => {
+  const freshEvent = async (page: Page, scheme: 'dark' | 'light') => {
+    await open(page, scheme, '/create', 'create-event');
+    await page.getByTestId('create-host-name').fill('Ruth');
+    await page.getByTestId('create-name').fill("Ruth's 40th");
+    await page.getByTestId('create-date').fill('2027-01-09');
+    await page.getByTestId('create-time').fill('19:00');
+    await page.getByTestId('create-submit').click();
+    await page.getByTestId('created-continue').click();
+  };
+
+  test('an item is given a real title, and a guest sees that title', async ({ page }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await freshEvent(page, scheme);
+
+    // A new event has no run of show at all.
+    await expect(page.getByTestId('schedule-row')).toHaveCount(0);
+
+    await page.getByTestId('schedule-title').fill('Cake');
+    await page.getByTestId('schedule-time').fill('8:30 PM');
+    await page.getByTestId('schedule-add').click();
+
+    // THE ASSERTION THAT MATTERS: what the host typed, not "New item".
+    const row = page.getByTestId('schedule-row').first();
+    await expect(row).toContainText('Cake');
+    await expect(row).toContainText('8:30 PM');
+    await expect(page.getByText('New item')).toHaveCount(0);
+
+    // The composer clears, so the second item does not inherit the first.
+    await expect(page.getByTestId('schedule-title')).toHaveValue('');
+
+    // AND THE ROOM SEES IT. The run of show is a guest-facing feature; a title the host
+    // can read and a guest cannot would be half a fix.
+    //
+    // Behind the fold, which is real behaviour rather than a bug: `NowNextCard` collapses
+    // by default and the full list is one tap in. Worth pinning that the tap REACHES the
+    // item -- an authored row that a guest cannot get to would be the same gap moved.
+    await page.getByTestId('role-switch').click();
+    await page.getByTestId('now-next-toggle').click();
+    await expect(page.getByText('Cake')).toBeVisible();
+  });
+
+  test('an untitled item is refused rather than inserted as a placeholder', async ({
+    page,
+  }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await freshEvent(page, scheme);
+
+    // The whole defect in one assertion: tapping Add with nothing typed used to insert
+    // "New item", which the host could then neither rename nor delete.
+    await page.getByTestId('schedule-add').click();
+    await expect(page.getByTestId('schedule-row')).toHaveCount(0);
+    await expect(page.getByTestId('toast')).toContainText(/name/i);
+  });
+
+  test('a row can be removed, because the wrong one is otherwise permanent', async ({
+    page,
+  }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await freshEvent(page, scheme);
+
+    await page.getByTestId('schedule-title').fill('Speeches');
+    await page.getByTestId('schedule-add').click();
+    await expect(page.getByTestId('schedule-row')).toHaveCount(1);
+
+    await page.getByTestId('schedule-row').first().getByTestId(/^schedule-remove-/).click();
+    await expect(page.getByTestId('schedule-row')).toHaveCount(0);
+  });
+
+  test('the time is optional, because a host often does not know it yet', async ({
+    page,
+  }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await freshEvent(page, scheme);
+
+    await page.getByTestId('schedule-title').fill('Dancing');
+    await page.getByTestId('schedule-add').click();
+
+    // TBD is the canvas's own word for an item with no time, and it is a real state --
+    // not a reason to refuse the row.
+    const row = page.getByTestId('schedule-row').first();
+    await expect(row).toContainText('Dancing');
+    await expect(row).toContainText('TBD');
   });
 });

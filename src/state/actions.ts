@@ -523,8 +523,45 @@ export function useHostActions() {
         await repo.schedule.start(id, { rewind: true });
         return true;
       },
-      addScheduleItem: () =>
-        repo.schedule.add({ title: 'New item', timeLabel: null, place: '' }),
+      /**
+       * A REAL TITLE, OR NOTHING (#64). This inserted `'New item'` -- a row the host could
+       * neither rename nor delete, on a card whose own helper text tells her to tap rows
+       * when they start, which broadcasts that placeholder to every guest into a feed with
+       * no delete path.
+       *
+       * It refuses rather than substituting, for the same reason `set_nickname` refuses an
+       * empty name: a placeholder somebody has to live with is worse than being asked again.
+       */
+      addScheduleItem: async (title: string, timeLabel?: string) => {
+        const name = title.trim();
+        if (!name) {
+          show('Give the item a name first.');
+          return false;
+        }
+        try {
+          await repo.schedule.add({
+            title: name,
+            // NULL, not '', and the difference renders: the card prints "TBD" for null,
+            // which is the canvas's own word for an item whose time is not decided yet.
+            timeLabel: timeLabel?.trim() || null,
+            place: '',
+          });
+          return true;
+        } catch (e) {
+          show(e instanceof Error ? e.message : 'Could not add that.');
+          return false;
+        }
+      },
+
+      removeScheduleItem: async (id: ScheduleItemId) => {
+        try {
+          await repo.schedule.remove(id);
+          return true;
+        } catch (e) {
+          show(e instanceof Error ? e.message : 'Could not remove that.');
+          return false;
+        }
+      },
       /**
        * Mint a co-host seat and hand back the key that redeems it, once.
        *

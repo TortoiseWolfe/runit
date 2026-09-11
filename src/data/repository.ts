@@ -609,6 +609,17 @@ export interface RunitRepository {
      */
     start(id: ScheduleItemId, opts?: { rewind?: boolean }): Promise<void>;
     add(input: { title: string; timeLabel: string | null; place: string }): Promise<void>;
+    /**
+     * REMOVE A ROW, which nothing could do (#64). The schema always allowed it --
+     * `schedule_write` is `for all`, so DELETE was granted from the first migration and
+     * no client ever used it. A run of show a host cannot correct is one she stops
+     * trusting after the first mistyped row.
+     *
+     * It does NOT touch the cursor. `events.now_schedule_item_id` is set null by the
+     * column's own `on delete set null`, which is the honest outcome: deleting the item
+     * that is currently running means nothing is running, not that the previous one is.
+     */
+    remove(id: ScheduleItemId): Promise<void>;
   };
 
   music: {
