@@ -203,7 +203,7 @@ switched off inside a week. `<Screen>` sets VERTICAL insets only, by design, so 
 container that omits `paddingHorizontal` renders flush at x=0; that shipped on both create
 screens, including the one that prints the recovery key. FIDELITY note X.
 
-`pnpm test:e2e` runs 270 journey tests (`tests/e2e/`) across both colour
+`pnpm test:e2e` runs 326 journey tests (`tests/e2e/`) across both colour
 schemes: join and its rejection path, the three guest tabs, the host console,
 the pricing ladder and every denial it can render, and the painted theme
 tokens. Each spec was written against the canvas and then attacked by a critic
@@ -362,7 +362,7 @@ undecodable, which is the contrast/quiet-zone/resolution class a camera in a dim
 would hit.
 
 **H — the adapter that ships, against the database that ships** (`pnpm export:web:live &&
-pnpm smoke:live`). Thirty-six checks driving `SupabaseRepository` through a real browser against
+pnpm smoke:live`). Forty checks driving `SupabaseRepository` through a real browser against
 the live project: `create_event`, the founding host seat, a broadcast round-tripping through
 realtime, a founder taking a guest seat (#37), her seat NOT counted in the room,
 `request_song` both inserting and merging (#44), and **the whole photo chain** — two objects
@@ -392,11 +392,27 @@ twice in ~15 runs a row never arrived (#45). Folded counters need the same care 
 `fold_invited_count` reaching the composer read "Send to 0 guests" once in four runs when
 read immediately instead of waited for.
 
-**Push and photo moderation are NOT covered, and neither is a matter of effort.**
-`push.web.ts` returns null by design — a fake token would be stored as a routable address
-that routes nowhere. And `create_event` mints `house_party`, which auto-approves, so the
-approval queue has no reachable state in any event the app can currently create (#30). Both
-are printed at the end of every run so a green board is not read as "the backend works".
+**PHOTO MODERATION IS COVERED NOW, and the reason it was not has gone rather than the
+risk.** This paragraph said the approval queue "has no reachable state in any event the app
+can currently create", which was true and was the defect: `create_event` mints
+`house_party`, which auto-approved, and no client can set `events.tier` (#30). Approval is a
+switch on the EVENT now — any tier, default off — so the lane creates a free event, turns it
+on, uploads as a guest, and asserts the photo is ABSENT from the album, PRESENT in the host
+queue, and in front of the room once approved. Only this lane can see that chain: the column
+has to be in the UPDATE grant or PostgREST fails the whole statement with 42501, the write
+has to match `events_host_update` or it affects zero rows silently, and `set_photo_status`
+is a SECURITY DEFINER trigger reading a column the client cannot name on INSERT. Lane B
+proves none of it — it boots `MemoryRepository`, where the flag is a field on an object.
+
+**The assertion it turns on is the TOAST, not the toggle's own label**, which the first
+draft got wrong: it failed on its first run with `photo_moderation = true` already in
+Postgres and the button still reading Off. The label repaints from the `events` observable,
+fed by a realtime channel, so waiting on it asserts WEBSOCKET DELIVERY while claiming to
+assert a write. Exactly one assertion in this lane is about realtime, deliberately.
+
+**Push is still NOT covered, and it is not a matter of effort.** `push.web.ts` returns null
+by design — a fake token would be stored as a routable address that routes nowhere. It is
+printed at the end of every run so a green board is not read as "the backend works".
 
 **It sweeps its own bytes, and the ORDER is the lesson.** `event_photos_delete` requires the
 EVENT to still exist (`is_host(foldername(name)[1])`), so deleting rows first strands the
@@ -444,8 +460,8 @@ without credentials, in the same shape as lane E.
 see row-level security behave. It runs `supabase/verify-policies.sql`, which seeds an
 event, a guest and a host inside a `DO` block, switches
 role with `set local role authenticated` and a forged `request.jwt.claims`, asserts
-**a hundred and eight** behaviours, and RAISES at the end so nothing commits -- the "error" it
-prints IS the report.
+**a hundred and eighty-one** behaviours, and RAISES at the end so nothing commits -- the
+"error" it prints IS the report.
 
 **`supabase db push` AND `db reset` WERE A SILENT NO-OP, and #48 fixed it.** The CLI
 reserves the migration name `init` and skips the file -- *"replace \"init\" with a different
@@ -496,7 +512,7 @@ photo insert had.
 RAISE never runs, so there is no report to parse, and the unparseable case is a red gate
 that says so. And a **coverage floor** (`EXPECTED_ASSERTIONS`, the same doctrine as lanes
 A and A2) fails a run that measures less than the last one -- because "0 FAILURE(S)" over
-forty assertions and over a hundred and eight are the same sentence. Raise the number when you
+forty assertions and over a hundred and eighty are the same sentence. Raise the number when you
 add assertions; that friction is the feature.
 
 **"Nothing re-runs it in CI" was true, and the REASON given for it was false.** This file
@@ -711,6 +727,18 @@ that lives in a button handler is bypassed by the second caller.
   will throw: `loadFetchOnce` did, and only creating an event exposed it. `loadBlocks` is
   the pattern to copy -- a null guest id is a real state with an empty answer, not a
   fallback.
+- **PHOTO APPROVAL IS NOT A TIER FEATURE, and asking "which tier gets it" is the mistake.**
+  It was `tier_limits.photo_moderation`, read by `set_photo_status`. `create_event` mints
+  `house_party`, where that was false — so on every event this app can actually create, a
+  guest's photo went onto every screen in the room the instant it landed, and the only route
+  to a gate was a purchase path that does not exist (#30). The host could not buy it if she
+  wanted to. It is `events.photo_moderation` now: her switch, any tier, default off, written
+  through a named column grant under `events_host_update`, still decided inside the database
+  so the party being moderated does not get a vote (#50's finding, preserved by the move).
+  #65 had already made the same call one step later when it ungated `hide` — taking reported
+  content down is a review obligation rather than a feature — and stopping it being shown at
+  all is that obligation, earlier. `photos.approve` is ungated in both adapters for the same
+  reason: a tier gate there could only ever refuse the host who turned approval on.
 - **THE TIER CAPS LIVE IN TWO PLACES ON PURPOSE**, and `src/domain/tiers.test.ts` is what
   makes that safe. `public.tier_limits` is what `invite_host` enforces against, because a
   check in a client is bypassed by the second client; `src/domain/tiers.ts` is what the
@@ -850,7 +878,9 @@ point — the remedy `audit-tier-claims.mjs` prints, and how its eight unenforce
 still live. **That is no longer the state and this paragraph used to claim it was**: #27
 built the fan-out, so `pushNotifications` is `true` on the top two tiers and "+ push" is
 back in the $79 copy. See PUSH IS BUILT below, which is the current word.
-`pnpm audit:tiers` reports 12 features, 3 granted, every one enforced, no yellow line.
+`pnpm audit:tiers` reports 11 features, 3 granted, every one enforced, no yellow line. It
+was 12 until `photoModeration` left the ladder entirely — see PHOTO APPROVAL IS NOT A TIER
+FEATURE under "Things that will bite you".
 Still open: #30 (every paid tier is unreachable — the pricing screen is cut and no
 purchase path exists) · #41 (`eventTtlHours` still has zero readers: a free event never
 goes read-only).

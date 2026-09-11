@@ -28,7 +28,7 @@ import type {
 } from '../types';
 import { subjectKey } from '../types';
 import {
-  checkFeature, checkLimit, firstTierWith, nextTierFor, type Entitlements,
+  checkLimit, firstTierWith, nextTierFor, type Entitlements,
 } from '@/domain/entitlements';
 import { TIERS } from '@/domain/tiers';
 import { phoneKey } from '@/domain/phoneKey';
@@ -1824,6 +1824,24 @@ export class SupabaseRepository implements RunitRepository {
       SupabaseRepository.assertWrote(data, 'updateDetails');
     },
 
+    setPhotoModeration: async (on: boolean) => {
+      const eventId = this.requireEvent();
+      // `photo_moderation` IS in the column grant, unlike `tier` below -- it is the
+      // host's own setting about her own party, and `events_host_update` is what says
+      // only a host may write it. The trigger reads it on every photo INSERT, so this
+      // takes effect on the next upload and leaves the album alone.
+      const { data, error } = await this.db
+        .from('events')
+        .update({ photo_moderation: on })
+        .eq('id', eventId)
+        .select('id');
+      if (error) throw error;
+      // Same silent shape as updateDetails: a non-host's update matches the policy on
+      // nothing, affects zero rows and raises nothing. Without this the switch would
+      // flip on screen and mean nothing on the server.
+      SupabaseRepository.assertWrote(data, 'setPhotoModeration');
+    },
+
     // The parameter is declared even though it is ignored. A zero-arg version still
     // satisfies the interface -- TypeScript accepts a function that takes fewer
     // arguments -- but it makes the concrete class reject the very call the interface
@@ -2148,8 +2166,10 @@ export class SupabaseRepository implements RunitRepository {
     },
 
     approve: async (id: PhotoId) => {
-      const gate = checkFeature(this.sigEntitlements.get(), 'photoModeration');
-      if (!gate.allowed) throw new EntitlementError(gate.denial);
+      // NOT GATED ON A TIER, and it used to be gated on `photoModeration`. That check
+      // could only ever refuse the person it was built for: a host who turned approval ON
+      // has a queue to work, one who left it off has an empty one. `photos_moderate` is
+      // what restricts the write to hosts, and always was.
       const { data, error } = await this.db
         .from('photos').update({ status: 'approved' }).eq('id', id).select('id');
       if (error) throw error;
@@ -2157,12 +2177,14 @@ export class SupabaseRepository implements RunitRepository {
     },
 
     hide: async (id: PhotoId) => {
-      // NOT GATED ON `photoModeration` -- #65. It was, which made Guideline 1.2
-      // unsatisfiable: `create_event` mints `house_party`, whose photoModeration is false,
-      // so this threw on every event the app can create and a reported photo could not be
-      // taken down at all. `photoModeration` decides whether uploads WAIT for approval, a
-      // feature somebody pays for; removing REPORTED content is a review obligation, and
-      // the two are not the same thing.
+      // NOT GATED ON A TIER -- #65. It was gated on `photoModeration`, which made
+      // Guideline 1.2 unsatisfiable: `create_event` mints `house_party`, whose
+      // photoModeration was false, so this threw on every event the app can create and a
+      // reported photo could not be taken down at all. The reasoning then was that
+      // moderation is a feature somebody pays for while removing REPORTED content is a
+      // review obligation -- half right. Stopping a photo being shown at all is the same
+      // obligation one step earlier, which is why moderation is a switch on the event now
+      // rather than a line on a price card.
       //
       // `photos_moderate` still restricts the write to hosts, so nothing is loosened here
       // except which TIER may comply.

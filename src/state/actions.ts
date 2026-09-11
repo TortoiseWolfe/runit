@@ -609,6 +609,29 @@ export function useHostActions() {
           return null;
         }
       },
+      /**
+       * The photo-approval switch, on any tier.
+       *
+       * The toast names the CONSEQUENCE rather than the setting, because "moderation on"
+       * tells a host nothing about what her guests will now experience -- and what they
+       * experience is the part she is deciding. It also says the rule applies to the NEXT
+       * photo, since `set_photo_status` fires on INSERT and what is already in the album
+       * stays there.
+       */
+      setPhotoModeration: async (on: boolean) => {
+        try {
+          await repo.event.setPhotoModeration(on);
+          show(
+            on
+              ? 'New photos will wait for a host before anyone sees them.'
+              : 'New photos will go straight into the album.',
+          );
+          return true;
+        } catch {
+          show('Could not change that. Only a host of this event can.');
+          return false;
+        }
+      },
       saveEventDetails: async (input: EventDetails) => {
         try {
           await repo.event.updateDetails(input);

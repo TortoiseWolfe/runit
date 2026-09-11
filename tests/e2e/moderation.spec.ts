@@ -227,3 +227,103 @@ test.describe('Guideline 1.2 · taking it down (#65)', () => {
     await expect(page.locator('[data-testid^="report-takedown-"]')).toHaveCount(0);
   });
 });
+
+/**
+ * APPROVAL IS A SAFETY SETTING, NOT A PAID FEATURE -- written before the code.
+ *
+ * It was a TIER capability: `set_photo_status` read `tier_limits.photo_moderation`, and
+ * `create_event` mints `house_party`, where that was false. So on every event this app
+ * can create, any guest's photo went straight onto every screen in the room, and the only
+ * way to change that was a purchase path that does not exist (#30).
+ *
+ * Wrong axis. Whether photos WAIT is a decision about the event -- eight friends in a
+ * kitchen do not want to approve each other, two hundred people at a wedding do -- and it
+ * is a safety decision, which nobody should have to buy. #65 settled the same question one
+ * step later: taking reported content down is an obligation rather than a feature.
+ * Stopping it being shown is the same obligation, earlier.
+ *
+ * EVERY TEST HERE CREATES AN EVENT, and that is the point rather than an inconvenience.
+ * `weddingSeed` is richer than anything the product can build -- it opens on a party that
+ * already has moderation on, an album, a run of show. Four separate defects survived three
+ * hundred journeys behind exactly that. The state this feature is about is the state a
+ * host reaches on her first night, so the journey starts where she does.
+ */
+test.describe("approval is the host's choice, on any tier", () => {
+  /** A brand-new `house_party` event, which is the only tier the app can mint. */
+  async function newEvent(page: Page, scheme: 'dark' | 'light') {
+    await open(page, scheme, '/create', 'create-event');
+    await page.getByTestId('create-host-name').fill('Ruth');
+    await page.getByTestId('create-name').fill("Ruth's 40th");
+    await page.getByTestId('create-date').fill('2026-09-11');
+    await page.getByTestId('create-time').fill('19:00');
+    await page.getByTestId('create-submit').click();
+    await page.getByTestId('created-continue').click();
+    await expect(page.getByTestId('host-broadcast')).toBeVisible();
+  }
+
+  test('it is off by default, because a small party should not have to approve itself', async ({
+    page,
+  }, info) => {
+    await newEvent(page, info.project.name as 'dark' | 'light');
+    await page.getByTestId('host-segment-event').click();
+    await expect(page.getByTestId('moderation-toggle')).toContainText(/off/i);
+  });
+
+  test('a free-tier host can turn it on, and a guest photo then waits for her', async ({
+    page,
+  }, info) => {
+    await newEvent(page, info.project.name as 'dark' | 'light');
+
+    await page.getByTestId('host-segment-event').click();
+    await page.getByTestId('moderation-toggle').click();
+    await expect(page.getByTestId('moderation-toggle')).toContainText(/on/i);
+
+    // Take a guest seat and add a photo. With approval ON it must NOT reach the album.
+    await page.getByTestId('role-switch').click();
+    await page.getByTestId('tab-photos').click();
+    await page.getByTestId('shutter').click();
+    await expect(page.locator('[data-testid^="tile-"]')).toHaveCount(0);
+    // The EMPTY-album copy, not `album-moderated`: with nothing approved the screen is
+    // still on its shutter branch, and `album-blurb` is where that branch states the rule.
+    // Getting this wrong is the bug the blurb exists to fix -- an album that says photos
+    // go straight in while the guest's own photo is invisible.
+    await expect(page.getByTestId('album-blurb')).toContainText(/once a host approves/i);
+
+    // It is waiting in the host's queue -- a segment that was permanently empty on every
+    // event this app could create, because `house_party` auto-approved everything.
+    await page.getByTestId('tab-chat').click();
+    await switchToHost(page);
+    await page.getByTestId('host-segment-photos').click();
+    const approve = page.locator('[data-testid^="approve-"]').first();
+    await expect(approve).toBeVisible();
+    await approve.click();
+
+    // Approved, so now the room sees it. Without this clause the test would pass on an
+    // app that simply swallowed the upload.
+    await page.getByTestId('role-switch').click();
+    await page.getByTestId('tab-photos').click();
+    await expect(page.locator('[data-testid^="tile-"]')).toHaveCount(1);
+  });
+
+  test('turning it back off lets the next photo straight through', async ({ page }, info) => {
+    await newEvent(page, info.project.name as 'dark' | 'light');
+    await page.getByTestId('host-segment-event').click();
+    await page.getByTestId('moderation-toggle').click();
+    // ON FIRST, AND ASSERTED, because without this the test passes on a DEAD TOGGLE:
+    // it starts off and ends off, so "tap twice, read Off" is satisfied by a control
+    // wired to nothing. Measured -- stubbing `onPress` to `() => {}` left this journey
+    // green until this line existed.
+    await expect(page.getByTestId('moderation-toggle')).toContainText(/on/i);
+    await page.getByTestId('moderation-toggle').click();
+    await expect(page.getByTestId('moderation-toggle')).toContainText(/off/i);
+
+    await page.getByTestId('role-switch').click();
+    await page.getByTestId('tab-photos').click();
+    await page.getByTestId('shutter').click();
+    // Straight in, and the album says so rather than promising a host who is not coming.
+    await expect(page.locator('[data-testid^="tile-"]')).toHaveCount(1);
+    // The grid branch renders now, and its moderation line is absent -- the album does not
+    // promise a host who is not coming.
+    await expect(page.getByTestId('album-moderated')).toHaveCount(0);
+  });
+});

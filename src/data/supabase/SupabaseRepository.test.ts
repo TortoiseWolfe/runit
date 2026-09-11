@@ -25,7 +25,7 @@ const eventRow = (over: Record<string, unknown> = {}) => ({
   id: EVENT, code: 'TEST01', name: 'Party', venue: 'Barn', starts_at: FIXED,
   timezone: 'America/New_York', doors_label: '', tier: 'event',
   active_folder_id: FOLDER, now_schedule_item_id: null,
-  guest_count: 3, invited_count: 10, created_at: FIXED, ...over,
+  guest_count: 3, invited_count: 10, photo_moderation: false, created_at: FIXED, ...over,
 });
 
 /** A client seeded so joinAsGuest can complete, which every write test needs first. */
@@ -278,6 +278,30 @@ describe('a write that row-level security refuses', () => {
     expect(c.find('update', 'events')[0]!.payload).toEqual({ active_folder_id: FOLDER });
   });
 
+  /**
+   * PHOTO APPROVAL IS A COLUMN ON `events` NOW, so it travels the same road as
+   * `active_folder_id` -- a named column grant, an `is_host` policy, and a write that
+   * matches nothing rather than failing when a guest tries it.
+   *
+   * Two assertions and neither is decoration. The PAYLOAD one is the only thing that can
+   * catch a wrong column name: PostgREST would take `photo_moderated` happily, the
+   * database would refuse the whole statement with 42501, and `FakeClient` never
+   * evaluates what it was sent. The REFUSAL one is what stops the switch flipping on
+   * screen and meaning nothing on the server.
+   */
+  it('sends exactly the moderation column, because the grant names it', async () => {
+    const c = ready();
+    const repo = await join(c);
+    await repo.event.setPhotoModeration(true);
+    expect(c.find('update', 'events')[0]!.payload).toEqual({ photo_moderation: true });
+  });
+
+  it('THROWS when a non-host flips moderation, rather than reporting success', async () => {
+    const c = ready((f) => f.on((op) => (op.kind === 'update' && op.table === 'events' ? refusedSilently() : undefined)));
+    const repo = await join(c);
+    await expect(repo.event.setPhotoModeration(true)).rejects.toThrow(/affected no rows/);
+  });
+
   it('refuses to lose a vote silently', async () => {
     // song_votes is NOT published to realtime, so nothing ever arrives to correct a
     // local set that has drifted from the table.
@@ -346,9 +370,12 @@ describe('uploading a photo', () => {
     expect(repo.photos.mine.get()[0]).toMatchObject({ status: 'failed', progress: null });
   });
 
-  it('lands approved rather than pending where the tier has no moderation queue', async () => {
+  it('lands approved rather than pending where the host has not asked for a queue', async () => {
     const c = ready();
-    c.seed('events', [eventRow({ tier: 'house_party' })]);
+    // The column, not the tier. It used to read `tier: 'house_party'` -- moderation was a
+    // thing a host bought, so a free party could not have a queue and a paid one could not
+    // do without. It is her switch now, and off is the default.
+    c.seed('events', [eventRow({ photo_moderation: false })]);
     const repo = await join(c);
     await expect(repo.photos.upload({ localUri: 'file:///tmp/a.jpg' })).resolves.toBe('approved');
   });
@@ -359,22 +386,22 @@ describe('uploading a photo', () => {
    * the uploader's own client, and `status` was in the INSERT column grant, so any client
    * holding the app's public key could file a photo already approved.
    *
-   * The column is not in the grant now and a `before insert` trigger decides it from the
-   * event's tier, so naming it here would be refused rather than ignored. Asserting its
-   * ABSENCE is what stops it coming back.
+   * The column is not in the grant now and a `before insert` trigger decides it from
+   * `events.photo_moderation`, so naming it here would be refused rather than ignored.
+   * Asserting its ABSENCE is what stops it coming back.
    */
   it('does not send status at all, because the uploader does not get a vote', async () => {
     const c = ready();
-    c.seed('events', [eventRow({ tier: 'house_party' })]);
+    c.seed('events', [eventRow({ photo_moderation: false })]);
     const repo = await join(c);
     await repo.photos.upload({ localUri: 'file:///tmp/a.jpg' });
     const payload = c.find('insert', 'photos')[0]!.payload as Record<string, unknown>;
     expect(payload).not.toHaveProperty('status');
   });
 
-  it('reports what the row says, not what it hoped, on a moderated tier', async () => {
+  it('reports what the row says, not what it hoped, on a moderated event', async () => {
     const c = ready();
-    c.seed('events', [eventRow({ tier: 'event' })]);
+    c.seed('events', [eventRow({ photo_moderation: true })]);
     const repo = await join(c);
     // The outcome is read back off the inserted row. A client that predicted this would be
     // the original defect wearing one more layer.

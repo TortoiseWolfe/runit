@@ -49,7 +49,7 @@ export function EventDetailsPanel() {
   const event = useEvent();
   const {
     saveEventDetails, rotateHostKey, invite, addInvitee, removeInvitee,
-    addFromContacts, sendInvitations, saveGuestList, attachGuestList,
+    addFromContacts, sendInvitations, saveGuestList, attachGuestList, setPhotoModeration,
   } = useHostActions();
   const hosts = useHosts();
   const invitees = useInvitees();
@@ -308,6 +308,60 @@ export function EventDetailsPanel() {
       />
       <Text style={[s.helper, { color: alpha(tokens.baseContent, fade.muted) }]}>
         The invitation reads name, then date, then this line, then the venue.
+      </Text>
+
+      {/* PHOTO APPROVAL -- a safety switch, on every tier, default off.
+
+          It was `TierFeatures.photoModeration`, gated to $19 and up. `create_event` mints
+          `house_party`, so on every event this app can actually create a guest's photo
+          went onto every screen in the room the instant it landed, and the only route to
+          a gate was a purchase path that does not exist (#30). The host could not buy it
+          if she wanted to.
+
+          Wrong axis twice over. Whether photos wait is a decision about THE PARTY --
+          eight friends in a kitchen do not want to approve each other, two hundred people
+          at a wedding do -- and it is a SAFETY decision, which nobody should have to pay
+          for. #65 already settled the same question one step later when it ungated
+          `hide`: taking reported content down is a review obligation, not a feature.
+          Stopping it being shown is that obligation, earlier.
+
+          NO LOCAL FORM STATE, unlike every field above it. Those are seeded once and saved
+          by the Save button because a half-typed venue must not repaint every phone in the
+          room; this is one bit, it takes effect on the next upload, and a host who taps it
+          means it now. So it writes on tap and re-renders from `events`, which is in the
+          realtime publication. It is gated on `event` for the same reason: the switch has
+          to show the real current state rather than a guess. */}
+      {event ? (
+        <View style={s.pillRow}>
+          <Pressable
+            onPress={() => setPhotoModeration(!event.photoModeration)}
+            accessibilityRole="button"
+            accessibilityState={{ selected: event.photoModeration }}
+            accessibilityLabel="Approve photos before guests see them"
+            testID="moderation-toggle"
+            style={[
+              s.pill,
+              {
+                borderColor: tokens.base300,
+                backgroundColor: event.photoModeration ? tokens.primary : 'transparent',
+              },
+            ]}
+          >
+            <Text
+              style={[
+                s.pillText,
+                { color: event.photoModeration ? tokens.primaryContent : tokens.baseContent },
+              ]}
+            >
+              {event.photoModeration ? 'Approve photos · On' : 'Approve photos · Off'}
+            </Text>
+          </Pressable>
+        </View>
+      ) : null}
+      <Text style={[s.helper, { color: alpha(tokens.baseContent, fade.muted) }]}>
+        {event?.photoModeration
+          ? 'Photos guests add wait in Host → Photos until you approve them. What is already in the album stays there.'
+          : 'Photos guests add go straight into the album. Turn this on and they will wait for you instead.'}
       </Text>
 
       {/* WHO IS HELPING -- issue #16. Until this, `hosts.invite` threw against Supabase

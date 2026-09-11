@@ -446,15 +446,18 @@ export class MemoryRepository implements RunitRepository {
       return 'failed';
     }
 
-    // Success. The free tier has no approval queue, so uploads land approved;
-    // paid tiers wait for a host. This is the one behavioural fork the tier copy
-    // implies but never states outright.
-    // MIRRORS THE TRIGGER, NOT THE OLD CLIENT RULE (#50). Against Supabase the tier decides
-    // this in `set_photo_status` and `status` is not even in the INSERT grant; here there is
-    // no database, so the fixture applies the same rule from the same source -- the tier's
-    // `photoModeration`. If these two ever disagree, the e2e journeys describe a moderation
-    // queue the real backend does not build.
-    const moderated = checkFeature(this.computeEntitlements(), 'photoModeration').allowed;
+    // Success. Whether it waits is the EVENT's setting, not the tier's.
+    //
+    // MIRRORS THE TRIGGER, NOT A CLIENT RULE (#50). Against Supabase `set_photo_status`
+    // decides this and `status` is not even in the INSERT grant; here there is no
+    // database, so the fixture applies the same rule from the same source --
+    // `events.photo_moderation`. If these two ever disagree, the e2e journeys describe a
+    // moderation queue the real backend does not build.
+    //
+    // It reads the flag HERE, at the end of the transfer, rather than when the upload
+    // began -- the trigger fires on the INSERT, which is this moment. A host who turns
+    // approval on mid-party gates the next photo, not the one already on the wire.
+    const moderated = this.requireEvent().photoModeration;
     this.patchPhoto(id, {
       status: moderated ? 'pending' : 'approved',
       progress: null,
@@ -971,6 +974,10 @@ export class MemoryRepository implements RunitRepository {
         nowScheduleItemId: null,
         guestCount: target.guestCount,
         invitedCount: 0,
+        // Off, matching the column default. `openEvent` builds an event out of a
+        // host-seat listing (`my_events()`), which carries no settings -- so this is a
+        // guess, and off is the same guess `create` makes.
+        photoModeration: false,
       };
       this.broadcastList = [];
       this.scheduleList = [];
@@ -1034,6 +1041,9 @@ export class MemoryRepository implements RunitRepository {
         nowScheduleItemId: null,
         guestCount: 0,
         invitedCount: 0,
+        // The column default. A party of eight that has to approve itself is friction
+        // nobody asked for; the host turns it on from Host -> Event when she wants it.
+        photoModeration: false,
       };
       this.hostList = [
         { id: hostId, displayName: input.hostName.trim() || 'Host', role: 'host', roleLabel: 'Host' },
@@ -1081,6 +1091,11 @@ export class MemoryRepository implements RunitRepository {
       this.ev = { ...this.requireEvent(), ...input };
       this.recompute();
     },
+    setPhotoModeration: async (on: boolean) => {
+      this.ev = { ...this.requireEvent(), photoModeration: on };
+      this.recompute();
+    },
+
     setTier: async (tier: TierId) => {
       this.ev = { ...this.requireEvent(), tier };
       this.recompute();
@@ -1417,12 +1432,14 @@ export class MemoryRepository implements RunitRepository {
     },
 
     approve: async (id: PhotoId) => {
-      // upload() already reads this feature to decide whether a photo lands
-      // pending or approved; the queue it creates has to be gated by the same
-      // one, or a free tier can moderate a queue it is not sold.
-      const e = this.computeEntitlements();
-      const gate = checkFeature(e, 'photoModeration');
-      if (!gate.allowed) throw new EntitlementError(gate.denial);
+      // NOT GATED ON A TIER, and it used to be. The gate was `photoModeration`, which is
+      // exactly backwards now the same flag lives on the event: a host who turned approval
+      // ON is by definition entitled to work the queue she created, and one who left it
+      // off has an empty queue. The condition could only ever refuse the person it was
+      // built for.
+      //
+      // Same call #65 made about `hide`, one step earlier. Deciding what the room sees is
+      // a review obligation, not something a free tier is sold half of.
       const p = this.photoList.find((x) => x.id === id);
       if (!p || p.status === 'approved') return;
       this.photoList = this.photoList.map((x) =>
@@ -1438,15 +1455,15 @@ export class MemoryRepository implements RunitRepository {
       // The canvas deletes the row outright, losing it. "Hide" and "delete
       // forever" are different, and moderation needs an audit trail.
       //
-      // NOT GATED ON `photoModeration` ANY MORE -- #65. It was, and that is what made
-      // Guideline 1.2 unsatisfiable: `create_event` mints `house_party`, whose
-      // photoModeration is false, so `hide` threw on every event this app can create and
+      // NOT GATED ON A TIER -- #65. It was gated on `photoModeration`, and that is what
+      // made Guideline 1.2 unsatisfiable: `create_event` mints `house_party`, whose
+      // photoModeration was false, so `hide` threw on every event this app can create and
       // a reported photo could not be taken down at all.
       //
-      // The two are different things and conflating them was the error. `photoModeration`
-      // decides whether uploads WAIT for approval -- a feature somebody pays for. Removing
-      // something that has been REPORTED is a review obligation, and a free tier that
-      // cannot comply is not a free tier, it is a liability.
+      // The reasoning given then was that moderation "is a feature somebody pays for"
+      // while removing REPORTED content is a review obligation. Half of that was right.
+      // Stopping a photo being shown in the first place is the SAME obligation, one step
+      // earlier -- which is why `photoModeration` is no longer a tier feature at all.
       this.photoList = this.photoList.map((x) =>
         x.id === id ? { ...x, status: 'hidden' as const } : x,
       );

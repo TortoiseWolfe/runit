@@ -27,8 +27,6 @@
  */
 
 import { AuthApiError, AuthRetryableFetchError } from '@supabase/auth-js';
-import { TIERS } from '@/domain/tiers';
-import type { TierId } from '@/data/types';
 
 type Result = { data: unknown; error: unknown };
 
@@ -138,12 +136,16 @@ export class FakeClient {
      * throw, and a fake that echoes the payload would answer with a status the real
      * database ignores. Either would be a test agreeing with itself.
      *
-     * The rule is `set_photo_status`: the EVENT'S TIER decides, and the uploader has no
-     * say. Read from the same `TIERS` table the migration's seed is drift-checked against.
+     * The rule is `set_photo_status`: THE EVENT decides, and the uploader has no say. It
+     * used to read the event's TIER through the `TIERS` ladder; the flag is a column on
+     * `events` now, so this reads that column -- the same one the trigger reads.
+     *
+     * `?? true` is the trigger's own fallback, not a convenience: an event this fixture
+     * has not seeded is no reason to answer `approved`. Absent fails toward the host.
      */
     if (op.kind === 'insert' && op.table === 'photos') {
-      const ev = (this.rows.get('events') ?? [])[0] as { tier?: TierId } | undefined;
-      const moderated = TIERS[ev?.tier ?? 'house_party'].features.photoModeration;
+      const ev = (this.rows.get('events') ?? [])[0] as { photo_moderation?: boolean } | undefined;
+      const moderated = ev?.photo_moderation ?? true;
       return { data: [{ id: 'row', status: moderated ? 'pending' : 'approved' }], error: null };
     }
     // Default for a write: it worked and returned the row. A test that wants a

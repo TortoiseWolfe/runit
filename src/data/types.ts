@@ -81,6 +81,22 @@ export interface RunitEvent {
    * pill says 172, so these are two genuinely different numbers.
    */
   invitedCount: number;
+  /**
+   * Whether an uploaded photo waits for a host before the room can see it.
+   *
+   * ON THE EVENT, NOT ON THE TIER, and that is the whole point. It was
+   * `TierFeatures.photoModeration`, which is false on `house_party` -- the only tier
+   * `create_event` mints -- so every event this app can create put a guest's photo on
+   * every screen in the room the instant it landed, and the gate sat behind a purchase
+   * path that does not exist (#30).
+   *
+   * It is the host's choice about one party, on any tier, default off: eight friends in
+   * a kitchen do not want to approve each other, two hundred people at a wedding do.
+   * Enforced in the database by `set_photo_status`, which reads `events.photo_moderation`
+   * -- never by the client, which is the party being moderated (#50's finding, preserved
+   * by the move rather than lost to it).
+   */
+  photoModeration: boolean;
 }
 
 export interface Guest {

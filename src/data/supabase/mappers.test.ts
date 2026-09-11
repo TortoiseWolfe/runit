@@ -63,11 +63,17 @@ describe('nullable columns the domain type declares non-null', () => {
       id: 'e1', code: 'AB12', name: 'Party', venue: 'Barn', starts_at: 'x',
       timezone: 'America/New_York', doors_label: '', tier: 'event',
       active_folder_id: null, now_schedule_item_id: null,
-      guest_count: 3, invited_count: 10, created_at: 'x',
+      guest_count: 3, invited_count: 10, photo_moderation: false, created_at: 'x',
     };
     // Not a fake id. Empty string matches no folder, so an upload attempted
     // before any folder exists is refused rather than filed somewhere wrong.
     expect(toEvent(base).activeFolderId).toBe('');
+    // The moderation switch rides along. It is `not null` in SQL with a `false` default,
+    // so there is no absent case to model -- but an unmapped column reads `undefined`,
+    // which is falsy, so a screen would show "off" for a party that is moderated and no
+    // assertion on the false case could ever tell.
+    expect(toEvent({ ...base, photo_moderation: true }).photoModeration).toBe(true);
+    expect(toEvent(base).photoModeration).toBe(false);
   });
 
   it('keeps a deleted host\'s message readable', () => {

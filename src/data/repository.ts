@@ -536,6 +536,17 @@ export interface RunitRepository {
      * reopen billing bypass and code hijacking in one edit.
      */
     updateDetails(input: EventDetails): Promise<void>;
+    /**
+     * Turn photo approval on or off for THIS event.
+     *
+     * Not gated on anything. Approval is a safety setting -- the same reasoning that
+     * ungated `photos.hide` in #65 -- so it is available on every tier, and a host who
+     * cannot afford an upgrade can still stop a stranger's photo reaching the room.
+     *
+     * It applies at INSERT, so a host may change her mind mid-party without touching
+     * what is already in the album.
+     */
+    setPhotoModeration(on: boolean): Promise<void>;
     /** Dev-only, so the paywall is reachable while the demo sits on Event. */
     setTier(tier: RunitEvent['tier']): Promise<void>;
   };

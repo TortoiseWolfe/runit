@@ -74,6 +74,7 @@ export function toEvent(r: Row<'events'>): RunitEvent {
     nowScheduleItemId: r.now_schedule_item_id,
     guestCount: r.guest_count,
     invitedCount: r.invited_count,
+    photoModeration: r.photo_moderation,
   };
 }
 

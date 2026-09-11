@@ -73,8 +73,15 @@ begin
   insert into auth.users (id, instance_id, aud, role, email, is_anonymous, created_at, updated_at)
   values (guid,'00000000-0000-0000-0000-000000000000','authenticated','authenticated',null,true,now(),now()),
          (huid,'00000000-0000-0000-0000-000000000000','authenticated','authenticated','h@example.test',false,now(),now());
-  insert into public.events (id, code, name, venue, starts_at, timezone, tier, invited_count)
-  values (eid,'TEST01','Verify','Barn',now(),'America/New_York','event',10);
+  -- `photo_moderation` IS NAMED, and it has to be. It used to be implied by `tier =
+  -- 'event'`, whose `tier_limits.photo_moderation` was true; the flag is a column on
+  -- `events` now, defaulting to FALSE, so leaving it out would quietly hand every
+  -- assertion below a world where nothing is ever pending -- including the storage
+  -- policies that keep an unapproved photo unreadable to the room, which would then
+  -- have nothing to gate and would pass having measured nothing.
+  insert into public.events (id, code, name, venue, starts_at, timezone, tier, invited_count,
+                             photo_moderation)
+  values (eid,'TEST01','Verify','Barn',now(),'America/New_York','event',10, true);
   insert into public.folders (id,event_id,name,position) values (fid,eid,'Main',0),(f2,eid,'Second',1);
   insert into public.hosts (event_id, auth_user_id, display_name, role, role_label)
   values (eid, huid, 'Riley', 'host', 'Bride')
@@ -181,7 +188,7 @@ begin
   out := out || format('%s event_preview withholds tier and every count (leaked %s, want 0)', case when n = 0 then 'PASS' else 'FAIL' end, n);
 
   -- `status` IS NO LONGER NAMED HERE (#50). It is not in the INSERT column grant, so
-  -- naming it is refused outright; the trigger decides it from the event's tier.
+  -- naming it is refused outright; the trigger decides it from `events.photo_moderation`.
   begin
     insert into public.photos (id,event_id,folder_id,uploaded_by_guest_id,uploaded_by_name,hue,storage_path)
     values (pho50, eid, fid, public.my_guest_id(eid), 'Ada', 120, eid||'/own.jpg');
@@ -205,7 +212,7 @@ begin
   -- server-side constrained the column. Any client holding the app's public key could file
   -- a photo already `approved` and skip the queue a paid tier sells.
   select p.status into lbl from public.photos p where p.id = pho50;
-  out := out || format('%s a moderated tier files an upload as pending, whatever the client wanted (%s)',
+  out := out || format('%s a moderated EVENT files an upload as pending, whatever the client wanted (%s)',
                        case when lbl = 'pending' then 'PASS' else 'FAIL' end, coalesce(lbl,'null'));
 
   -- THE LOAD-BEARING ONE. Not "the trigger overrode it" -- the column cannot be named at
@@ -219,10 +226,17 @@ begin
                          case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
   end;
 
-  -- And the trigger READS the tier rather than hardcoding one: on a tier with no moderation
+  -- And the trigger READS THE EVENT rather than hardcoding an answer: with the switch off
   -- the same upload is visible immediately, which is a different promise to the guest.
+  --
+  -- THIS USED TO FLIP `tier`, and the change of axis is the whole point of the arc. The
+  -- tier stays exactly where it is here -- `event`, untouched, asserted below -- and the
+  -- behaviour still changes, which is the thing that was impossible before: on
+  -- `house_party`, the only tier `create_event` mints, a guest's photo went onto every
+  -- screen in the room and no host could stop it at any price, because the gate was
+  -- behind a purchase path that does not exist (#30).
   execute 'reset role';
-  update public.events set tier = 'house_party' where id = eid;
+  update public.events set photo_moderation = false where id = eid;
   perform set_config('request.jwt.claims', json_build_object('sub',guid,'role','authenticated')::text, true);
   execute 'set local role authenticated';
   begin
@@ -231,13 +245,47 @@ begin
     -- one Ada uploaded. A second row there would break a check about something else.
     values (pho51, eid, f2, public.my_guest_id(eid), 'Ada', 121, eid||'/free.jpg');
   exception when others then
-    out := out || format('FAIL free-tier upload was refused: %s %s', sqlstate, sqlerrm);
+    out := out || format('FAIL an unmoderated upload was refused: %s %s', sqlstate, sqlerrm);
   end;
   execute 'reset role';
   select p.status into lbl from public.photos p where p.id = pho51;
-  out := out || format('%s an unmoderated tier files the same upload as approved (%s)',
+  out := out || format('%s an unmoderated EVENT files the same upload as approved (%s)',
                        case when lbl = 'approved' then 'PASS' else 'FAIL' end, coalesce(lbl,'null'));
-  update public.events set tier = 'event' where id = eid;
+  -- THE TIER DID NOT MOVE, and saying so out loud is what makes the pair above a test of
+  -- the new axis rather than of the old one wearing a new column name.
+  select e.tier into lbl from public.events e where e.id = eid;
+  out := out || format('%s ...on the SAME tier, which never changed (%s, want event)',
+                       case when lbl = 'event' then 'PASS' else 'FAIL' end, coalesce(lbl,'null'));
+
+  -- APPROVAL IS NOT SOMETHING A TIER SELLS ANY MORE, so the column that sold it is gone.
+  -- A live run is the only thing that can see production still carrying it: the migration
+  -- is the committed truth and the database is what actually answers.
+  select count(*) into n from information_schema.columns
+   where table_schema = 'public' and table_name = 'tier_limits' and column_name = 'photo_moderation';
+  out := out || format('%s tier_limits no longer carries photo_moderation (got %s, want 0)',
+                       case when n = 0 then 'PASS' else 'FAIL' end, n);
+  select count(*) into n from information_schema.columns
+   where table_schema = 'public' and table_name = 'events' and column_name = 'photo_moderation';
+  out := out || format('%s events carries it instead (got %s, want 1)',
+                       case when n = 1 then 'PASS' else 'FAIL' end, n);
+
+  -- A GUEST CANNOT TURN IT OFF, and the shape of the refusal is the interesting part.
+  -- `photo_moderation` is in the grant to `authenticated` -- it has to be, a host holds no
+  -- other role -- so a guest naming it gets no 42501. `events_host_update` matches her on
+  -- nothing instead, so the statement affects ZERO ROWS and raises nothing at all. That is
+  -- the silent shape `SupabaseRepository.assertWrote` exists for, and the reason
+  -- `setPhotoModeration` calls it.
+  update public.events set photo_moderation = true where id = eid;
+  perform set_config('request.jwt.claims', json_build_object('sub',guid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  update public.events set photo_moderation = false where id = eid;
+  get diagnostics n = row_count;
+  out := out || format('%s a guest turning approval off affects %s rows, silently (want 0)',
+                       case when n = 0 then 'PASS' else 'FAIL' end, n);
+  execute 'reset role';
+  select e.photo_moderation::text into lbl from public.events e where e.id = eid;
+  out := out || format('%s ...and the switch is still on (%s, want true)',
+                       case when lbl = 'true' then 'PASS' else 'FAIL' end, coalesce(lbl,'null'));
   perform set_config('request.jwt.claims', json_build_object('sub',guid,'role','authenticated')::text, true);
   execute 'set local role authenticated';
 
@@ -271,6 +319,16 @@ begin
    where id = eid;
   get diagnostics n = row_count;
   out := out || format('%s host UPDATE of name/venue/starts_at/timezone/doors_label affects %s rows (want 1)', case when n = 1 then 'PASS' else 'FAIL' end, n);
+
+  -- THE SAFETY SWITCH, on the same footing as the description above it: in the column
+  -- grant, so a host may write it, and inside `events_host_update`, so only a host may.
+  -- On its own statement rather than folded into the five above, because that is how
+  -- `setPhotoModeration` sends it -- one bit, taking effect on the next upload, with no
+  -- half-typed venue riding along to every phone in the room.
+  update public.events set photo_moderation = false where id = eid;
+  get diagnostics n = row_count;
+  out := out || format('%s host UPDATE of photo_moderation affects %s rows (want 1)', case when n = 1 then 'PASS' else 'FAIL' end, n);
+  update public.events set photo_moderation = true where id = eid;
 
   -- NEW, and it should have existed all along: init.sql names code-hijacking as half
   -- the reason the column grant exists, and nothing asserted it. `code` is the join

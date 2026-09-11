@@ -84,6 +84,13 @@ export const weddingSeed: Seed = {
     nowScheduleItemId: 'sch_4',
     guestCount: 172,
     invitedCount: 180,
+    // ON, and it has to be: `pho_1` is seeded `pending` and the whole host approval
+    // queue -- plus the album's "once a host approves them" line -- is reachable in no
+    // other fixture. Two hundred people at a wedding is the case the switch exists for.
+    //
+    // It used to be implied by `tier: 'event'`, whose `photoModeration` was true. The
+    // flag is on the event now, so the same world is stated rather than inherited.
+    photoModeration: true,
   },
   /**
    * Riley hosts two parties (#17). The wedding is the one she is standing in; the

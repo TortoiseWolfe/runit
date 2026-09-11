@@ -67,11 +67,6 @@ describe('checkLimit', () => {
 });
 
 describe('checkFeature', () => {
-  it('gates moderation to Party and up', () => {
-    expect(checkFeature(ent('house_party'), 'photoModeration').allowed).toBe(false);
-    expect(checkFeature(ent('party'), 'photoModeration').allowed).toBe(true);
-  });
-
   it('gates host roles to Event and up', () => {
     expect(checkFeature(ent('party'), 'hostRoles').allowed).toBe(false);
     expect(checkFeature(ent('event'), 'hostRoles').allowed).toBe(true);

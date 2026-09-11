@@ -34,7 +34,6 @@ export interface TierLimits {
 }
 
 export interface TierFeatures {
-  photoModeration: boolean;
   hostRoles: boolean;
   customBranding: boolean;
   venueBranding: boolean;
@@ -80,7 +79,7 @@ export const TIERS: Record<TierId, Tier> = {
     ],
     limits: { maxGuests: 10, maxHosts: 1, maxPhotos: 100, maxFolders: 1, eventTtlHours: 48, albumRetentionDays: 30 },
     features: {
-      photoModeration: false, hostRoles: false, customBranding: false,
+      hostRoles: false, customBranding: false,
       venueBranding: false, pinnedAnnouncements: false, pushNotifications: false,
       zipExport: false, requestCaps: false, multiDjQueues: false, folderTemplates: false,
       bulkQrPrinting: false, prioritySupport: false,
@@ -98,11 +97,10 @@ export const TIERS: Record<TierId, Tier> = {
       'Up to 50 guests',
       '2 hosts',
       '1,000 photos · 3 folders',
-      'Approve-before-show moderation',
     ],
     limits: { maxGuests: 50, maxHosts: 2, maxPhotos: 1000, maxFolders: 3, eventTtlHours: null, albumRetentionDays: 90 },
     features: {
-      photoModeration: true, hostRoles: false, customBranding: false,
+      hostRoles: false, customBranding: false,
       venueBranding: false, pinnedAnnouncements: false, pushNotifications: false,
       zipExport: false, requestCaps: false, multiDjQueues: false, folderTemplates: false,
       bulkQrPrinting: false, prioritySupport: false,
@@ -124,7 +122,7 @@ export const TIERS: Record<TierId, Tier> = {
     ],
     limits: { maxGuests: 300, maxHosts: 5, maxPhotos: INF, maxFolders: 10, eventTtlHours: null, albumRetentionDays: 365 },
     features: {
-      photoModeration: true, hostRoles: true, customBranding: false,
+      hostRoles: true, customBranding: false,
       venueBranding: false, pinnedAnnouncements: true, pushNotifications: true,
       zipExport: false, requestCaps: false, multiDjQueues: false, folderTemplates: false,
       bulkQrPrinting: false, prioritySupport: false,
@@ -145,7 +143,7 @@ export const TIERS: Record<TierId, Tier> = {
     ],
     limits: { maxGuests: 3000, maxHosts: INF, maxPhotos: INF, maxFolders: INF, eventTtlHours: null, albumRetentionDays: null },
     features: {
-      photoModeration: true, hostRoles: true, customBranding: false,
+      hostRoles: true, customBranding: false,
       venueBranding: false, pinnedAnnouncements: true, pushNotifications: true,
       zipExport: false, requestCaps: false, multiDjQueues: false, folderTemplates: false,
       bulkQrPrinting: false, prioritySupport: false,
