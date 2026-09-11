@@ -976,6 +976,13 @@ export class MemoryRepository implements RunitRepository {
       this.scheduleList = [];
       this.requestList = [];
       this.photoList = [];
+      // NOW PLAYING TOO, and it was the one both of these missed. Every other collection
+      // was reset and `nowPlaying` was not, so a new or switched-into party inherited
+      // whatever the LAST one was playing -- a Now Playing card, on every guest's Music
+      // tab, for a song nobody in that room had asked for. `create_event` mints no
+      // now_playing row and each event's row is its own, so this was the fixture
+      // disagreeing with the backend: exactly what this adapter exists not to do.
+      this.sigNowPlaying.set(null);
       this.folderList = [];
       this.hostList = [
         { id: this.id('hst'), displayName: 'Host', role: target.role as HostRole, roleLabel: target.roleLabel },
@@ -1035,6 +1042,13 @@ export class MemoryRepository implements RunitRepository {
       this.scheduleList = [];
       this.requestList = [];
       this.photoList = [];
+      // NOW PLAYING TOO, and it was the one both of these missed. Every other collection
+      // was reset and `nowPlaying` was not, so a new or switched-into party inherited
+      // whatever the LAST one was playing -- a Now Playing card, on every guest's Music
+      // tab, for a song nobody in that room had asked for. `create_event` mints no
+      // now_playing row and each event's row is its own, so this was the fixture
+      // disagreeing with the backend: exactly what this adapter exists not to do.
+      this.sigNowPlaying.set(null);
       // The minted key becomes THIS fixture's key, so claimHost here behaves the way
       // claim_host does against Postgres: the key you were handed is the key that works.
       this.hostKey = key;

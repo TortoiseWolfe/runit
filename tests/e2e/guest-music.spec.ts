@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
-import { joinAsGuest, TOKENS, voteCount } from './helpers';
+import { joinAsGuest, open, TOKENS, voteCount } from './helpers';
 
 /**
  * The Music tab, from the guest side.
@@ -432,5 +432,81 @@ test.describe('asking for a song the room already asked for', () => {
 
     await expect(page.getByTestId('toast')).toContainText('Request sent to the DJ');
     expect(await page.getByTestId('music-queue').getByText('Alive', { exact: true }).count()).toBe(2);
+  });
+});
+
+/**
+ * THE LOOP ACTUALLY CLOSES NOW -- request, accept, start, and the room sees it.
+ *
+ * It could not before, and the reason was a closed loop in the UI rather than in the data:
+ * the host's whole Now-playing bar was gated on `nowPlaying`, and the ONLY control that sets
+ * `nowPlaying` lived inside that bar. So on every event this app can create -- where nothing
+ * is playing yet -- the button was undrawable, no song ever became current, and the guest's
+ * Now Playing card at MusicScreen.tsx:132 was unreachable for the life of the repo.
+ *
+ * WHAT THIS CANNOT PROVE: that sound comes out. RunIt has no audio path and cannot have one
+ * without a catalogue licence (#8) -- `playSong` hands the song to whatever music app the
+ * host has, and a browser has none, so `playSong` finds nothing and the toast says so. That
+ * handoff is witnessed only on a phone. This proves the CURSOR and the card.
+ */
+test.describe('the song actually starts', () => {
+  test('a host with accepted songs can start one, and every guest sees it', async ({
+    page,
+  }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+
+    // A FRESHLY CREATED EVENT, not the wedding fixture, and the reason is the whole point.
+    // `weddingSeed` seeds a `now_playing` row, so the bar is already in its playing state
+    // there and the bug was invisible. The state that mattered -- an event where nothing has
+    // started, which is EVERY event this app can create -- only exists on a new one.
+    await open(page, scheme, '/create', 'create-event');
+    await page.getByTestId('create-host-name').fill('Ruth');
+    await page.getByTestId('create-name').fill("Ruth's 40th");
+    await page.getByTestId('create-date').fill('2027-01-09');
+    await page.getByTestId('create-time').fill('19:00');
+    await page.getByTestId('create-submit').click();
+    await page.getByTestId('created-continue').click();
+
+    // A brand-new event has nothing playing and no accepted songs, so the bar is absent --
+    // a control that cannot act is not drawn.
+    await page.getByTestId('host-segment-dj').click();
+    await expect(page.getByTestId('play-next')).toHaveCount(0);
+
+    // Become a guest of the new event and ask for something. `role-switch` IS on the host
+    // chrome, so this direction works from any segment.
+    await page.getByTestId('role-switch').click();
+    await page.getByTestId('tab-music').click();
+    await expect(page.getByText('Now playing')).toHaveCount(0);
+    // ONE field, not two -- the composer takes "Song – artist" and splits it.
+    await page.getByTestId('request-input').fill('Dancing Queen – ABBA');
+    await page.getByTestId('request-submit').click();
+
+    // BACK VIA CHAT, because `RoleSwitch` lives on the chat header (EventHeader) and the
+    // Music tab has no header of its own. Worth knowing: the way back to the console is
+    // not on every guest tab.
+    await page.getByTestId('tab-chat').click();
+    await page.getByTestId('role-switch').click();
+    await page.getByTestId('host-segment-dj').click();
+    await page.getByTestId(/^accept-/).first().click();
+
+    // NOW there is something to start, so the bar appears. Before the fix it could not:
+    // the whole bar was gated on `nowPlaying`, and the only control that sets `nowPlaying`
+    // was inside it.
+    const start = page.getByTestId('play-next');
+    await expect(start).toBeVisible();
+    await expect(start).toHaveText('Start ▶');
+    await expect(page.getByText('Nothing playing yet')).toBeVisible();
+
+    await start.click();
+
+    // The label flipping is the proof the cursor MOVED, not that a string changed: it now
+    // offers the NEXT one.
+    await expect(page.getByTestId('play-next')).toHaveText('Play next ▶');
+
+    // AND THE ROOM SEES IT -- the guest card at MusicScreen.tsx:132, unreachable until now.
+    await page.getByTestId('role-switch').click();
+    await page.getByTestId('tab-music').click();
+    await expect(page.getByText('Now playing')).toBeVisible();
+    await expect(page.getByText('Dancing Queen')).toBeVisible();
   });
 });
