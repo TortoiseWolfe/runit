@@ -6,7 +6,8 @@ import { PhotoViewer } from './PhotoViewer';
 import { ReportSheet } from '@/features/moderation/ReportSheet';
 import { usePhotoActions } from '@/state/actions';
 import {
-  useActiveFolder, useApprovedPhotos, useEntitlements, useFolders, useMyReports, useMyUploads,
+  useActiveFolder, useApprovedPhotos, useEntitlements, useEvent, useFolders, useMyReports,
+  useMyUploads,
 } from '@/state/hooks';
 import { subjectKey, type Photo } from '@/data/types';
 import { albumTileColor, alpha, border, radius, tracking, useTheme, weight } from '@/theme';
@@ -74,7 +75,17 @@ export function PhotosScreen() {
    * (`photos_read`, schema.sql:1185-1190). It states the RULE, which is the part that
    * stops the album looking broken, and it costs nothing at a party to be told.
    */
-  const moderated = useEntitlements().tier.features.photoModeration;
+  /*
+   * THE EVENT'S SWITCH, NOT THE TIER'S. It was `useEntitlements().tier.features
+   * .photoModeration`, which is false on `house_party` -- the only tier `create_event`
+   * mints -- so on every event this app can create the album promised the room that
+   * photos go straight in, it was right, and nothing could change that.
+   *
+   * `?? false` for the cold open: before an event is loaded there is no album to
+   * describe, and guessing `true` would print "once a host approves them" on a screen
+   * with no host.
+   */
+  const moderated = useEvent()?.photoModeration ?? false;
 
   const visible = approved.filter((p) => p.folderId === active?.id);
   const totalPhotos = folders.reduce((a, f) => a + f.photoCount, 0);

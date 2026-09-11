@@ -45,6 +45,9 @@ export const housePartySeed: Seed = {
     nowScheduleItemId: 'sch_h2',
     guestCount: 3,
     invitedCount: 8,
+    // OFF. Three friends in a kitchen; nobody is approving anybody. This is what
+    // `create_event` now produces, so it is what most real parties look like.
+    photoModeration: false,
   },
   hosts: [{ id: 'hst_sam', displayName: 'Sam', role: 'host', roleLabel: 'Host' }],
   broadcasts: [

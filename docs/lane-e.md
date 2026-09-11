@@ -125,6 +125,28 @@ matched a local build of the committed migration exactly. That baseline is commi
 `policies.yml` asserts it on every push touching `supabase/**` — so a migration change that
 was never deployed goes red, with no credential needed.
 
+### When production and the file disagree ON PURPOSE
+
+**That combination went red and stayed red, and nobody read it.** #63 raised `max_guests` to
+40 and `max_hosts` to 2 on `house_party` in the database only, for one party, with a revert
+date — so production and the committed migration disagree on `tier_limits` by design. The
+baseline records production; CI compares it to a local build; the `Schema fingerprint` step
+failed on the merge that did it and on the next two merges as well.
+
+A permanently red gate is a gate nobody reads, and it would have swallowed a real drift
+exactly as happily. So the baseline carries an `expectedDivergence` list:
+
+```json
+"expectedDivergence": [
+  { "group": "tier_limits", "fingerprint": "<what the OTHER side hashes to>",
+    "until": "2026-09-13", "reason": "..." }
+]
+```
+
+It is as narrow as one fingerprint and it **expires**. A group with an allowance still fails
+on any third value, and the day after `until` it fails as `STALE` with the reason printed.
+Both behaviours are mutation-checked — do not soften either into "skip this group".
+
 It is a fingerprint rather than a diff on purpose: a hash answers "has anything moved?" in six
 numbers. When one changes, run `supabase/schema-fingerprint.sql` against both sides to find
 out what.

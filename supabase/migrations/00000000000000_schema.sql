@@ -52,6 +52,24 @@ create table public.events (
                          check (tier in ('house_party','party','event','venue')),
   active_folder_id     uuid,
   now_schedule_item_id uuid,
+  -- Whether an uploaded photo waits for a host before the room can see it.
+  --
+  -- IT WAS A TIER FEATURE AND THAT WAS THE WRONG AXIS. `set_photo_status` read
+  -- `tier_limits.photo_moderation`, which is false on `house_party` -- the tier
+  -- `create_event` mints -- so on every event this app can actually create, a guest's
+  -- photo went onto every screen in the room the instant it landed, and the only route
+  -- to a gate was a purchase path that does not exist (#30).
+  --
+  -- Whether photos WAIT is a decision about the EVENT, not about what the host paid.
+  -- Eight friends in a kitchen do not want to approve each other; two hundred people at
+  -- a wedding want the gate. And it is a SAFETY decision, which is not something a host
+  -- should have to buy -- #65 already settled that one step later, ungating `hide` on the
+  -- reasoning that taking reported content down is a review obligation rather than a
+  -- feature. Stopping it being shown is the same obligation, earlier.
+  --
+  -- DEFAULT FALSE, because a party of eight that has to approve itself is friction
+  -- nobody asked for. The host turns it on; `events_host_update` grants the column.
+  photo_moderation     boolean not null default false,
   -- Maintained by trigger from `guests`, like every other count here. Stored
   -- rather than derived because the "{n} here" pill is read on every render.
   guest_count          integer not null default 0,
@@ -1313,7 +1331,8 @@ grant execute on function public.start_schedule_item(uuid, boolean) to authentic
 -- also let any host rewrite `tier` (bypassing billing the day billing exists) and `code`
 -- (hijacking another event's join code). Column grants are the other half of the tool.
 revoke update on public.events from authenticated, anon;
-grant  update (active_folder_id, name, venue, starts_at, timezone, doors_label)
+grant  update (active_folder_id, name, venue, starts_at, timezone, doors_label,
+               photo_moderation)
   on public.events to authenticated;
 
 create policy events_host_update on public.events for update
@@ -1857,18 +1876,17 @@ create table public.tier_limits (
   -- built in SQL at all -- `storage.protect_delete()` refuses every direct delete on
   -- storage.objects, for the owner as much as a guest, which Lane E asserts. It has to go
   -- through the Storage API with a service role, and that is its own piece of work.
-  album_retention_days integer,
-  -- Whether an uploaded photo waits for a host before the room can see it (#50).
-  --
-  -- IT LIVED IN THE CLIENT UNTIL NOW, and that is the whole defect. `SupabaseRepository`
-  -- chose `pending` or `approved` from its own entitlements and sent the column; nothing
-  -- server-side constrained it, `status` was in the INSERT grant, and `photos_insert`
-  -- checks only WHO uploaded. So any client holding the app's public key could file a
-  -- photo already approved and skip the queue a paid tier sells. CLAUDE.md states the rule
-  -- it broke -- "a check that lives in a button handler is bypassed by the second caller"
-  -- -- and this was that, one level up: the check lived in OUR client.
-  photo_moderation boolean not null default false
+  album_retention_days integer
 );
+
+-- PHOTO MODERATION USED TO BE A COLUMN HERE (#50) AND IT IS NOT ANY MORE. #50's finding
+-- still stands and is preserved by the move rather than lost to it: the choice must not
+-- live in the client. `SupabaseRepository` once picked `pending` or `approved` from its
+-- own entitlements and sent the column, with nothing server-side constraining it, so any
+-- caller holding the app's public key could file a photo already approved. The decision
+-- is still made inside the database by `set_photo_status`; it now reads
+-- `events.photo_moderation` instead of this table, because it is the host's choice about
+-- one party rather than a thing she buys. See the column's own comment on `events`.
 
 alter table public.tier_limits enable row level security;
 
@@ -1878,21 +1896,20 @@ create policy tier_limits_read on public.tier_limits for select using (true);
 revoke insert, update, delete on public.tier_limits from authenticated, anon;
 
 insert into public.tier_limits
-  (tier, max_guests, max_hosts, max_photos, max_folders, host_roles, pinned_announcements, push_notifications, album_retention_days, photo_moderation)
-values ('house_party',   10,    1,  100,    1, false, false, false,   30, false),
-       ('party',         50,    2, 1000,    3, false, false, false,   90, true),
-       ('event',        300,    5, null,   10, true,  true,  true,   365, true),
-       ('venue',       3000, null, null, null, true,  true,  true,  null, true)
+  (tier, max_guests, max_hosts, max_photos, max_folders, host_roles, pinned_announcements, push_notifications, album_retention_days)
+values ('house_party',   10,    1,  100,    1, false, false, false,   30),
+       ('party',         50,    2, 1000,    3, false, false, false,   90),
+       ('event',        300,    5, null,   10, true,  true,  true,   365),
+       ('venue',       3000, null, null, null, true,  true,  true,  null)
 on conflict (tier) do update set
   max_guests  = excluded.max_guests,  max_hosts   = excluded.max_hosts,
   max_photos  = excluded.max_photos,  max_folders = excluded.max_folders,
   host_roles  = excluded.host_roles,
   pinned_announcements = excluded.pinned_announcements,
   push_notifications   = excluded.push_notifications,
-  album_retention_days = excluded.album_retention_days,
-  photo_moderation     = excluded.photo_moderation;
+  album_retention_days = excluded.album_retention_days;
 
--- The tier decides, and the database asks it. `before insert` only: UPDATE on `photos` is
+-- THE EVENT decides, and the database asks it. `before insert` only: UPDATE on `photos` is
 -- already host-only by `photos_moderate` above, so a guest has no second door to reopen
 -- what this refused -- checked rather than assumed, because #26 shipped exactly that bug
 -- (an UPDATE policy that undid an insert-time fold).
@@ -1912,13 +1929,15 @@ begin
   -- already restricts to hosts. Seeds that want an approved photo insert one and then
   -- update it, which is what a host does anyway.
 
-  select tl.photo_moderation into v_moderated
-    from public.tier_limits tl
-    join public.events e on e.tier = tl.tier
+  select e.photo_moderation into v_moderated
+    from public.events e
    where e.id = new.event_id;
 
-  -- An event whose tier cannot be read is not a reason to let a photo through unreviewed.
+  -- An event that cannot be read is not a reason to let a photo through unreviewed.
   -- Absent answers as MODERATED, which fails toward the host rather than toward the room.
+  -- The column is `not null`, so the only way this is null is no such event -- in which
+  -- case the insert is about to fail on the foreign key anyway, and failing safe here
+  -- costs nothing.
   new.status := case when coalesce(v_moderated, true) then 'pending' else 'approved' end;
   return new;
 end $$;

@@ -386,7 +386,113 @@ try {
   await page.waitForSelector('[data-testid="host-photos"]', { timeout: 20_000 });
   const hostPanel = await page.getByTestId('host-photos').innerText();
   check(/1 photos|1 photo/.test(hostPanel), 'the folder count folded on the host side', hostPanel.match(/\d+ photos?/)?.[0] ?? '');
-  check(/All caught up/i.test(hostPanel), 'and the free tier leaves no approval queue, as designed');
+  check(/All caught up/i.test(hostPanel), 'and with approval off the queue is empty, as designed');
+
+  // ------------------------------------------------ PHOTO APPROVAL, ON A FREE EVENT
+  //
+  // THIS LANE PRINTED "NOT CHECKED HERE" ABOUT MODERATION ON EVERY RUN, and the reason it
+  // gave was true: `create_event` mints `house_party`, which auto-approved, and no client
+  // can set `events.tier` (#30) -- so the approval queue had no reachable state in any
+  // event this app could create. The reason has gone rather than the risk. Approval is a
+  // switch on the event now, on any tier, and this is the only lane that can prove the
+  // real `set_photo_status` trigger fires off the real column against the real database.
+  //
+  // WHAT ONLY THIS LANE CAN SEE, and none of it is theoretical: `photo_moderation` must be
+  // in the UPDATE column grant or PostgREST's statement fails whole with 42501; the write
+  // must match `events_host_update` or it affects zero rows and raises nothing; and the
+  // trigger is SECURITY DEFINER reading a column the client cannot name on INSERT. Lane B
+  // proves none of that -- it boots MemoryRepository, where the flag is a field on an
+  // object.
+  await page.getByTestId('host-segment-event').click();
+  await page.waitForSelector('[data-testid="host-event-details"]', { timeout: 20_000 });
+  await page.getByTestId('moderation-toggle').click();
+
+  // THE TOAST, NOT THE TOGGLE'S OWN LABEL, and the first draft got this wrong in a way
+  // worth keeping written down. The label repaints from the `events` observable, which is
+  // fed by a realtime channel -- so waiting on it asserts WEBSOCKET DELIVERY while
+  // claiming to assert a write. It failed on the first run for exactly that reason: the
+  // row was `photo_moderation = true` in Postgres and the button still read Off. This
+  // lane's own rule is that exactly ONE assertion here is about realtime (the broadcast,
+  // which reports its latency), because blurring the two is how a lane earns a reputation
+  // for flakiness.
+  //
+  // `setPhotoModeration` calls `assertWrote`, and the action shows one toast on success
+  // and a different one on refusal -- so the toast is a direct read of what Postgres said,
+  // with no channel in the path. It is also the only thing that can catch the silent
+  // shape: a non-host's UPDATE here affects zero rows and raises nothing.
+  const modToast = await page.waitForSelector('[data-testid="toast"]', { timeout: 20_000 });
+  const modToastText = await modToast.innerText();
+  check(
+    /wait for a host/i.test(modToastText),
+    'a free-tier host can turn photo approval on, and Postgres took the write',
+    modToastText,
+  );
+  await toastGone();
+
+  // Back to the guest side and upload a SECOND photo. It must not reach the album.
+  //
+  // `role-switch` DIRECTLY, with no `tab-chat` first, and the asymmetry is real rather
+  // than a style choice: RoleSwitch renders in `HostConsoleChrome`'s header on this side
+  // and only in the ChatScreen FOOTER on the guest side, so the guest-to-host hops below
+  // need the chat tab and this one does not. Written the other way round it waits 30s for
+  // a `tab-chat` the host console does not have.
+  await page.getByTestId('role-switch').click();
+  await page.waitForSelector('[data-testid="tab-photos"]', { timeout: 20_000 });
+  await page.getByTestId('tab-photos').click();
+  await page.waitForSelector('[data-testid="shutter-small"],[data-testid="shutter"]', { timeout: 20_000 });
+  const shutter2 = (await page.getByTestId('shutter-small').count())
+    ? page.getByTestId('shutter-small')
+    : page.getByTestId('shutter');
+  await shutter2.click();
+  await toastGone();
+
+  // ONE tile, not two: the first photo is approved and the second is waiting. Asserting
+  // the COUNT rather than "the album is empty" is what makes this a moderation check
+  // instead of an upload-failed check -- a swallowed upload gives 1 as well, which is why
+  // the host-side clause below is not optional.
+  await page.waitForFunction(
+    () => document.querySelectorAll('[data-testid^="tile-"]').length === 1,
+    null,
+    { timeout: 30_000 },
+  );
+  const tiles = await page.locator('[data-testid^="tile-"]').count();
+  check(tiles === 1, 'a guest photo does NOT reach the album while approval is on', String(tiles));
+
+  await page.getByTestId('tab-chat').click();
+  await page.waitForSelector('[data-testid="chat-feed"]', { timeout: 20_000 });
+  await page.getByTestId('role-switch').click();
+  await page.waitForSelector('[data-testid="host-broadcast"]', { timeout: 30_000 });
+  await page.getByTestId('host-segment-photos').click();
+  await page.waitForSelector('[data-testid="host-photos"]', { timeout: 20_000 });
+  await page.waitForSelector('[data-testid^="approve-"]', { timeout: 30_000 });
+  const queued = await page.locator('[data-testid^="approve-"]').count();
+  check(queued === 1, '...it is waiting in the host queue, which set_photo_status filed as pending', String(queued));
+
+  // And approving it puts it in the room. `photos.approve` is ungated now; against the
+  // database the gate is `photos_moderate`, which is `using (is_host(event_id))`.
+  await page.locator('[data-testid^="approve-"]').first().click();
+  await page.getByTestId('role-switch').click();
+  await page.waitForSelector('[data-testid="tab-photos"]', { timeout: 20_000 });
+  await page.getByTestId('tab-photos').click();
+  await page.waitForFunction(
+    () => document.querySelectorAll('[data-testid^="tile-"]').length === 2,
+    null,
+    { timeout: 30_000 },
+  );
+  const tiles2 = await page.locator('[data-testid^="tile-"]').count();
+  check(tiles2 === 2, '...and approving it puts it in front of the room', String(tiles2));
+
+  // TURNED BACK OFF before moving on, so the rest of this run sees the world it expects
+  // and the event left behind is not a moderated one somebody has to reason about.
+  await page.getByTestId('tab-chat').click();
+  await page.waitForSelector('[data-testid="chat-feed"]', { timeout: 20_000 });
+  await page.getByTestId('role-switch').click();
+  await page.waitForSelector('[data-testid="host-broadcast"]', { timeout: 30_000 });
+  await page.getByTestId('host-segment-event').click();
+  await page.waitForSelector('[data-testid="host-event-details"]', { timeout: 20_000 });
+  await page.getByTestId('moderation-toggle').click();
+  await page.waitForSelector('[data-testid="toast"]', { timeout: 20_000 });
+  await toastGone();
 
   // -------------------------------------------------------------- invitees
   //
@@ -394,7 +500,7 @@ try {
   // which is why collapsing them is invisible by inspection. The composer addresses
   // everyone INVITED; the guest header counts everyone PRESENT. This is `fold_invited_count`
   // firing against real Postgres and the composer reading the folded number.
-  await page.getByTestId('host-segment-event').click();
+  // Already on Host -> Event from the moderation block above.
   await page.waitForSelector('[data-testid="host-event-details"]', { timeout: 20_000 });
   // THE SECTION FOLDS NOW, AND THIS LANE DID NOT KNOW. `Disclosure` landed on this panel
   // and `invitee-email` moved inside it, collapsed by default -- so this line timed out
@@ -776,9 +882,10 @@ console.log('  not checked here, and neither is reachable from a browser:');
 console.log('    push delivery -- `push.web.ts` returns null BY DESIGN. Its docblock says why');
 console.log('      a fake token would be worse than none: it would flow to set_push_token and');
 console.log('      be stored as a routable address that routes nowhere.');
-console.log('    photo moderation -- `create_event` mints house_party, which auto-approves, and');
-console.log('      no client can set `events.tier` (#30). The approval queue has no reachable');
-console.log('      state in any event this app can currently create.');
+console.log('    NOT photo moderation any more -- it is checked above, end to end, on a free');
+console.log('      event this lane created. It used to be listed here because house_party');
+console.log('      auto-approved and no client can set `events.tier` (#30); approval is a');
+console.log('      switch on the EVENT now, so the state is reachable and is reached.');
 console.log('');
 if (code) {
   console.log(`  event "${EVENT_NAME}" (${code}) was left behind. See docs/smoke-live.md to sweep it.`);

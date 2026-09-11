@@ -54,19 +54,19 @@ export type Database = {
           id: string; code: string; name: string; venue: string; starts_at: string;
           timezone: string; doors_label: string; tier: string; active_folder_id: string | null;
           now_schedule_item_id: string | null; guest_count: number; invited_count: number;
-          created_at: string;
+          photo_moderation: boolean; created_at: string;
         };
         Insert: {
           id?: string; code: string; name: string; venue: string; starts_at: string;
           timezone?: string; doors_label?: string; tier?: string; active_folder_id?: string | null;
           now_schedule_item_id?: string | null; guest_count?: number; invited_count?: number;
-          created_at?: string;
+          photo_moderation?: boolean; created_at?: string;
         };
         Update: {
           id?: string; code?: string; name?: string; venue?: string; starts_at?: string;
           timezone?: string; doors_label?: string; tier?: string; active_folder_id?: string | null;
           now_schedule_item_id?: string | null; guest_count?: number; invited_count?: number;
-          created_at?: string;
+          photo_moderation?: boolean; created_at?: string;
         };
         Relationships: [];
       };

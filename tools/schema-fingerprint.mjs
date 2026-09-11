@@ -80,21 +80,67 @@ if (!check) {
   process.exit(0);
 }
 
-const baseline = JSON.parse(readFileSync(BASELINE, 'utf8')).schema;
-const kinds = [...new Set([...Object.keys(baseline), ...Object.keys(actual)])].sort();
-const drifted = kinds.filter(
-  (k) => baseline[k]?.fingerprint !== actual[k]?.fingerprint || baseline[k]?.n !== actual[k]?.n,
+const doc = JSON.parse(readFileSync(BASELINE, 'utf8'));
+const baseline = doc.schema;
+
+/**
+ * A DIVERGENCE THAT IS ON PURPOSE, DATED, AND THEREFORE TEMPORARY.
+ *
+ * The baseline records PRODUCTION, which is what makes it worth having. CI compares it to
+ * a LOCAL build from the migration. Those two can only agree while production and the file
+ * agree -- and #63 deliberately made them disagree, raising `max_guests` to 40 and
+ * `max_hosts` to 2 on `house_party` for one party, in the database only, with a revert
+ * date.
+ *
+ * So this step went red on the merge that did it and stayed red: THREE consecutive runs of
+ * `policies.yml` failed on `Schema fingerprint` before anyone looked, and the next two
+ * merges landed under it. That is the failure mode this repo keeps re-learning -- a gate
+ * that is permanently red is a gate nobody reads, and it would have swallowed a real drift
+ * exactly as happily as it swallowed this one.
+ *
+ * The fix is not to widen the gate. It is to say, in the baseline, WHICH group diverges,
+ * WHAT the other side hashes to, WHY, and UNTIL WHEN -- so the allowance is as narrow as
+ * one fingerprint, and it EXPIRES loudly rather than quietly becoming the new normal. A
+ * group with an allowance still fails on any value that is neither the baseline's nor the
+ * named one.
+ */
+const today = new Date().toISOString().slice(0, 10);
+const allowances = Object.fromEntries(
+  (doc.expectedDivergence ?? []).map((d) => [d.group, d]),
 );
+
+const status = (k) => {
+  const b = baseline[k];
+  const a = actual[k];
+  if (b?.fingerprint === a?.fingerprint && b?.n === a?.n) return 'ok';
+  const d = allowances[k];
+  if (!d || d.fingerprint !== a?.fingerprint) return 'drift';
+  return d.until >= today ? 'known' : 'expired';
+};
+
+const kinds = [...new Set([...Object.keys(baseline), ...Object.keys(actual)])].sort();
+const drifted = kinds.filter((k) => status(k) !== 'ok' && status(k) !== 'known');
+
+const MARK = {
+  ok: '\x1b[32mok   \x1b[0m',
+  known: '\x1b[33mknown\x1b[0m',
+  drift: '\x1b[31mDRIFT\x1b[0m',
+  expired: '\x1b[31mSTALE\x1b[0m',
+};
 
 for (const k of kinds) {
   const b = baseline[k];
   const a = actual[k];
-  const ok = b?.fingerprint === a?.fingerprint && b?.n === a?.n;
+  const st = status(k);
   console.log(
-    `  ${ok ? '\x1b[32mok  \x1b[0m' : '\x1b[31mDRIFT\x1b[0m'} ${k.padEnd(12)} ${
+    `  ${MARK[st]} ${k.padEnd(12)} ${
       a ? `${a.n} @ ${a.fingerprint.slice(0, 12)}` : '(absent)'
-    }${ok ? '' : `   baseline: ${b ? `${b.n} @ ${b.fingerprint.slice(0, 12)}` : '(absent)'}`}`,
+    }${st === 'ok' ? '' : `   baseline: ${b ? `${b.n} @ ${b.fingerprint.slice(0, 12)}` : '(absent)'}`}`,
   );
+  if (st === 'known') console.log(`        allowed until ${allowances[k].until}: ${allowances[k].reason}`);
+  if (st === 'expired') {
+    console.log(`        \x1b[31mthe allowance expired on ${allowances[k].until}\x1b[0m: ${allowances[k].reason}`);
+  }
 }
 
 if (drifted.length) {
@@ -112,4 +158,13 @@ if (drifted.length) {
   process.exit(1);
 }
 
-console.log(`\n\x1b[32mok: the schema matches the committed baseline across all ${kinds.length} groups\x1b[0m`);
+const known = kinds.filter((k) => status(k) === 'known');
+if (known.length) {
+  console.log(
+    `\n\x1b[33mok: ${kinds.length - known.length} group(s) match the baseline; ` +
+      `${known.join(', ')} diverge(s) on purpose and the allowance expires ` +
+      `${known.map((k) => allowances[k].until).join(', ')}\x1b[0m`,
+  );
+} else {
+  console.log(`\n\x1b[32mok: the schema matches the committed baseline across all ${kinds.length} groups\x1b[0m`);
+}

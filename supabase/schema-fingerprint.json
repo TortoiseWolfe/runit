@@ -1,12 +1,20 @@
 {
   "capturedFrom": "the LIVE project qwusbxallkbzfladvgfx, via the Supabase MCP",
-  "capturedAt": "2026-09-10",
-  "verifiedAgainst": "Re-captured after #59. columns 120->130 (guest_lists 4 + guest_list_members 6), functions 35->38 (attach_guest_list, save_guest_list, forget_person), indexes 30->35 (2 primary keys + 3 unique), policies 34->36 (one per new table, FOR ALL). TRIGGERS UNCHANGED, which is the check that #59 added no fold and no side effect. tier_limits is unchanged from the previous capture and still carries the #63 party overrides -- max_guests 40 and max_hosts 2 on house_party -- which the committed migration deliberately does NOT have. Production and the file still disagree on those two numbers BY DESIGN until #63 is reverted after 2026-09-12.",
+  "capturedAt": "2026-09-11",
+  "verifiedAgainst": "Re-captured after photo approval moved off the tier and onto the event. columns 130->130 AND THE COUNT IS THE POINT: one column added to events, one dropped from tier_limits, so only the hash moved (30d54cb2649e -> a75c18446d7d) and a count check would have seen nothing. Production's columns hash EQUALS the local build's, which is what says the deploy matches the file rather than merely resembling it. tier_limits changed for two independent reasons and both are deliberate: photo_moderation is no longer one of the hashed fields (schema-fingerprint.sql lost it), and production still carries the #63 party overrides -- max_guests 40 and max_hosts 2 on house_party -- which the committed migration does NOT, until #63 is reverted after 2026-09-12. So the local build hashes tier_limits 05b6569c6289 while production hashes d8e3b695b624, BY DESIGN, and it is production that is recorded here. functions, indexes, policies and triggers all unchanged. WHAT THIS DOES NOT PROVE: set_photo_status was rewritten and the functions hash did not move, because schema-fingerprint.sql hashes a function as proname(identity_arguments) -- its SIGNATURE, not its body. Lane E is what checked the new body, against a local stack built from the migration and against production's own behaviour.",
   "howToRefresh": "pnpm schema:fingerprint --write, and only after re-checking production. See docs/lane-e.md and issue #49.",
+  "expectedDivergence": [
+    {
+      "group": "tier_limits",
+      "fingerprint": "05b6569c628930058ffe8ba9fc49fa88",
+      "until": "2026-09-13",
+      "reason": "#63 raised max_guests to 40 and max_hosts to 2 on house_party in PRODUCTION ONLY, for one party, and the committed migration deliberately still seeds 10 and 1. So the local build hashes 05b6569c6289 while production -- which the baseline records -- hashes d8e3b695b624. Revert #63 with one UPDATE after 2026-09-12 and delete this entry; until then the gate stays honest about the one group it cannot reconcile instead of failing on all of them. THIS ALLOWANCE EXISTS BECAUSE THE GATE WAS RED FOR THREE CI RUNS AND NOBODY READ IT."
+    }
+  ],
   "schema": {
     "columns": {
       "n": 130,
-      "fingerprint": "30d54cb2649e3d4925dee8b3e9374451"
+      "fingerprint": "a75c18446d7d9135c826572e9bdc6f67"
     },
     "functions": {
       "n": 38,
@@ -22,7 +30,7 @@
     },
     "tier_limits": {
       "n": 4,
-      "fingerprint": "9f6aee12d1d17c3216bf6019650048f4"
+      "fingerprint": "d8e3b695b624c10bd2ecde2dc0090e10"
     },
     "triggers": {
       "n": 21,

@@ -480,26 +480,29 @@ describe('entitlements are enforced in the repository, not the button', () => {
   // only writer of nowPlaying, the Now Playing bar never moved. The replacement
   // is the opposite assertion, in `the free tier runs a whole party` below.
 
-  // upload() reads photoModeration to decide pending-vs-approved, so the queue
-  // it creates has to be gated by the same feature or a free tier moderates a
-  // queue it was never sold.
   /**
-   * APPROVE IS GATED; HIDE IS NOT, AND THE SPLIT IS THE POINT (#65).
+   * NEITHER APPROVE NOR HIDE IS GATED ANY MORE, and this test asserted the opposite twice.
    *
-   * This asserted both threw. `hide` throwing is what made Guideline 1.2 unsatisfiable:
-   * `create_event` mints `house_party`, so a REPORTED photo could not be taken down on any
-   * event the app can create, and "Removed" closed the report while the photo stayed in the
-   * album.
+   * It first asserted BOTH threw. #65 split them: `hide` throwing is what made Guideline
+   * 1.2 unsatisfiable, because `create_event` mints `house_party`, so a REPORTED photo
+   * could not be taken down on any event the app can create -- "Removed" closed the report
+   * while the photo stayed in the album. The reasoning kept for `approve` was that
+   * moderation is "a feature somebody pays for, and `approve` is meaningless without it
+   * because nothing is ever pending".
    *
-   * The two are different things. `photoModeration` decides whether uploads WAIT for
-   * approval -- a feature somebody pays for, and `approve` is meaningless without it because
-   * nothing is ever pending. Removing reported content is a review OBLIGATION, and a free
-   * tier that cannot comply is a liability rather than a tier.
+   * That second half was circular. Nothing was ever pending BECAUSE the tier decided, and
+   * the tier decided because it was sold that way. Approval is a safety setting the host
+   * turns on for her own party now, so a free-tier host has a queue and the old gate could
+   * only ever refuse the one person it was built for.
    */
-  it('gates approval on the free tier, because nothing is ever pending there', async () => {
+  it('does NOT gate approving a photo, on any tier', async () => {
     const r = make();
     await r.event.setTier('house_party');
-    await expect(r.photos.approve('pho_1')).rejects.toBeInstanceOf(EntitlementError);
+    // The wedding fixture has approval ON, so `pho_1` is pending and this is a real
+    // approval rather than a no-op that any implementation would satisfy.
+    expect(r.photos.pending.get().some((p) => p.id === 'pho_1')).toBe(true);
+    await expect(r.photos.approve('pho_1')).resolves.toBeUndefined();
+    expect(r.photos.approved.get().some((p) => p.id === 'pho_1')).toBe(true);
   });
 
   it('does NOT gate taking a photo down, on any tier (#65)', async () => {
@@ -510,17 +513,21 @@ describe('entitlements are enforced in the repository, not the button', () => {
     expect(r.photos.approved.get().some((p) => p.id === 'pho_1')).toBe(false);
   });
 
-  // RE-POINTED, not deleted, when the djQueue gate was removed. This is the only
-  // test that exercises `denial.upgradeTo` -- the paywall's "which tier lifts
-  // this?" path -- and deleting it along with the gate would have silently taken
-  // that coverage with it. photoModeration still discriminates on APPROVE (#65 ungated
-  // only `hide`), so the assertion survives intact on a feature that still gates.
+  // RE-POINTED TWICE, and never deleted, because this is the only test that exercises
+  // `denial.upgradeTo` -- the paywall's "which tier lifts this?" path. It moved off the
+  // djQueue gate when that was removed and moved onto `photoModeration`; moderation is not
+  // a tier feature at all now, so it moves again rather than going out with it. Deleting
+  // it alongside a retired gate is how that coverage would vanish unnoticed.
+  //
+  // `pinnedAnnouncements` is the right home: a real feature, gated in this adapter, and
+  // one of the three `audit:tiers` reports as granted AND enforced.
   it('names the tier that lifts a refused feature, so the paywall can highlight it', async () => {
     const r = make();
     await r.event.setTier('house_party');
-    await r.photos.approve('pho_1').catch((e: EntitlementError) => {
+    const id = r.chat.feed.get()[0]!.id;
+    await r.chat.setPinned(id, true).catch((e: EntitlementError) => {
       expect(e.denial.kind).toBe('feature');
-      expect(e.denial).toMatchObject({ feature: 'photoModeration' });
+      expect(e.denial).toMatchObject({ feature: 'pinnedAnnouncements' });
       expect(e.denial.upgradeTo).toBeTruthy();
     });
     expect.hasAssertions();
@@ -1001,5 +1008,94 @@ describe('changing your own name (#43)', () => {
     });
     // Mirrors `set_nickname`'s 42501: `my_guest_id` is null for her until she takes a seat.
     await expect(r.session.setNickname('Ruthie')).rejects.toThrow(/Not joined as a guest/);
+  });
+});
+
+/**
+ * PHOTO APPROVAL, ON A FREE EVENT THIS APP CAN ACTUALLY CREATE.
+ *
+ * Written against `create()` rather than the wedding fixture, deliberately. `weddingSeed`
+ * sits on the Event tier with moderation already on, six schedule rows and a full album --
+ * richer than anything the product can build -- and four separate defects have now hidden
+ * behind it. The state this feature is about is the state a host reaches on her first
+ * night, so the test starts where she does.
+ */
+describe('a host turns photo approval on for her own party', () => {
+  const created = async () => {
+    const r = make();
+    await r.event.create({
+      name: "Ruth's 40th", venue: 'The garden', startsAt: FIXED,
+      timezone: 'America/New_York', doorsLabel: 'Doors 7:00 PM', hostName: 'Ruth',
+    });
+    return r;
+  };
+
+  it('starts off, on the only tier create_event mints', async () => {
+    const r = await created();
+    expect(r.event.current.get()).toMatchObject({ tier: 'house_party', photoModeration: false });
+  });
+
+  it('lets a photo straight into the album while it is off', async () => {
+    const r = await created();
+    // The founder takes a guest seat on demand (#37) -- she has no `guests` row from
+    // `create_event`, which is the same route the role switch drives on screen.
+    await r.session.becomeGuest();
+    await expect(r.photos.upload({ localUri: 'file:///tmp/a.jpg' })).resolves.toBe('approved');
+  });
+
+  /**
+   * THE ASSERTION THE WHOLE CHANGE EXISTS FOR. `house_party` -- and it is not upgraded
+   * anywhere in here, which is the point: the tier is untouched and the behaviour changes.
+   * Before this, a free-tier host could not reach `'pending'` by any route at all.
+   */
+  it('makes the next photo wait once she turns it on, with no change of tier', async () => {
+    const r = await created();
+    await r.event.setPhotoModeration(true);
+    expect(r.event.current.get()).toMatchObject({ tier: 'house_party', photoModeration: true });
+
+    // The founder takes a guest seat on demand (#37) -- she has no `guests` row from
+    // `create_event`, which is the same route the role switch drives on screen.
+    await r.session.becomeGuest();
+    await expect(r.photos.upload({ localUri: 'file:///tmp/a.jpg' })).resolves.toBe('pending');
+
+    // In the host's queue and NOT in the album -- both halves, because a photo that simply
+    // vanished would satisfy the first one alone.
+    expect(r.photos.pending.get()).toHaveLength(1);
+    expect(r.photos.approved.get()).toHaveLength(0);
+  });
+
+  /**
+   * IT APPLIES AT UPLOAD, NOT RETROSPECTIVELY. `set_photo_status` is a `before insert`
+   * trigger, so a host changing her mind mid-party governs the next photo and leaves the
+   * album alone. The helper copy in `EventDetailsPanel` promises exactly this, and a
+   * promise on a screen that no test holds is how the album came to contradict itself.
+   */
+  it('leaves photos already in the album alone when she turns it on', async () => {
+    const r = await created();
+    // The founder takes a guest seat on demand (#37) -- she has no `guests` row from
+    // `create_event`, which is the same route the role switch drives on screen.
+    await r.session.becomeGuest();
+    await r.photos.upload({ localUri: 'file:///tmp/a.jpg' });
+    expect(r.photos.approved.get()).toHaveLength(1);
+
+    await r.event.setPhotoModeration(true);
+    expect(r.photos.approved.get()).toHaveLength(1);
+    expect(r.photos.pending.get()).toHaveLength(0);
+
+    await r.photos.upload({ localUri: 'file:///tmp/b.jpg' });
+    expect(r.photos.approved.get()).toHaveLength(1);
+    expect(r.photos.pending.get()).toHaveLength(1);
+  });
+
+  it('and a free-tier host can then approve what is waiting', async () => {
+    const r = await created();
+    await r.event.setPhotoModeration(true);
+    // The founder takes a guest seat on demand (#37) -- she has no `guests` row from
+    // `create_event`, which is the same route the role switch drives on screen.
+    await r.session.becomeGuest();
+    await r.photos.upload({ localUri: 'file:///tmp/a.jpg' });
+    await r.photos.approve(r.photos.pending.get()[0]!.id);
+    expect(r.photos.approved.get()).toHaveLength(1);
+    expect(r.photos.pending.get()).toHaveLength(0);
   });
 });
