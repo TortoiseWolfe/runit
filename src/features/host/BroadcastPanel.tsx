@@ -19,11 +19,15 @@ export function BroadcastPanel() {
   const feed = useFeed();
   const schedule = useSchedule();
   const { nowIndex } = useNowNext();
-  const { send, setBroadcastPinned, startScheduleItem, restartScheduleItem, addScheduleItem } =
-    useHostActions();
+  const {
+    send, setBroadcastPinned, startScheduleItem, restartScheduleItem,
+    addScheduleItem, removeScheduleItem,
+  } = useHostActions();
   const [draft, setDraft] = useState('');
   const [pinned, setPinned] = useState(false);
   const [showQr, setShowQr] = useState(false);
+  const [itemTitle, setItemTitle] = useState('');
+  const [itemTime, setItemTime] = useState('');
   const { show } = useToast();
 
   // Addressed to everyone invited, not just whoever is currently in the room.
@@ -67,6 +71,15 @@ export function BroadcastPanel() {
     // desktop browser there is no share sheet at all, and a control that silently does
     // nothing is the failure the calendar pill spent months demoted to a View to avoid.
     show(shared ? 'Calendar file ready.' : 'Calendar export needs the app on a phone.');
+  };
+
+  const onAddScheduleItem = async () => {
+    // CLEARS ONLY ON SUCCESS, the same rule as the broadcast composer: a refusal that
+    // wipes what somebody typed punishes them for the app's own message.
+    if (await addScheduleItem(itemTitle, itemTime)) {
+      setItemTitle('');
+      setItemTime('');
+    }
   };
 
   const onSend = async () => {
@@ -217,14 +230,51 @@ export function BroadcastPanel() {
             (Target Size (Minimum), Level AA). hitSlop is the right fix here and
             not on the rows above: this link has no interactive neighbour, so RN's
             "z-index of sibling views takes precedence" caveat cannot bite. */}
+      </View>
+
+      {/* A COMPOSER, BECAUSE "+ Add" COULD ONLY MAKE "New item" (#64). It inserted a row
+          with a literal placeholder title, no rename, no time and no delete -- and the
+          helper below tells the host to tap rows when they start, which broadcasts that
+          placeholder to every guest into a feed with no delete path.
+
+          Title and time side by side because that is how a run of show is read, and the
+          time is OPTIONAL: a host planning at noon knows there will be speeches and not
+          when. `timeLabel` is null then, and the row prints the canvas's own "TBD". */}
+      <View style={s.scheduleCompose}>
+        <TextInput
+          value={itemTitle}
+          onChangeText={setItemTitle}
+          placeholder="Cake, speeches, first dance…"
+          placeholderTextColor={alpha(tokens.baseContent, fade.faint)}
+          accessibilityLabel="What happens"
+          testID="schedule-title"
+          returnKeyType="next"
+          submitBehavior="submit"
+          style={[s.scheduleInput, s.scheduleTitleInput,
+            { borderColor: tokens.base300, color: tokens.baseContent, backgroundColor: tokens.base100 }]}
+        />
+        <TextInput
+          value={itemTime}
+          onChangeText={setItemTime}
+          placeholder="8:30 PM"
+          placeholderTextColor={alpha(tokens.baseContent, fade.faint)}
+          accessibilityLabel="When, if you know yet"
+          testID="schedule-time"
+          returnKeyType="done"
+          submitBehavior="blurAndSubmit"
+          onSubmitEditing={onAddScheduleItem}
+          style={[s.scheduleInput, s.scheduleTimeInput,
+            { borderColor: tokens.base300, color: tokens.baseContent, backgroundColor: tokens.base100 }]}
+        />
         <Pressable
-          onPress={addScheduleItem}
+          onPress={onAddScheduleItem}
           accessibilityRole="button"
-          accessibilityLabel="Add a run-of-show item"
-          hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
+          accessibilityLabel="Add this to the run of show"
+          hitSlop={8}
           testID="schedule-add"
+          style={[s.scheduleAdd, { borderColor: tokens.base300 }]}
         >
-          <Text style={[s.link, { color: tokens.accent }]}>+ Add</Text>
+          <Text style={[s.link, { color: tokens.accent }]}>Add</Text>
         </Pressable>
       </View>
 
@@ -233,8 +283,11 @@ export function BroadcastPanel() {
           const past = i < nowIndex;
           const current = i === nowIndex;
           return (
+            // A WRAPPER, so the remove control is a SIBLING of the row rather than nested
+            // inside a Pressable -- a button inside a button swallows one of the two taps.
+            // The testID moves here so a count assertion measures ROWS, not controls.
+            <View key={item.id} testID="schedule-row" style={s.scheduleLine}>
             <Pressable
-              key={item.id}
               onPress={() => startScheduleItem(item.id)}
               onLongPress={past ? () => restartScheduleItem(item.id) : undefined}
               accessibilityRole="button"
@@ -270,6 +323,21 @@ export function BroadcastPanel() {
                 {current ? 'Now' : past ? 'Done' : 'Start →'}
               </Text>
             </Pressable>
+            {/* REMOVE, which nothing could do. The schema always allowed it --
+                `schedule_write` is `for all` -- and no client ever used it, so a mistyped
+                row was permanent on a card the host is told to tap. */}
+            <Pressable
+              onPress={() => void removeScheduleItem(item.id)}
+              accessibilityRole="button"
+              accessibilityLabel={`Remove ${item.title} from the run of show`}
+              hitSlop={10}
+              testID={`schedule-remove-${item.id}`}
+            >
+              <Text style={[s.action, { color: alpha(tokens.baseContent, fade.muted) }]}>
+                ✕
+              </Text>
+            </Pressable>
+            </View>
           );
         })}
       </View>
@@ -356,6 +424,13 @@ const s = StyleSheet.create({
   sectionHead: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginTop: 8 },
   sectionTitle: { ...eyebrow.section, fontSize: 12 },
   link: { fontSize: 13 },
+  scheduleCompose: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
+  scheduleInput: { borderWidth: border, borderRadius: radius.field, paddingHorizontal: 12, minHeight: 44, fontSize: 14 },
+  scheduleTitleInput: { flex: 1 },
+  // Wide enough for "12:30 PM" and no wider: the title is what needs the room.
+  scheduleTimeInput: { width: 92 },
+  scheduleAdd: { borderWidth: border, borderRadius: radius.field, minHeight: 44, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center' },
+  scheduleLine: { flexDirection: 'row', alignItems: 'center' },
   scheduleCard: { borderRadius: radius.selector, borderWidth: border, padding: 4, gap: 6 },
   // Rows are separated deliberately. They used to sit flush inside a card with
   // overflow:'hidden' and no gap, so the nearest thing to the current row was the

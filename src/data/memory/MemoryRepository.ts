@@ -1237,6 +1237,17 @@ export class MemoryRepository implements RunitRepository {
       ];
       this.recompute();
     },
+
+    remove: async (id: ScheduleItemId) => {
+      const wasCurrent = this.ev?.nowScheduleItemId === id;
+      this.scheduleList = this.scheduleList.filter((s) => s.id !== id);
+      // MIRRORS `on delete set null` ON THE COLUMN. Deleting the item that is currently
+      // running means nothing is running -- not that the previous one resumed. Guessing a
+      // predecessor here would move every guest's Now/Next card to an item the host never
+      // started, which is the exact harm `schedule.start()` refuses a rewind for.
+      if (wasCurrent && this.ev) this.ev = { ...this.ev, nowScheduleItemId: null };
+      this.recompute();
+    },
   };
 
   // ------------------------------------------------------------------ music

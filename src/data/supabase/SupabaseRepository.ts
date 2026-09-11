@@ -1955,6 +1955,22 @@ export class SupabaseRepository implements RunitRepository {
       if (error) throw error;
       SupabaseRepository.assertWrote(data, 'schedule.add');
     },
+
+    remove: async (id: ScheduleItemId) => {
+      // `schedule_write` is `for all`, so DELETE has been granted since the first
+      // migration and no client ever used it (#64). The schema needed nothing.
+      const { data, error } = await this.db
+        .from('schedule_items').delete().eq('id', id).select('id');
+      if (error) throw error;
+      // assertWrote is right here for the same reason it is on `invitees.delete`:
+      // `schedule_read` exists, so a successful delete reads back and a policy refusal
+      // does not. Zero rows means refused, not "already gone".
+      SupabaseRepository.assertWrote(data, 'schedule.remove');
+      // The cursor follows from `on delete set null` on the column; refetch so the
+      // Now/Next card stops naming a row that is gone.
+      await this.loadFetchOnce();
+      this.recompute();
+    },
   };
 
   /* ------------------------------------------------------------------- music */
