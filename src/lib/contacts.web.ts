@@ -19,3 +19,14 @@ import type { PickedContact } from './contacts';
 export async function pickContact(): Promise<PickedContact | null> {
   return null;
 }
+
+/**
+ * WHETHER A CONTACT PICKER EXISTS AT ALL ON THIS PLATFORM.
+ *
+ * `pickContact` returning null is ambiguous by construction: on a phone it means "they
+ * backed out", and on web it means "there is no picker here, and there never was". The
+ * caller treated both as a dismissal and therefore said NOTHING -- so on the web build the
+ * button was a control that did nothing, silently, which is the exact failure this repo has
+ * closed three times elsewhere and which I rebuilt here.
+ */
+export const canPickContacts = false;

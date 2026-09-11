@@ -14,7 +14,7 @@ import {
   type UploadOutcome,
 } from '@/data/repository';
 import { capturePhoto } from '@/lib/capture';
-import { pickContact } from '@/lib/contacts';
+import { canPickContacts, pickContact } from '@/lib/contacts';
 import { registerForPush } from '@/lib/push';
 import { checkLimit } from '@/domain/entitlements';
 import { useEntitlements } from './hooks';
@@ -406,9 +406,16 @@ export function useHostActions() {
        * both are ordinary. Silence after a tap is the failure this repo keeps closing.
        */
       addFromContacts: async () => {
+        // NO PICKER AT ALL IS NOT A DISMISSAL, and treating them the same made this button
+        // do nothing, silently, in the browser. `pickContact` returns null for both, so the
+        // platform has to be asked separately.
+        if (!canPickContacts) {
+          show('Contacts only work in the app on a phone. Type the address here instead.');
+          return false;
+        }
         const picked = await pickContact();
-        // Dismissal is a decision, not a failure. No toast, the same as backing out of the
-        // camera.
+        // Backing out IS a decision, and gets no toast -- the same as backing out of the
+        // camera. Only the impossible case above speaks.
         if (!picked) return false;
         if (!picked.email && !picked.phone) {
           show(`${picked.name ?? 'That contact'} has no email or phone saved.`);

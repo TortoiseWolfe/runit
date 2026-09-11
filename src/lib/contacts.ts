@@ -40,6 +40,14 @@ export interface PickedContact {
  * backing out is a decision, not a failure, and a toast apologising for it is the app
  * arguing with the person using it.
  */
+/**
+ * TRUE WHERE A PICKER EXISTS. The web sibling says false, and the caller needs the
+ * difference: `pickContact` returning null means "they backed out" on a phone and "there is
+ * no such thing here" in a browser, and a caller that cannot tell them apart says nothing in
+ * both cases -- which is a button that does nothing.
+ */
+export const canPickContacts = true;
+
 export async function pickContact(): Promise<PickedContact | null> {
   const contact = await Contacts.presentContactPickerAsync();
   if (!contact) return null;
