@@ -144,8 +144,20 @@ export function PhotosScreen() {
             <View style={[s.shutterInner, { backgroundColor: tokens.primary }]} />
           </Pressable>
 
-          <Text style={[s.blurb, { color: alpha(tokens.baseContent, 0.75) }]}>
-            One tap. Photos upload to the album and appear once a host approves them.
+          {/* IT SAID THE APPROVAL SENTENCE UNCONDITIONALLY, AND IT WAS FALSE (#67).
+              `create_event` mints `house_party`, whose photoModeration is false, so on
+              every event this app can create the photo appears AT ONCE -- and the toast a
+              second later says "Added to All photos" while the tile is already there. The
+              app contradicted itself in about two seconds, on the first screen a guest
+              meets at a party that has just started.
+
+              The screen already knew how to say this correctly: `album-moderated` in the
+              grid branch renders the same claim conditionally, off the same `moderated`.
+              Only this one asserted it -- and this one is what a NEW party shows. */}
+          <Text testID="album-blurb" style={[s.blurb, { color: alpha(tokens.baseContent, 0.75) }]}>
+            {moderated
+              ? 'One tap. Photos upload to the album and appear once a host approves them.'
+              : 'One tap. Photos go straight into the album for everyone here.'}
           </Text>
 
           <View style={[s.filingPill, { backgroundColor: tokens.base100, borderColor: tokens.base300 }]}>
