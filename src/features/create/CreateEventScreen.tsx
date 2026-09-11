@@ -5,6 +5,7 @@ import {
 import { useRouter } from 'expo-router';
 
 import { Screen } from '@/components/ui/Screen';
+import { DateTimeField } from '@/components/ui/DateTimeField';
 import { ZonePicker } from '@/components/ui/ZonePicker';
 import { Toast } from '@/components/ui/Toast';
 import { useCreateActions } from '@/state/actions';
@@ -46,6 +47,14 @@ export function CreateEventScreen() {
   const [busy, setBusy] = useState(false);
   /** Set once, and it holds the only copy of the key that will ever exist. */
   const [made, setMade] = useState<CreatedEvent | null>(null);
+
+  /**
+   * THE FLOOR, IN THE EVENT'S OWN ZONE. Nothing anywhere refused an event in the past --
+   * not this form, not `create_event` -- so you could make one for last Tuesday. Computing
+   * it in `zone` rather than UTC matters at the edges: a host in Honolulu creating at 9pm
+   * local is already tomorrow in UTC, and a UTC floor would refuse her own evening.
+   */
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: zone }).format(new Date());
 
   const nameRef = useRef<TextInput>(null);
   const venueRef = useRef<TextInput>(null);
@@ -192,32 +201,31 @@ export function CreateEventScreen() {
         <View style={s.row}>
           <View style={s.half}>
             {label('DATE')}
-            <TextInput
+            {/* PICKED, NOT TYPED. This asked a person to type `2026-09-11`, and
+                `instantFrom` refuses anything else -- deliberately, because coercing
+                '11/09/2026' is how an event lands on the wrong evening. So an ordinary
+                `09/11/2026` produced a form that silently would not make a date.
+                The strict parser stays; what changed is that nobody has to satisfy it by
+                hand. `minDate` is also the first thing anywhere to refuse a past event. */}
+            <DateTimeField
+              mode="date"
               value={date}
-              onChangeText={setDate}
-              placeholder="2026-09-11"
-              placeholderTextColor={alpha(tokens.baseContent, fade.faint)}
-              accessibilityLabel="Date, as year, month and day"
+              onChange={setDate}
+              placeholder="Pick a date"
+              accessibilityLabel="Date of the event"
               testID="create-date"
-              keyboardType="numbers-and-punctuation"
-              autoCapitalize="none"
-              autoCorrect={false}
-              style={fieldStyle}
+              minDate={today}
             />
           </View>
           <View style={s.half}>
             {label('TIME')}
-            <TextInput
+            <DateTimeField
+              mode="time"
               value={time}
-              onChangeText={setTime}
-              placeholder="19:00"
-              placeholderTextColor={alpha(tokens.baseContent, fade.faint)}
-              accessibilityLabel="Start time, on a 24 hour clock"
+              onChange={setTime}
+              placeholder="Pick a time"
+              accessibilityLabel="Start time"
               testID="create-time"
-              keyboardType="numbers-and-punctuation"
-              autoCapitalize="none"
-              autoCorrect={false}
-              style={fieldStyle}
             />
           </View>
         </View>
@@ -234,7 +242,7 @@ export function CreateEventScreen() {
             >
               {startsAt
                 ? `${formatEventDate(startsAt, zone)} · ${formatClock(startsAt, zone)}`
-                : 'Add a date as 2026-09-11 and a time as 19:00.'}
+                : 'Pick a date and a time.'}
             </Text>
           }
           value={zone}

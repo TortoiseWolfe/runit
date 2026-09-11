@@ -17,6 +17,7 @@ import { useEvent, useLoadMyEvents, useLookUpInvite, usePreview } from "@/state/
 import { useJoinActions } from "@/state/actions";
 import { useToast } from "@/state/ToastProvider";
 import { icsFilename, icsFor } from "@/lib/invite";
+import { openMaps } from "@/lib/maps";
 import { QrScanner } from "./QrScanner";
 import { MyEventsList } from "@/components/ui/MyEventsList";
 import { formatEventDate } from "@/lib/format";
@@ -121,6 +122,14 @@ export function JoinScreen() {
   useLookUpInvite(scannedCode);
   const nicknameRef = useRef<TextInput>(null);
   const hostKeyRef = useRef<TextInput>(null);
+
+  const onDirections = async () => {
+    const venue = invite?.venue?.trim();
+    if (!venue) return;
+    // Says something true either way. A phone with no app registered for the scheme is rare
+    // and is not a crash -- but silence after a tap is the failure this repo keeps closing.
+    if (!(await openMaps(venue))) show(`No map app here. It is at ${venue}.`);
+  };
 
   const onAddToCalendar = async () => {
     // `invite`, not `event`: the whole point of the preview is that this works from a
@@ -278,6 +287,25 @@ export function JoinScreen() {
                 holds the general form of this -- nothing visible may be aria-disabled --
                 because the same boolean also made Show QR and Share invite inert, and
                 each was found separately, on a phone. */}
+            {/* WHERE IS IT, answered without validating anything. The venue is free text on
+                purpose -- "Melva's" is a better answer for a guest than a street number --
+                so this hands the text to the phone's own map and lets it resolve, exactly as
+                the guest would by typing it. Drawn only when there is a venue to send them
+                to: a Directions button on a blank venue is a control that cannot act. */}
+            {invite?.venue?.trim() ? (
+            <Pressable
+              onPress={onDirections}
+              accessibilityRole="button"
+              accessibilityLabel={`Open ${invite.venue} in maps`}
+              hitSlop={8}
+              style={[s.calendarPill, { borderColor: tokens.base300 }]}
+              testID="join-directions"
+            >
+              <Text style={[s.calendarText, { color: alpha(tokens.baseContent, fade.muted) }]}>
+                Directions
+              </Text>
+            </Pressable>
+            ) : null}
             {invite ? (
             <Pressable
               onPress={onAddToCalendar}

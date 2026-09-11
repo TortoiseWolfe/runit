@@ -24,9 +24,16 @@
           "action": "VIEW",
           "autoVerify": true,
           "data": [
-            { "scheme": "https", "host": "runit-app.pages.dev", "pathPrefix": "/i" }
+            {
+              "scheme": "https",
+              "host": "runit-app.pages.dev",
+              "pathPrefix": "/i"
+            }
           ],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
       ],
       "adaptiveIcon": {
@@ -96,7 +103,8 @@
           "backgroundColor": "#1A1A2E",
           "imageWidth": 180
         }
-      ]
+      ],
+      "@react-native-community/datetimepicker"
     ],
     "experiments": {
       "typedRoutes": true
