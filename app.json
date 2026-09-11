@@ -13,6 +13,9 @@
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       },
+      "infoPlist": {
+        "LSApplicationQueriesSchemes": ["spotify"]
+      },
       "associatedDomains": [
         "applinks:runit-app.pages.dev"
       ]

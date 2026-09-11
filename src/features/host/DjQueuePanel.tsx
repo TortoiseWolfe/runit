@@ -2,6 +2,8 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { useMusicActions } from '@/state/actions';
 import { useAccepted, useIncoming, useNowPlaying } from '@/state/hooks';
+import { playSong, serviceLabel } from '@/lib/music';
+import { useToast } from '@/state/ToastProvider';
 import { alpha, border, eyebrow, radius, useTheme, weight } from '@/theme';
 
 /** Artboard 03, DJ queue segment. */
@@ -11,6 +13,34 @@ export function DjQueuePanel() {
   const accepted = useAccepted();
   const incoming = useIncoming();
   const { playNext, markPlayed, accept, decline } = useMusicActions();
+  const { show } = useToast();
+
+  /**
+   * ADVANCE THE CURSOR, THEN ACTUALLY PLAY IT.
+   *
+   * `playNext` moves the room's Now-Playing card, which is what every guest sees. It is not
+   * what makes sound: RunIt has no audio path and cannot have one without a catalogue
+   * licence (#8). So this also hands the song to whatever music app the host already has
+   * open and connected to the speakers, which is the part RunIt was making the host do by
+   * hand -- reading the queue and retyping it into Spotify.
+   *
+   * THE CURSOR MOVES FIRST and is never blocked on the handoff. A host whose phone has no
+   * music app installed still gets a working queue; the room still sees what is on. The
+   * reverse order would make a missing app break the feature that does work.
+   */
+  const onStart = async () => {
+    // What the cursor will land on: the next accepted song, or the first one if nothing has
+    // started yet. Read BEFORE the advance, because after it the queue has moved.
+    const next = accepted[0];
+    await playNext();
+    if (!next) return;
+    const used = await playSong(next.title, next.artist);
+    show(
+      used
+        ? `Opening in ${serviceLabel[used]}.`
+        : `Queued "${next.title}". No music app here — play it on whatever is on the speakers.`,
+    );
+  };
 
   return (
     <ScrollView style={s.scroll} contentContainerStyle={s.content} testID="host-dj">
@@ -38,7 +68,7 @@ export function DjQueuePanel() {
             </Text>
           </View>
           <Pressable
-            onPress={playNext}
+            onPress={onStart}
             accessibilityRole="button"
             accessibilityLabel={nowPlaying ? 'Play the next accepted song' : 'Start the first accepted song'}
             testID="play-next"
