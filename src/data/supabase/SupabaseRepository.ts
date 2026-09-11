@@ -2157,8 +2157,16 @@ export class SupabaseRepository implements RunitRepository {
     },
 
     hide: async (id: PhotoId) => {
-      const gate = checkFeature(this.sigEntitlements.get(), 'photoModeration');
-      if (!gate.allowed) throw new EntitlementError(gate.denial);
+      // NOT GATED ON `photoModeration` -- #65. It was, which made Guideline 1.2
+      // unsatisfiable: `create_event` mints `house_party`, whose photoModeration is false,
+      // so this threw on every event the app can create and a reported photo could not be
+      // taken down at all. `photoModeration` decides whether uploads WAIT for approval, a
+      // feature somebody pays for; removing REPORTED content is a review obligation, and
+      // the two are not the same thing.
+      //
+      // `photos_moderate` still restricts the write to hosts, so nothing is loosened here
+      // except which TIER may comply.
+      //
       // `hidden`, never a delete: hide is an audit trail, and there is no DELETE
       // policy on photos for anyone.
       const { data, error } = await this.db

@@ -649,13 +649,48 @@ export function useModerationActions() {
         await repo.moderation.unblock(guestId);
         show(`Unblocked ${nickname}.`);
       },
+      /**
+       * TAKE THE PHOTO DOWN AND CLOSE THE REPORT -- #65.
+       *
+       * Guideline 1.2 wants the remedy, not only the report, and RunIt could not perform it
+       * on any event it can create. `Hide` lives on the approvals queue; `photos.pending`
+       * selects `'pending'` only; `create_event` mints `house_party`, which auto-approves.
+       * So the queue is permanently empty, the only control that removes a photo is
+       * permanently undrawable, and "Removed" closed the report while the photo stayed in
+       * the album.
+       *
+       * THE PHOTO GOES FIRST and the report is only closed if that succeeded. A closed
+       * report over a photo still on the wall is exactly the state this exists to end, and
+       * it is worse than an open report because nobody looks at it again.
+       *
+       * NOT GATED ON A TIER. `photoModeration` decides whether uploads WAIT for approval --
+       * a product feature somebody pays for. Removing something reported is a review
+       * obligation, and putting it behind a paywall would mean the free tier cannot comply.
+       */
+      takeDownPhoto: async (reportId: ReportId, photoId: PhotoId) => {
+        try {
+          await repo.photos.hide(photoId);
+        } catch (e) {
+          show(e instanceof Error ? e.message : 'Could not take that photo down.');
+          return false;
+        }
+        await repo.moderation.resolve(reportId, 'removed');
+        show('Taken down, and the report is closed.');
+        return true;
+      },
+
       resolve: async (id: ReportId, resolution: ReportResolution) => {
         await repo.moderation.resolve(id, resolution);
         show(
+          // IT SAYS WHAT IT DID, which it did not. "Removed, and the report is closed"
+          // claimed a removal this call has never performed -- it only ever closed the
+          // report -- and "the guest is blocked" claimed a block it does not do either.
+          // The verdict is a RECORD of what the host says happened elsewhere; the one
+          // resolution that now acts is `takeDownPhoto`.
           resolution === 'removed'
-            ? 'Removed, and the report is closed.'
+            ? 'Closed, marked as removed.'
             : resolution === 'blocked'
-              ? 'Closed, and the guest is blocked.'
+              ? 'Closed, marked as blocked.'
               : 'Closed with no action.',
         );
       },

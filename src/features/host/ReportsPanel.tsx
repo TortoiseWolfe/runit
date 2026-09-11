@@ -31,7 +31,7 @@ export function ReportsPanel() {
   const { tokens, fade } = useTheme();
   const reports = useReports();
   const event = useEvent();
-  const { resolve } = useModerationActions();
+  const { resolve, takeDownPhoto } = useModerationActions();
 
   return (
     <ScrollView style={s.scroll} contentContainerStyle={s.content} testID="host-reports">
@@ -47,7 +47,12 @@ export function ReportsPanel() {
         </Text>
       )}
 
-      {reports.map((r) => (
+      {reports.map((r) => {
+        // BOUND HERE, not inside the callback: `r.subject` is re-read when the closure
+        // runs and the narrowing does not survive that, which TypeScript is right to
+        // refuse -- it cannot know the union has not changed by then.
+        const photoSubject = r.subject.kind === 'photo' ? r.subject : null;
+        return (
         <View
           key={r.id}
           testID={`report-${r.id}`}
@@ -74,11 +79,33 @@ export function ReportsPanel() {
 
           <View style={s.actions}>
             {/*
-              Three outcomes, and the row records WHICH -- a resolution with no verdict
-              is a host saying they looked and refusing to say what they did. `removed`
-              does not itself hide the content: the host hides the photo or declines the
-              request on its own screen, where they can see it. This closes the report.
+              FOUR OUTCOMES ON A PHOTO, THREE ON ANYTHING ELSE (#65).
+
+              This comment used to say `removed` "does not itself hide the content: the
+              host hides the photo ... on its own screen." That was the assumption that
+              broke. `Hide` lives on the approvals queue, which selects `'pending'` only,
+              and `create_event` mints a tier that auto-approves -- so on every event this
+              app can create that screen has no Hide, the queue is empty forever, and
+              "Removed" closed the report while the photo stayed in the album. Guideline 1.2
+              asks for the remedy, not the paperwork.
+
+              Drawn only for a photo, because there is nothing to take down on a reported
+              song or person -- blocking is the remedy there and it already exists.
             */}
+            {/* BOUND OUTSIDE THE CALLBACK, because the narrowing does not survive into it:
+                `r.subject` is re-read when the closure runs, and TypeScript is right to
+                refuse -- it cannot know the union has not changed by then. */}
+            {photoSubject ? (
+              <Pressable
+                onPress={() => void takeDownPhoto(r.id, photoSubject.photoId)}
+                accessibilityRole="button"
+                accessibilityLabel="Take this photo down and close the report"
+                testID={`report-takedown-${r.id}`}
+                style={[s.action, { borderColor: tokens.base300 }]}
+              >
+                <Text style={[s.actionText, { color: tokens.baseContent }]}>Take it down</Text>
+              </Pressable>
+            ) : null}
             <Pressable
               onPress={() => resolve(r.id, 'removed')}
               accessibilityRole="button"
@@ -110,7 +137,8 @@ export function ReportsPanel() {
             </Pressable>
           </View>
         </View>
-      ))}
+        );
+      })}
     </ScrollView>
   );
 }

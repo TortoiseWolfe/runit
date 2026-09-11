@@ -483,18 +483,38 @@ describe('entitlements are enforced in the repository, not the button', () => {
   // upload() reads photoModeration to decide pending-vs-approved, so the queue
   // it creates has to be gated by the same feature or a free tier moderates a
   // queue it was never sold.
-  it('blocks photo moderation on the free tier', async () => {
+  /**
+   * APPROVE IS GATED; HIDE IS NOT, AND THE SPLIT IS THE POINT (#65).
+   *
+   * This asserted both threw. `hide` throwing is what made Guideline 1.2 unsatisfiable:
+   * `create_event` mints `house_party`, so a REPORTED photo could not be taken down on any
+   * event the app can create, and "Removed" closed the report while the photo stayed in the
+   * album.
+   *
+   * The two are different things. `photoModeration` decides whether uploads WAIT for
+   * approval -- a feature somebody pays for, and `approve` is meaningless without it because
+   * nothing is ever pending. Removing reported content is a review OBLIGATION, and a free
+   * tier that cannot comply is a liability rather than a tier.
+   */
+  it('gates approval on the free tier, because nothing is ever pending there', async () => {
     const r = make();
     await r.event.setTier('house_party');
     await expect(r.photos.approve('pho_1')).rejects.toBeInstanceOf(EntitlementError);
-    await expect(r.photos.hide('pho_1')).rejects.toBeInstanceOf(EntitlementError);
+  });
+
+  it('does NOT gate taking a photo down, on any tier (#65)', async () => {
+    const r = make();
+    await r.event.setTier('house_party');
+    await expect(r.photos.hide('pho_1')).resolves.toBeUndefined();
+    // It leaves the album, which is the whole remedy: `approved` is what a guest sees.
+    expect(r.photos.approved.get().some((p) => p.id === 'pho_1')).toBe(false);
   });
 
   // RE-POINTED, not deleted, when the djQueue gate was removed. This is the only
   // test that exercises `denial.upgradeTo` -- the paywall's "which tier lifts
   // this?" path -- and deleting it along with the gate would have silently taken
-  // that coverage with it. photoModeration is still free-gated, so the assertion
-  // survives intact on a feature that still discriminates.
+  // that coverage with it. photoModeration still discriminates on APPROVE (#65 ungated
+  // only `hide`), so the assertion survives intact on a feature that still gates.
   it('names the tier that lifts a refused feature, so the paywall can highlight it', async () => {
     const r = make();
     await r.event.setTier('house_party');
