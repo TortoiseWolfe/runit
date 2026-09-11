@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
-import { joinAsGuest, ready, switchToHost, TOKENS } from './helpers';
+import { joinAsGuest, open, ready, switchToHost, TOKENS } from './helpers';
 
 /**
  * Photos tab -- the shared album.
@@ -331,5 +331,69 @@ test.describe('Photos tab · shared album', () => {
     // Two pending uploads later the album total is still 247: moderated
     // uploads do not touch a folder's count until a host approves them.
     await expect(page.getByText(TOTAL_PHOTOS, { exact: true })).toBeVisible();
+  });
+});
+
+/**
+ * THE FIRST SENTENCE A GUEST READS, AND IT WAS FALSE -- #67, written before the code.
+ *
+ * The Photos empty state hardcoded "Photos upload to the album and appear once a host
+ * approves them." `create_event` mints `house_party`, whose `photoModeration` is false, so
+ * on every event this app can create the photo appears IMMEDIATELY -- the toast a second
+ * later says "Added to All photos" and the tile is there. The app contradicted itself in
+ * about two seconds, on the first screen a guest meets at a party that has just started.
+ *
+ * The screen already knew how to say this correctly: `album-moderated`, in the grid branch,
+ * renders the same claim CONDITIONALLY. Only the empty state asserted it unconditionally --
+ * and the empty state is the one a new party shows.
+ *
+ * WHAT THIS LANE CANNOT REACH, said rather than implied: the moderated-AND-empty case. No
+ * client can set a tier (#30), so a journey cannot produce an event where moderation is on
+ * and the album is empty. The negative is what shipped broken and the negative is what is
+ * pinned here; the conditional itself is covered by `album-moderated` in the grid.
+ */
+test.describe('what the empty album promises (#67)', () => {
+  test('does not promise approval on a tier that approves nothing', async ({ page }, info) => {
+    const scheme = info.project.name as 'dark' | 'light';
+
+    await open(page, scheme, '/create', 'create-event');
+    await page.getByTestId('create-host-name').fill('Ruth');
+    await page.getByTestId('create-name').fill("Ruth's 40th");
+    await page.getByTestId('create-date').fill('2027-01-09');
+    await page.getByTestId('create-time').fill('19:00');
+    await page.getByTestId('create-submit').click();
+    await page.getByTestId('created-continue').click();
+    await page.getByTestId('role-switch').click();
+    await page.getByTestId('tab-photos').click();
+
+    // The empty state, on the only tier any event can have.
+    await expect(page.getByTestId('album-blurb')).toBeVisible();
+    await expect(page.getByTestId('album-blurb')).not.toContainText(/approve/i);
+
+    // And it still says something true and useful, rather than saying nothing -- a blank
+    // reassurance is not an improvement on a false one.
+    await expect(page.getByTestId('album-blurb')).toContainText(/straight|right away|immediately/i);
+  });
+
+  test('and the app does not contradict itself two seconds later', async ({ page }, info) => {
+    const scheme = info.project.name as 'dark' | 'light';
+
+    await open(page, scheme, '/create', 'create-event');
+    await page.getByTestId('create-host-name').fill('Ruth');
+    await page.getByTestId('create-name').fill("Ruth's 40th");
+    await page.getByTestId('create-date').fill('2027-01-09');
+    await page.getByTestId('create-time').fill('19:00');
+    await page.getByTestId('create-submit').click();
+    await page.getByTestId('created-continue').click();
+    await page.getByTestId('role-switch').click();
+    await page.getByTestId('tab-photos').click();
+
+    await page.getByTestId('shutter').click();
+
+    // THE CONTRADICTION, pinned: the photo is in the album at once, so any promise of
+    // approval on the screen before it was false. This is the assertion that would go red
+    // if the tier default ever changed without the copy following.
+    await expect(page.locator('[data-testid^="tile-"]')).toHaveCount(1);
+    await expect(page.getByTestId('album-moderated')).toHaveCount(0);
   });
 });
