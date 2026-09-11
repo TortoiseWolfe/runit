@@ -1437,9 +1437,16 @@ export class MemoryRepository implements RunitRepository {
     hide: async (id: PhotoId) => {
       // The canvas deletes the row outright, losing it. "Hide" and "delete
       // forever" are different, and moderation needs an audit trail.
-      const e = this.computeEntitlements();
-      const gate = checkFeature(e, 'photoModeration');
-      if (!gate.allowed) throw new EntitlementError(gate.denial);
+      //
+      // NOT GATED ON `photoModeration` ANY MORE -- #65. It was, and that is what made
+      // Guideline 1.2 unsatisfiable: `create_event` mints `house_party`, whose
+      // photoModeration is false, so `hide` threw on every event this app can create and
+      // a reported photo could not be taken down at all.
+      //
+      // The two are different things and conflating them was the error. `photoModeration`
+      // decides whether uploads WAIT for approval -- a feature somebody pays for. Removing
+      // something that has been REPORTED is a review obligation, and a free tier that
+      // cannot comply is not a free tier, it is a liability.
       this.photoList = this.photoList.map((x) =>
         x.id === id ? { ...x, status: 'hidden' as const } : x,
       );

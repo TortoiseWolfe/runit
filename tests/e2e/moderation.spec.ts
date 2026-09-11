@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
-import { joinAsGuest, switchToHost } from './helpers';
+import { joinAsGuest, open, switchToHost } from './helpers';
 
 /**
  * App Review Guideline 1.2, end to end in a browser.
@@ -140,5 +140,90 @@ test.describe('Guideline 1.2 · blocking', () => {
     await page.getByTestId('host-segment-photos').click();
     // pho_1 is Priya's, and it is still awaiting approval.
     await expect(page.getByTestId('hide-pho_1')).toBeVisible();
+  });
+});
+
+/**
+ * TAKING A REPORTED PHOTO DOWN -- #65, written BEFORE the code.
+ *
+ * Guideline 1.2 wants a way to report objectionable content AND for the developer to act on
+ * it. RunIt had the first half. It could not do the second on any event it can create.
+ *
+ * `Hide` lives on the approvals queue, and `photos.pending` selects `'pending'` only.
+ * `create_event` mints `house_party`, whose `photo_moderation` is false, so every photo lands
+ * `'approved'` and never enters that queue -- and with no purchase path (#30) no event can
+ * reach a tier where it does. So the queue is permanently empty and the only control that
+ * could remove a photo is permanently undrawable. Resolving a report as "Removed" closed the
+ * REPORT and left the PHOTO in the shared album.
+ *
+ * The panel's own comment states the assumption that breaks: "the host hides the photo ... on
+ * its own screen". On the free tier that screen has no Hide.
+ *
+ * A FRESHLY CREATED EVENT, because that is the only place the bug exists -- `weddingSeed` is
+ * on the Event tier, where moderation is on and the queue works.
+ */
+test.describe('Guideline 1.2 · taking it down (#65)', () => {
+  test('a host can remove a reported photo on the free tier, where the queue is empty', async ({
+    page,
+  }, info) => {
+    const scheme = info.project.name as 'dark' | 'light';
+
+    await open(page, scheme, '/create', 'create-event');
+    await page.getByTestId('create-host-name').fill('Ruth');
+    await page.getByTestId('create-name').fill("Ruth's 40th");
+    await page.getByTestId('create-date').fill('2027-01-09');
+    await page.getByTestId('create-time').fill('19:00');
+    await page.getByTestId('create-submit').click();
+    await page.getByTestId('created-continue').click();
+
+    // As a guest of her own party, put a photo in the album. On house_party it is
+    // auto-approved, which is the whole problem: it never enters the approvals queue.
+    await page.getByTestId('role-switch').click();
+    await page.getByTestId('tab-photos').click();
+    await page.getByTestId('shutter').click();
+    const tile = page.locator('[data-testid^="tile-"]').first();
+    await expect(tile).toBeVisible();
+
+    // Report it.
+    await page.locator('[data-testid^="report-tile-"]').first().click();
+    await page.getByTestId('report-reason-hate').click();
+
+    await page.getByTestId('tab-chat').click();
+    await page.getByTestId('role-switch').click();
+
+    // THE APPROVALS QUEUE IS EMPTY, which is the condition that made this unreachable.
+    await page.getByTestId('host-segment-photos').click();
+    await expect(page.getByTestId('host-photos')).toContainText(/All caught up/i);
+
+    // So the take-down has to live on the REPORT.
+    await page.getByTestId('host-segment-reports').click();
+    const takeDown = page.locator('[data-testid^="report-takedown-"]').first();
+    await expect(takeDown).toBeVisible();
+    await takeDown.click();
+
+    // The report closes AND the photo leaves the album -- both, or it is the same gap.
+    await expect(page.getByTestId('reports-empty')).toBeVisible();
+    await page.getByTestId('role-switch').click();
+    await page.getByTestId('tab-photos').click();
+    await expect(page.locator('[data-testid^="tile-"]')).toHaveCount(0);
+  });
+
+  test('a take-down is offered only on a photo, not on a song or a person', async ({
+    page,
+  }, info) => {
+    const scheme = info.project.name as 'dark' | 'light';
+    await joinAsGuest(page, scheme);
+
+    // A reported SONG has no photo to remove; blocking the person is the remedy there and
+    // it already exists. Drawing a take-down that cannot act is the failure this repo
+    // keeps closing.
+    await page.getByTestId('tab-music').click();
+    await page.getByTestId('request-report-req_1').click();
+    await page.getByTestId('report-reason-hate').click();
+    // Back via chat: `role-switch` lives on the chat header, not on the Music tab.
+    await page.getByTestId('tab-chat').click();
+    await switchToHost(page);
+    await page.getByTestId('host-segment-reports').click();
+    await expect(page.locator('[data-testid^="report-takedown-"]')).toHaveCount(0);
   });
 });
