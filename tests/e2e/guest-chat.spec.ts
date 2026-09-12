@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
-import { joinAsGuest } from './helpers';
+import { joinAsGuest, open } from './helpers';
 
 /**
  * Artboard 02 -- the guest Chat tab.
@@ -258,5 +258,123 @@ test.describe('Guest chat tab', () => {
     // specific mistake; the role query is the net that catches any other.
     await expect(page.getByTestId('broadcast-draft')).toHaveCount(0);
     await expect(page.getByRole('textbox')).toHaveCount(0);
+  });
+});
+
+/**
+ * THE DATE FOLLOWS THE GUEST IN -- #62.
+ *
+ * `+ Add to calendar` has existed since the invitation work and lives on `JoinScreen`,
+ * which is the screen BEFORE the join. `src/app/index.tsx` sends a guest session straight
+ * to `/chat`, so every guest after their first open never sees that screen again -- and the
+ * three guest tabs carried the event's NAME and nothing else. No date, no venue, no way to
+ * keep the evening. The host could send an `.ics` (#61); the guest in the room could not.
+ *
+ * WHAT THESE TESTS CANNOT PROVE, said plainly rather than implied. Against Supabase
+ * `events_read` admits members only, so a guest who typed a code meets the join screen with
+ * `event` null and no preview -- which is the second case this issue is about, and no
+ * journey can build it, because `weddingSeed` hands `JoinScreen` a full event before anyone
+ * has joined anything. `empty-world.spec.ts` holds the one half that IS reachable: with no
+ * event, `join-add-calendar` is absent. These cover the other end -- that once a guest is
+ * in, the route is on the screen they are standing on.
+ */
+test.describe('the event line on the chat tab', () => {
+  /** date · doors · venue, in that order. The date is DERIVED, so it is matched by shape. */
+  const WHEN_WHERE = /^\w{3}, \w{3} \d{1,2} · Doors 4:00 PM · Willow Barn$/;
+
+  test('says which evening and where, on the tab a joined guest lands on', async ({
+    page,
+  }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await joinAsGuest(page, scheme);
+
+    // THE WHOLE STRING, not "contains a date". The three parts come from three different
+    // fields and the failure this replaces was a `doorsLabel` that carried all of them as
+    // prose -- so it could not disagree with `starts_at` out loud, and disagreed silently
+    // instead. Matching the composition is what makes that impossible here.
+    await expect(page.getByTestId('chat-when-where')).toHaveText(WHEN_WHERE);
+  });
+
+  test('draws the day from starts_at, so it is not the doors label wearing a date', async ({
+    page,
+  }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await joinAsGuest(page, scheme);
+
+    // `weddingSeed` anchors to YESTERDAY, so the correct day moves with the calendar and
+    // no literal can be written here. What can be asserted is that the app agrees with the
+    // clock: the rendered weekday/month/day is the one `starts_at` falls on in the VENUE's
+    // zone. A line built from `doorsLabel` alone, or dated in the browser's zone, fails.
+    const expected = new Intl.DateTimeFormat('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      timeZone: 'America/New_York',
+    }).format(new Date(Date.now() - 24 * 60 * 60_000));
+
+    await expect(page.getByTestId('chat-when-where')).toHaveText(
+      new RegExp(`^${expected} · `),
+    );
+  });
+
+  test('offers the calendar, and says something either way when it is tapped', async ({
+    page,
+  }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await joinAsGuest(page, scheme);
+
+    const pill = page.getByTestId('chat-add-calendar');
+    await expect(pill).toBeVisible();
+    await pill.click();
+    // Headless Chromium has no share sheet, so `shareIcs` resolves false and the honest
+    // outcome is a message naming why. Asserting the TOAST rather than the button's own
+    // label is what proves the handler ran: a Pressable that is merely visible would pass
+    // every assertion above this one.
+    await expect(page.getByTestId('toast')).toContainText(/calendar/i);
+  });
+
+  test('sits above the run of show, because the two answer different questions', async ({
+    page,
+  }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await joinAsGuest(page, scheme);
+
+    // Which evening and where is fixed for the whole party; Now/Next changes hourly. Order
+    // is the claim, and a box comparison is the only thing that can carry it -- both
+    // elements are visible either way round.
+    const line = await page.getByTestId('chat-event-line').boundingBox();
+    const card = await page.getByTestId('now-next-toggle').boundingBox();
+    expect(line, 'no event line on the chat tab').not.toBeNull();
+    expect(card, 'no run-of-show card on the chat tab').not.toBeNull();
+    expect(line!.y + line!.height).toBeLessThanOrEqual(card!.y);
+  });
+
+  test('prints the whole line on a fixed-date event, separators and all', async ({
+    page,
+  }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    // `?fresh=1` is the only seeded world with a date that does not move, so it is the only
+    // one where the exact string can be written down. It is also the world a real party is
+    // in: made in the app twenty minutes ago, four people here, no invitation list.
+    //
+    // JOINED RATHER THAN NAVIGATED TO. `/chat?fresh=1` cold lands on the join screen: the
+    // session is anonymous on the first render and `(guest)/_layout` redirects, which is
+    // correct and is not this test's subject.
+    await open(page, scheme, '/join?fresh=1');
+
+    const LINE = 'Fri, Sep 11 · Doors 7:00 PM · The garden';
+
+    // The invitation says it first. Asserting it HERE and then again after the join is what
+    // the shared `whenAndWhere` buys: two surfaces, one composition, so a guest cannot read
+    // two descriptions of one evening. These were two hand-built copies of the same
+    // `.filter(Boolean).join(' · ')` until this change, each with a comment noting the
+    // other existed.
+    await expect(page.getByTestId('join-subtitle')).toHaveText(LINE);
+
+    await page.getByTestId('join-nickname').fill('Ada');
+    await page.getByTestId('join-submit').click();
+    await expect(page.getByTestId('chat-feed')).toBeVisible();
+
+    await expect(page.getByTestId('chat-when-where')).toHaveText(LINE);
   });
 });
