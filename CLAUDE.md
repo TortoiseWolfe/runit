@@ -807,6 +807,44 @@ was green and the half a guest actually walks was dead.
   that nothing in `shoot-app.mjs` answers, and headless Chromium refuses
   `getUserMedia`. `guest-photos.spec.ts` asserts that exact data URI, which is
   what proves the value came from the capture path and not from a literal.
+- **THE SONG TYPE-AHEAD CALLS A THIRD PARTY, AND IT IS THE ONLY THING IN THE APP THAT DOES.**
+  `src/lib/musicSearch.ts` hits the iTunes Search API -- no key, no account, nothing to leak.
+  Everything else goes through supabase-js. **It sends no CORS headers**, so it works on a
+  device and never in a browser, which is why there is a `.web.ts` half serving a four-song
+  fixture under `EXPO_PUBLIC_FIDELITY=1`; no test here may depend on a third party's uptime,
+  ranking or rate limit. `musicSearchConstants.ts` exists for the reason `captureConstants.ts`
+  states outright -- Metro resolves `./musicSearch` from inside `musicSearch.web.ts` back to
+  itself, so a value import there is a cycle; the type is `import type` and erased.
+  **#8 named MusicBrainz "the cheap win" and that is wrong for this job**, measured: queried
+  for `dont stop believin` it ranks two cover bands above Journey, all scored 100.
+- **A suggestion writes `Title – Artist` into the same field a guest could have typed**, with
+  an EN DASH and spaces, because `actions.ts` splits on `/\s[–-]\s/` and "Jay-Z" must not be
+  torn in half. Nothing downstream changed -- no new repository method, no column, no SQL --
+  and the dedup win is a consequence rather than a mechanism. **Suggestions are not a gate**:
+  a local band must stay requestable, and `guest-music.spec.ts` has a test whose only job is
+  to fail if that is reversed.
+- **THE PHOTO VIEWER TAKES A LIST AND AN INDEX, NOT A PHOTO.** It took `photo: Photo | null`
+  and nothing else, so opening a photo was a dead end -- the only way to the next one was to
+  close and tap again, nine times. `visible` in `PhotosScreen` is already the exact list on
+  screen in the exact order on screen, so the index the grid renders IS the index the carousel
+  navigates. Arrows are **hidden at the ends rather than disabled** (a drawn control that does
+  nothing is what `aria-disabled` is this repo's gate for), sit INSIDE the stage rather than
+  beside the backdrop (a sibling laid over `viewer-backdrop` fights it for the same tap and
+  the later sibling wins), and carry a **measured 44x44 rather than `hitSlop`**, which is what
+  `audit:targets`' own warning asks for where controls overlap.
+- **`viewer-prev` and `viewer-next` must never be named `tile-something`.** `photo-viewer.spec.ts`
+  counts `/^tile-/` to assert the album is nine, and a second node per tile matching that prefix
+  silently doubled it once already. Mutation-checked: renaming them to `tile-prev`/`tile-next`
+  turns five tests red.
+- **The viewer prefetches index ±1 and no test asserts it.** Thumbnails are signed in bulk but
+  the full size is resolved one at a time on demand, so every carousel step would otherwise be
+  a cold round trip. It changes latency, not behaviour -- deliberately unasserted, and removing
+  it breaks nothing, which was checked rather than assumed.
+- **Swipe is real and no lane here can prove it.** `Gesture.Pan()` with a 60pt threshold;
+  `react-native-gesture-handler` and `reanimated` were already dependencies and
+  `GestureHandlerRootView` was already mounted, so it added nothing to the bundle -- but it is
+  the first hand-written gesture in this codebase. Chromium cannot swipe, so the BUTTONS carry
+  every assertion. That is why both exist.
 - **`photos.pending` is the host's queue and selects `'pending'` ONLY.** In-flight
   and failed uploads go to `photos.mine`, scoped to the uploading guest. Putting
   `'uploading'` back into `pending` gives the host Approve/Hide over a photo with
