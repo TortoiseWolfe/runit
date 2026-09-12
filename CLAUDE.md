@@ -102,6 +102,7 @@ pnpm typecheck                  # tsc --noEmit
 pnpm audit:styles               # Lane A: the RN colour-parser gate
 pnpm audit:targets              # Lane A2: touch targets, WCAG 2.2 SC 2.5.8 (AA)
 pnpm audit:keyboard             # Lane A3: keyboard strategy + return-key contract
+pnpm audit:rpc                  # do .rpc() argument names exist on the function they are sent to
 pnpm export:web && pnpm shots   # Lane B: screenshots at 402x874 + colour gate
 pnpm test:e2e                   # Lane B: 270 Playwright journeys, dark + light
 pnpm verify:links               # Lane G: is the invitation host OURS, and does it serve JSON
@@ -179,6 +180,23 @@ resolve `StyleSheet.create`. FIDELITY note Q.
 so the IME overlays exactly as on iOS. `/android` is gitignored prebuild output, so
 that manifest line is Expo's default and not a decision — any real change goes through
 `app.json`'s `android.softwareKeyboardLayoutMode`.
+
+**RPC NAME AUDIT** (`pnpm audit:rpc`) -- #20's residue, and credential-free. PostgREST
+resolves RPC overloads **by argument name**, so `p_titel` is a runtime 404 against a function
+that exists: not a type error, not a crash, just a dead feature. **Nothing else in CI can see
+it.** `database.types.ts` is HAND-WRITTEN, so tsc checks the call against whatever a human
+last typed; `FakeClient` records what was sent and never evaluates it; lane B boots
+`MemoryRepository`, which has no RPCs at all. Only lane H could, and lane H writes to
+production and is deliberately not in `run-checks.sh`.
+
+So it asks the same question of two files that are both in the repository: every
+`.rpc('name', {...})` in `SupabaseRepository.ts` against the parameters
+`create or replace function public.name(...)` declares. **Names only** -- not types, defaults
+or order, for the same reason A2 refuses to resolve `StyleSheet.create`. Carries a coverage
+floor, and catches the migration side too: dropping a parameter the client still sends fails
+it. **The schema fingerprint cannot do this** -- it hashes a function as
+`proname(identity_arguments)`, the SIGNATURE, so a body can be replaced wholesale under six
+green lines.
 
 **A — static style audit** (`pnpm audit:styles`). The only check that catches a
 colour RN cannot parse. Has a coverage floor: if it audits fewer literals than

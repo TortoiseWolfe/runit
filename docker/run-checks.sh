@@ -106,6 +106,14 @@ pnpm audit:tiers
 step "brand casing audit  (the product is RunIt; eight strings said Runit)"
 pnpm audit:brand
 
+# PostgREST resolves RPC overloads BY ARGUMENT NAME, so `p_titel` is a runtime 404 against a
+# function that exists -- not a type error. Nothing else here can see it: database.types.ts is
+# hand-written, FakeClient records what was sent and never evaluates it, and lane B boots
+# MemoryRepository, which has no RPCs. Only lane H could, and lane H writes to production and
+# is deliberately not in this file.
+step "rpc name audit  (an argument the function does not have is a 404, not a type error)"
+pnpm audit:rpc
+
 step "tests"
 pnpm test
 
