@@ -844,7 +844,10 @@ test.describe('a console with nobody in the room', () => {
     await expect(page.getByTestId('empty-room-share')).toBeVisible();
 
     await page.getByTestId('host-segment-event').click();
-    await page.getByTestId('invitees-toggle').click();
+    // NO TOGGLE CLICK. The section is open already on an empty list -- clicking here would
+    // CLOSE it and lose the field below. Asserted rather than assumed, because "it happens
+    // to be open" and "it opens because the list is empty" are different claims.
+    await expect(page.getByTestId('invitee-email')).toBeVisible();
     await page.getByTestId('invitee-email').fill('sam@example.test');
     await page.getByTestId('invitee-add').click();
 

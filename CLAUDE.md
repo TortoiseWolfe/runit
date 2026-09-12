@@ -807,6 +807,24 @@ was green and the half a guest actually walks was dead.
   that nothing in `shoot-app.mjs` answers, and headless Chromium refuses
   `getUserMedia`. `guest-photos.spec.ts` asserts that exact data URI, which is
   what proves the value came from the capture path and not from a literal.
+- **`weddingSeed` HAS 180 INVITED AND NO `invitees` ROWS**, and that trips anything keyed on
+  the LIST rather than the COUNT. `invitedCount` is a number on the event; `invitees` is a
+  table, and the fixture writes the first without the second on purpose
+  (`MemoryRepository.ts:922`). Against Supabase the two agree, because `fold_invited_count`
+  derives one from the other -- so a fixture-only divergence looks exactly like the non-empty
+  case and is the empty one. It cost a round of red when "Who is invited" gained
+  `defaultOpen={invitees.length === 0}`: the wedding opened, and eight tests' toggle clicks
+  then CLOSED the section they meant to open. Reach a real non-empty list by adding an
+  invitee, not by picking a seed.
+- **"WHO IS INVITED" IS OPEN WHILE THE LIST IS EMPTY, folded once it is not.** `Disclosure`
+  exists because five permanently-open sections made that screen 1309px against an 874px
+  viewport, and folding away the MEANS of changing a state is right for a section a host fills
+  once before doors. It is wrong for the one section she has not filled at all: there is no
+  state to read, and the contacts picker and the only send control in the product are both
+  behind it. Measured on a real party -- S7Y9RX ran with `invitees` at 0 behind a row reading
+  "Nobody yet", nobody opened it, nobody joined. The summary still LEADS with the state,
+  because `Disclosure`'s own docblock forbids a summary that restates the title; what follows
+  names what is behind the fold, which the title does not.
 - **A HOST WITH AN EMPTY ROOM IS SHOWN THE INVITATION, NOT A COMPOSER.** Measured on a real
   party rather than imagined: S7Y9RX ran on 2026-09-11 with 40 seats provisioned, a build
   deployed 90 minutes before doors and a live install page, and **zero people opened the app**

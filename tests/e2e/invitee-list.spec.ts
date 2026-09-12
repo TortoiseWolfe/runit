@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
-import { WEDDING, joinAsGuest, switchToHost } from './helpers';
+import { WEDDING, joinAsGuest, open, switchToHost } from './helpers';
 
 /**
  * The guest list — issue #25.
@@ -32,6 +32,28 @@ import { WEDDING, joinAsGuest, switchToHost } from './helpers';
  * nothing witnesses delivery, because the OS reports that the sheet was used and nothing after.
  */
 
+/**
+ * Make sure the guest-list section is open, whichever way it started.
+ *
+ * IT STARTS BOTH WAYS NOW. `defaultOpen` is true while the list is empty, because a host who
+ * has invited nobody needs the contacts picker and the send control on screen rather than
+ * folded behind a row summarising as "Nobody yet" -- which is what S7Y9RX shipped with, and
+ * nobody opened it.
+ *
+ * `weddingSeed` LOOKS like the non-empty case and is not: it carries `invitedCount: 180` with
+ * no `invitees` rows behind it (MemoryRepository.ts:922 says why), so the list here is empty
+ * too and the section opens. A count and a list are different things -- the same distinction
+ * #70 turned on -- and this is where that bites.
+ *
+ * So these tests stop caring which way it started. The DEFAULT is pinned explicitly, both
+ * ways, in 'a guest list nobody has started' at the foot of this file.
+ */
+async function openInvitees(page: Page) {
+  if (await page.getByTestId('invitee-email').isVisible()) return;
+  await page.getByTestId('invitees-toggle').click();
+  await expect(page.getByTestId('invitee-email')).toBeVisible();
+}
+
 const ADDRESS = 'sam@example.test';
 
 test.describe('who is invited', () => {
@@ -46,7 +68,7 @@ test.describe('who is invited', () => {
     );
 
     await page.getByTestId('host-segment-event').click();
-    await page.getByTestId('invitees-toggle').click();
+    await openInvitees(page);
     await expect(page.getByTestId('invitee-email')).toBeVisible();
     await page.getByTestId('invitee-email').fill(ADDRESS);
     await page.getByTestId('invitee-add').click();
@@ -66,7 +88,7 @@ test.describe('who is invited', () => {
     await switchToHost(page);
     await page.getByTestId('host-segment-event').click();
 
-    await page.getByTestId('invitees-toggle').click();
+    await openInvitees(page);
 
     await page.getByTestId('invitee-email').fill(ADDRESS);
     await page.getByTestId('invitee-add').click();
@@ -92,7 +114,7 @@ test.describe('who is invited', () => {
     await switchToHost(page);
     await page.getByTestId('host-segment-event').click();
 
-    await page.getByTestId('invitees-toggle').click();
+    await openInvitees(page);
 
     await page.getByTestId('invitee-email').fill(ADDRESS);
     await page.getByTestId('invitee-add').click();
@@ -129,7 +151,7 @@ test.describe('adding from contacts', () => {
     await joinAsGuest(page, scheme);
     await switchToHost(page);
     await page.getByTestId('host-segment-event').click();
-    await page.getByTestId('invitees-toggle').click();
+    await openInvitees(page);
 
     await expect(page.getByTestId('invitee-from-contacts')).toBeVisible();
     // The class assertion, same as empty-world.spec.ts. A control that cannot act must not
@@ -145,7 +167,7 @@ test.describe('adding from contacts', () => {
     await joinAsGuest(page, scheme);
     await switchToHost(page);
     await page.getByTestId('host-segment-event').click();
-    await page.getByTestId('invitees-toggle').click();
+    await openInvitees(page);
 
     const before = await page.getByTestId('invitee-row').count();
     await page.getByTestId('invitee-from-contacts').click();
@@ -166,7 +188,7 @@ test.describe('sending the invitation', () => {
     await joinAsGuest(page, scheme);
     await switchToHost(page);
     await page.getByTestId('host-segment-event').click();
-    await page.getByTestId('invitees-toggle').click();
+    await openInvitees(page);
 
     // `weddingSeed` seeds no invitee rows, so the control must not be drawn at all --
     // the same rule as the invite row on BroadcastPanel.
@@ -181,7 +203,7 @@ test.describe('sending the invitation', () => {
     await joinAsGuest(page, scheme);
     await switchToHost(page);
     await page.getByTestId('host-segment-event').click();
-    await page.getByTestId('invitees-toggle').click();
+    await openInvitees(page);
 
     await page.getByTestId('invitee-email').fill(ADDRESS);
     await page.getByTestId('invitee-add').click();
@@ -218,7 +240,7 @@ test.describe('saved guest lists', () => {
     await joinAsGuest(page, scheme);
     await switchToHost(page);
     await page.getByTestId('host-segment-event').click();
-    await page.getByTestId('invitees-toggle').click();
+    await openInvitees(page);
   };
 
   test('there is nothing to save until somebody is on the list', async ({ page }, testInfo) => {
@@ -265,5 +287,86 @@ test.describe('saved guest lists', () => {
     await saved.click();
     await expect(page.getByTestId('invitee-row')).toHaveCount(1);
     await expect(page.getByTestId('toast')).toContainText(/already invited/i);
+  });
+});
+
+/**
+ * THE GUEST LIST ANNOUNCES ITSELF WHEN IT IS EMPTY.
+ *
+ * Every test above works `weddingSeed`, which has 180 invitees -- so the section is closed,
+ * every one of them taps `invitees-toggle` first, and none could ever have noticed what a
+ * host with an EMPTY list sees. Which is the state that matters: S7Y9RX ran a real party on
+ * 2026-09-11 with `invitees` at 0, and the contacts picker and the only send control in the
+ * product were both folded behind a row summarising as "Nobody yet" -- a status line, not a
+ * door. Nobody opened it and nobody joined.
+ *
+ * BOTH HALVES ARE ASSERTED because only the pair is the behaviour. Open-when-empty alone
+ * would be satisfied by a section that never closes, which would undo the 1309px-on-an-874px
+ * -viewport problem `Disclosure` was built for.
+ */
+/** The only world where the guest list is empty AND the counts agree with it. */
+async function newEventConsole(page: Page, scheme: 'dark' | 'light') {
+  await open(page, scheme, '/create', 'create-event');
+  await page.getByTestId('create-host-name').fill('Ruth');
+  await page.getByTestId('create-name').fill("Ruth's 40th");
+  await page.getByTestId('create-date').fill('2026-09-11');
+  await page.getByTestId('create-time').fill('19:00');
+  await page.getByTestId('create-submit').click();
+  await page.getByTestId('created-continue').click();
+}
+
+test.describe('a guest list nobody has started', () => {
+  test('is already open, so the contacts picker is on screen without a tap', async ({
+    page,
+  }, testInfo) => {
+    await newEventConsole(page, testInfo.project.name as 'dark' | 'light');
+    await page.getByTestId('host-segment-event').click();
+
+    // No `invitees-toggle` click anywhere in this test. That is the assertion.
+    await expect(page.getByTestId('invitee-from-contacts')).toBeVisible();
+    await expect(page.getByTestId('invitee-email')).toBeVisible();
+  });
+
+  test('and the row says what is behind it, not only that it is empty', async ({
+    page,
+  }, testInfo) => {
+    await newEventConsole(page, testInfo.project.name as 'dark' | 'light');
+    await page.getByTestId('host-segment-event').click();
+
+    // The STATE still leads -- `Disclosure`'s docblock is explicit that a summary restating
+    // the title makes the screen worse. What follows names what the title does not.
+    await expect(page.getByTestId('invitees-toggle')).toContainText('Nobody yet');
+    await expect(page.getByTestId('invitees-toggle')).toContainText(/contacts/i);
+  });
+
+  /**
+   * AND IT STILL FOLDS ONCE THERE IS A LIST. Without this the change is "never close it",
+   * which re-creates the 1309px-on-an-874px-viewport screen `Disclosure` exists to fix.
+   *
+   * IT CANNOT USE `weddingSeed`, and that is the trap this change fell into on its first
+   * run: the wedding carries `invitedCount: 180` with NO `invitees` rows behind it
+   * (MemoryRepository.ts:922 says why), so the list there is empty and the section correctly
+   * opens -- which closed it under every existing test's toggle click. A count and a list are
+   * different things, which is the same distinction #70 turned on.
+   *
+   * So the non-empty state is reached the way a host reaches it: add somebody, then return to
+   * the segment so the panel decides again.
+   */
+  test('but a list that exists stays folded, summarised by its count', async ({
+    page,
+  }, testInfo) => {
+    await newEventConsole(page, testInfo.project.name as 'dark' | 'light');
+    await page.getByTestId('host-segment-event').click();
+    await page.getByTestId('invitee-email').fill('sam@example.test');
+    await page.getByTestId('invitee-add').click();
+    await expect(page.getByTestId('invitee-row')).toHaveCount(1);
+
+    await page.getByTestId('host-segment-broadcast').click();
+    await page.getByTestId('host-segment-event').click();
+
+    await expect(page.getByTestId('invitees-toggle')).toContainText('1 invited');
+    await expect(page.getByTestId('invitee-from-contacts')).toHaveCount(0);
+    await openInvitees(page);
+    await expect(page.getByTestId('invitee-from-contacts')).toBeVisible();
   });
 });
