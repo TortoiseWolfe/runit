@@ -120,16 +120,20 @@ pnpm schema:check                  # compare against supabase/schema-fingerprint
 pnpm schema:fingerprint --url=...  # against any database you can reach
 ```
 
-**At capture time (2026-09-07) there was no drift**: all six groups from the live project
+**At the 2026-09-07 capture there was no drift**: all six groups from the live project
 matched a local build of the committed migration exactly. That baseline is committed, and
 `policies.yml` asserts it on every push touching `supabase/**` — so a migration change that
 was never deployed goes red, with no credential needed.
 
 ### When production and the file disagree ON PURPOSE
 
+**No allowance is in force today** — #63 was reverted on 2026-09-12 and the entry deleted.
+This section stays because the mechanism is permanent and the next deliberate divergence
+should reach for it rather than re-derive it.
+
 **That combination went red and stayed red, and nobody read it.** #63 raised `max_guests` to
 40 and `max_hosts` to 2 on `house_party` in the database only, for one party, with a revert
-date — so production and the committed migration disagree on `tier_limits` by design. The
+date — so production and the committed migration disagreed on `tier_limits` by design. The
 baseline records production; CI compares it to a local build; the `Schema fingerprint` step
 failed on the merge that did it and on the next two merges as well.
 
