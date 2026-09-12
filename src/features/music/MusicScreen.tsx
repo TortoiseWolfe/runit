@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from 'react-native';
 
 import { EventHeader } from '@/features/chat/EventHeader';
 import { ReportSheet } from '@/features/moderation/ReportSheet';
+import { songKey } from '@/domain/songKey';
+import { MIN_QUERY, searchSongs, type SongMatch } from '@/lib/musicSearch';
 import { useMusicActions } from '@/state/actions';
 import { useMyReports, useMyRequest, useMyVotes, useNowPlaying, useQueue } from '@/state/hooks';
 import { subjectKey, type SongRequest, type SongRequestStatus } from '@/data/types';
@@ -88,6 +90,13 @@ function QueueRow({
   );
 }
 
+/**
+ * 250ms. Long enough that a fast typist sends one request rather than eight, short enough
+ * that the list feels like it is keeping up. The endpoint answers in 165-350ms, measured, so
+ * a shorter debounce would mostly buy overlapping requests that abort each other.
+ */
+const DEBOUNCE_MS = 250;
+
 export function MusicScreen() {
   const { tokens, fade, depthCss } = useTheme();
   const queue = useQueue();
@@ -98,9 +107,70 @@ export function MusicScreen() {
   const [draft, setDraft] = useState('');
   const [reporting, setReporting] = useState<SongRequest | null>(null);
 
+  /**
+   * SUGGESTIONS, NOT A GATE. Picking one fills the field; typing something the catalogue has
+   * never heard of still submits, because a local band, a mashup and an inside joke are all
+   * real requests at a real party. The list is an accelerator and a speller, never a filter.
+   *
+   * Everything downstream is untouched: the tap writes `Title – Artist` into the same `draft`
+   * the guest could have typed, `useMusicActions().request` splits it on the same regex, and
+   * `song_key` decides identity exactly as before. No new repository method, no new column,
+   * no SQL. The dedup win is a consequence rather than a mechanism -- two guests who pick the
+   * same row send byte-identical strings, so the votes land on one song.
+   */
+  const [matches, setMatches] = useState<SongMatch[]>([]);
+  /**
+   * Suppressed after a pick, and this flag is load-bearing rather than tidy.
+   *
+   * Choosing a suggestion sets `draft`, which re-runs the effect below, which searches for
+   * the thing just chosen and re-opens the list under the guest's finger -- over the Request
+   * button she is reaching for next. `picked` closes that loop; any further typing clears it.
+   */
+  const [picked, setPicked] = useState(false);
+
+  /**
+   * DERIVED, NOT STORED, and the React Compiler is what insisted.
+   *
+   * The first draft cleared `matches` from inside the effect when the query got too short.
+   * The compiler rejected it -- "calling setState synchronously within an effect can trigger
+   * cascading renders" -- and it was right: whether the list should be on screen is a
+   * function of what is in the field right now, not a second copy of that fact kept in sync
+   * by hand. The effect only ever sets state asynchronously now, from inside the timer.
+   */
+  const term = draft.trim();
+  const shown = picked || term.length < MIN_QUERY ? [] : matches;
+
+  useEffect(() => {
+    if (picked) return;
+    const term = draft.trim();
+    if (term.length < MIN_QUERY) return;
+    // ABORT THE OVERTAKEN KEYSTROKE. Without this a slow answer for "dan" can land after a
+    // fast one for "dancing" and replace a correct list with a stale one -- the classic
+    // type-ahead race, and the reason `searchSongs` takes a signal at all.
+    const ac = new AbortController();
+    const t = setTimeout(() => {
+      searchSongs(term, ac.signal).then(setMatches);
+    }, DEBOUNCE_MS);
+    return () => {
+      clearTimeout(t);
+      ac.abort();
+    };
+  }, [draft, picked]);
+
   const submit = async () => {
     await request(draft);
     setDraft('');
+    setMatches([]);
+    setPicked(false);
+  };
+
+  /** The canonical pair, in the shape the composer's own parser already expects. */
+  const pick = (m: SongMatch) => {
+    // AN EN DASH WITH SPACES, because `actions.ts` splits on /\s[–-]\s/ and an artist with a
+    // hyphen in it ("Jay-Z") must not be torn in half by the separator.
+    setDraft(m.artist ? `${m.title} – ${m.artist}` : m.title);
+    setPicked(true);
+    setMatches([]);
   };
 
   return (
@@ -199,10 +269,59 @@ export function MusicScreen() {
         }
       />
 
+      {/* ABOVE THE COMPOSER, NOT BELOW IT. The composer is pinned to the bottom of a
+          KeyboardAvoidingView, so a list under it would open into the keyboard. Growing
+          upward also keeps the guest's finger, the field and the first suggestion in the
+          same place they already are.
+
+          A `.map()` in a ScrollView, not a FlatList -- there is no FlatList anywhere in this
+          repo and every list is a map. Eight rows do not need virtualisation, and a new list
+          primitive on one screen is a second way of doing something the codebase already
+          does one way. */}
+      {shown.length > 0 && (
+        <View
+          testID="request-suggestions"
+          style={[s.suggestions, { backgroundColor: tokens.base200, borderTopColor: tokens.base300 }]}
+        >
+          <ScrollView
+            /* 'handled' so the FIRST tap picks a suggestion instead of being spent
+               dismissing the keyboard -- RN's 'never' default eats it, which is the same
+               trap the queue's own ScrollView documents above. */
+            keyboardShouldPersistTaps="handled"
+            style={s.suggestionScroll}
+          >
+            {shown.map((m) => (
+              <Pressable
+                key={`${m.title}|${m.artist}`}
+                onPress={() => pick(m)}
+                accessibilityRole="button"
+                accessibilityLabel={m.artist ? `${m.title} by ${m.artist}` : m.title}
+                testID={`suggest-${songKey(m.title, m.artist)}`}
+                style={s.suggestion}
+              >
+                <Text style={[s.suggestTitle, { color: tokens.baseContent }]} numberOfLines={1}>
+                  {m.title}
+                </Text>
+                <Text
+                  style={[s.suggestArtist, { color: alpha(tokens.baseContent, fade.muted) }]}
+                  numberOfLines={1}
+                >
+                  {m.artist}
+                </Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+        </View>
+      )}
+
       <View style={[s.composer, { borderTopColor: tokens.base300 }]}>
         <TextInput
           value={draft}
-          onChangeText={setDraft}
+          onChangeText={(t) => {
+            setDraft(t);
+            // Typing after a pick means she is editing it, so the list comes back.
+            setPicked(false);
+          }}
           onSubmitEditing={submit}
           returnKeyType="send"
           /* The real defect on this line. RN's default ('blurAndSubmit') drops the
@@ -280,6 +399,15 @@ const s = StyleSheet.create({
   },
   voteText: { fontSize: 13, fontWeight: weight.semibold },
 
+  /* Capped so the list never swallows the queue behind it: four rows at 44 plus the
+     container's own border. 44 is an explicit height, which is what `audit:targets` reads --
+     comfortably over SC 2.5.8's 24pt AA floor without relying on hitSlop between rows that
+     sit flush against each other, where slop would overlap its neighbour. */
+  suggestions: { borderTopWidth: border, maxHeight: 4 * 44 },
+  suggestionScroll: { flexGrow: 0 },
+  suggestion: { height: 44, paddingHorizontal: 20, justifyContent: 'center' },
+  suggestTitle: { fontSize: 15 },
+  suggestArtist: { fontSize: 12 },
   composer: {
     flexDirection: 'row', gap: 8, borderTopWidth: border,
     paddingTop: 12, paddingBottom: 10, paddingHorizontal: 20,
