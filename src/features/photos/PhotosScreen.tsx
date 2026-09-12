@@ -53,7 +53,15 @@ export function PhotosScreen() {
   // the label and the author available after a realtime update removes it from the
   // grid -- otherwise reporting the thing that just got hidden crashes the sheet.
   const [reporting, setReporting] = useState<Photo | null>(null);
-  const [viewing, setViewing] = useState<Photo | null>(null);
+  /**
+   * AN INDEX INTO `visible`, NOT A PHOTO -- so the viewer can move.
+   *
+   * `visible` is already the exact list on screen in the exact order on screen
+   * (approved, this folder, newest first), so the index the grid renders IS the index the
+   * carousel navigates. Holding a `Photo` here instead would mean the viewer had no way to
+   * know what came next, which is how it shipped as a dead end.
+   */
+  const [viewing, setViewing] = useState<number | null>(null);
   /**
    * `null` means unlimited -- the $599 tier -- and there is nothing honest to warn about
    * then, so the line is not drawn at all rather than saying "kept forever", which is a
@@ -270,7 +278,7 @@ export function PhotosScreen() {
               )}
             </View>
           ))}
-          {visible.map((p) => (
+          {visible.map((p, i) => (
             // The testID stays on the OUTER node deliberately. The e2e suite
             // counts `tile-*` and asserts their order; wrapping the image in a
             // new parent and moving the testID would break both. The hue tile is
@@ -290,7 +298,7 @@ export function PhotosScreen() {
             <Pressable
               key={p.id}
               testID={`tile-${p.id}`}
-              onPress={() => setViewing(p)}
+              onPress={() => setViewing(i)}
               accessibilityRole="button"
               accessibilityLabel={`Open the photo from ${p.uploadedByName}`}
               style={[
@@ -378,7 +386,9 @@ export function PhotosScreen() {
       </ScrollView>
 
       <PhotoViewer
-        photo={viewing}
+        photos={visible}
+        index={viewing}
+        onIndex={setViewing}
         onClose={() => setViewing(null)}
         onReport={(p) => {
           // Close the viewer FIRST. Two modals stacked leaves the report sheet behind a
