@@ -31,31 +31,32 @@ export function BroadcastPanel() {
   const { show } = useToast();
 
   /**
-   * WHO THIS ANNOUNCEMENT IS ADDRESSED TO -- #70.
+   * WHO THIS ANNOUNCEMENT ACTUALLY REACHES -- #72.
    *
-   * `invitedCount` is the invitation list, and it is the right number when there is one:
-   * a wedding sends to all 180, not only the 172 who have walked in. That distinction is
-   * real and `host-console.spec.ts` exists to protect it.
+   * THE ROOM, FULL STOP. Not the invitation list, and not the list-with-a-fallback this
+   * carried between #70 and #72.
    *
-   * BUT NOTHING IN THE PRODUCT RAISES IT FOR AN EVENT A HOST MAKES HERSELF.
-   * `create_event` mints 0 (`schema.sql:77`), `fold_invited_count` fires only on
-   * `invitees` rows (`:2198-2209`), and `join_event` never writes one. A host who sent
-   * the code by text -- which is every host today, since #59's list has no send step
-   * behind it -- has an `invitedCount` of 0 forever. So the button read "Send to 0
-   * guests" while the room filled up, on three surfaces at once, on every event this app
-   * can create. Measured on the live project: S7Y9RX, doors tonight, 0 invitees.
+   * A BROADCAST CAN ONLY REACH SOMEBODY HOLDING A `guests` ROW, by two independent gates:
+   * `broadcasts_read` is `my_guest_id(event_id) is not null or is_host(event_id)`
+   * (`schema.sql:1145`), and `send-push` reads its tokens from `from('guests')`
+   * (`send-push/index.ts:89`). An invitee who never typed the code can neither read the
+   * announcement nor be pushed it. There is no third channel: `invitees.send` hands the
+   * INVITATION to the phone's own composer and carries the join code, which is a different
+   * thing from an announcement.
    *
-   * So: the list when there is one, the room when there is not. Never zero while there
-   * is somebody to announce to.
+   * So "Send to 180 guests" on the wedding was wrong by 8 -- and CLAUDE.md said for months
+   * that the number "was never a fiction". About delivery, it always was. #70 fixed the
+   * zero case with a fallback and left the overstating case; this is the other half.
    *
-   * IT IS A FALLBACK, NOT A REPLACEMENT, and the difference is deliberate. Collapsing
-   * these two into one field is its own bug (#25) and is what `host-console.spec.ts:140`
-   * catches by switching roles mid-test. `?fresh=1` is the world that makes the OTHER
-   * half testable.
+   * `invitedCount` IS NOT DELETED, and must not be: it is the size of the invitation list,
+   * which is a real and useful number. It moves to the one place it is true -- the guest
+   * list's own summary, beside the headcount, where the two can be read together and
+   * neither pretends to be the other. That is also what stops this being the #25 collapse:
+   * both numbers still exist and are both still on screen, on the surface each belongs to.
    */
-  const invitedList = event?.invitedCount ?? 0;
   const inTheRoom = event?.guestCount ?? 0;
-  const invited = invitedList > 0 ? invitedList : inTheRoom;
+  const invitedList = event?.invitedCount ?? 0;
+  const invited = inTheRoom;
   /**
    * Sharing lives on the HOST console and nowhere else, because handing out the code is
    * a host's job. It sits above the composer for the same reason: a guest who never got
