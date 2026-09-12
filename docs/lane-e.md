@@ -2,7 +2,7 @@
 
 `supabase/verify-policies.sql` is the only check in this repo that can watch row-level
 security behave. It seeds an event, a guest and a host inside a `DO` block, switches role
-with `set local role authenticated` and a forged `request.jwt.claims`, asserts **142**
+with `set local role authenticated` and a forged `request.jwt.claims`, asserts **195**
 behaviours, and RAISES at the end so nothing commits — the "error" it prints *is* the report.
 
 ## It had never run
@@ -30,13 +30,24 @@ The first complete run measured **142**.
 This is the route to prefer. It needs nothing from anyone.
 
 ```bash
-npx supabase start                       # ~12 containers, first pull is slow
+npx supabase start          # ~12 containers, first pull is slow. It APPLIES the migration
+                            # itself now (#48 renamed it off the reserved word `init`), and
+                            # prints the DB_URL it chose -- READ THAT, do not assume 54322.
 
-# NOT `supabase db push` / `db reset` — see below. Apply it directly:
-docker exec -i supabase_db_runit psql -U postgres -v ON_ERROR_STOP=1 \
-  < supabase/migrations/00000000000000_init.sql
+SUPABASE_DB_URL=postgresql://postgres:postgres@127.0.0.1:<port>/postgres pnpm verify:policies
+```
 
-SUPABASE_DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres pnpm verify:policies
+**The port is not always 54322.** `supabase start` prints `DB_URL` in its final JSON line;
+on this machine it has come up on **54422**. Pasting the number from an old note produces a
+connection error that reads exactly like the stack being down.
+
+**Mutating the LOCAL database is how you check a new assertion bites**, and it is much faster
+than editing the migration and resetting:
+
+```bash
+docker exec -i supabase_db_runit psql -U postgres -q -c \
+  "drop policy broadcasts_host_delete on public.broadcasts;"
+# ...re-run the lane, watch it go red, then put the policy back.
 ```
 
 **Loopback runs without TLS, and that is not the same as skipping verification.** The local

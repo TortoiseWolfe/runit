@@ -1217,6 +1217,18 @@ export class MemoryRepository implements RunitRepository {
       );
       this.recompute();
     },
+
+    remove: async (id: BroadcastId) => {
+      this.broadcastList = this.broadcastList.filter((b) => b.id !== id);
+      // MIRRORS THE CASCADE ON `broadcast_reads`, and NO TEST HERE CAN SEE IT -- said out
+      // loud because a test that claimed to was written first and passed with this line
+      // deleted. `id()` never reuses an id, so a stale mark has no observable effect
+      // through any public surface. It is still wrong to keep: an id that names nothing is
+      // exactly the dangling pointer the schedule cursor acquired a foreign key to avoid in
+      // this same issue.
+      this.readMarks.delete(id);
+      this.recompute();
+    },
   };
 
   // --------------------------------------------------------------- schedule

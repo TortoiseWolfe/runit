@@ -987,6 +987,68 @@ describe('marking an announcement read (#24)', () => {
   });
 });
 
+/**
+ * TAKING AN ANNOUNCEMENT BACK -- #68. The feed is the one surface a host cannot correct by
+ * sending something else: a wrong address stays above the correction for anyone who
+ * scrolls, and `fan_out_push` has already delivered it.
+ */
+describe('removing an announcement (#68)', () => {
+  const NEW_EVENT = {
+    name: "Ruth's 40th", venue: 'The garden', startsAt: FIXED,
+    timezone: 'America/New_York', doorsLabel: 'Doors 7:00 PM', hostName: 'Ruth',
+  };
+
+  it('takes it out of the feed and leaves the others where they were', async () => {
+    const r = make();
+    await r.session.joinAsGuest({ code: 'SR1017', nickname: 'Ada' });
+    const before = r.chat.feed.get();
+    expect(before.length).toBeGreaterThan(2);
+
+    await r.chat.remove(before[1]!.id);
+
+    const after = r.chat.feed.get();
+    // Count AND order AND identity. A filter that removed the wrong row, or that removed
+    // one and reordered the rest, passes a length check alone.
+    expect(after.map((b) => b.id)).toEqual(
+      before.filter((b) => b.id !== before[1]!.id).map((b) => b.id),
+    );
+  });
+
+  /**
+   * THE READ MARK IS DELETED WITH THE ROW AND NO TEST HERE CAN SEE IT. The first draft of
+   * this block asserted it and passed against an adapter with the line deleted -- because
+   * `MemoryRepository.id()` never reuses an id, so a stale mark has no observable effect
+   * through any public surface. The line stays (it mirrors the cascade, and dead state that
+   * names nothing is the shape this issue exists to remove) and the claim does not.
+   *
+   * What IS observable is the ordering, which a removal has to preserve:
+   */
+  it('leaves the pinned-first ordering intact when the pinned one is the one removed', async () => {
+    const r = make();
+    await r.event.create(NEW_EVENT);
+    await r.chat.send({ body: 'Cake at nine.', pinned: false });
+    await r.chat.send({ body: 'Park on the north side.', pinned: true });
+    // Pinned first, then oldest-to-newest -- so the pin is at the top and its removal has
+    // to re-sort rather than leave a hole where the head was.
+    expect(r.chat.feed.get().map((b) => b.body)).toEqual([
+      'Park on the north side.', 'Cake at nine.',
+    ]);
+
+    await r.chat.remove(r.chat.feed.get()[0]!.id);
+    expect(r.chat.feed.get().map((b) => b.body)).toEqual(['Cake at nine.']);
+  });
+
+  it('removing one the host never read is not an error either', async () => {
+    const r = make();
+    await r.event.create(NEW_EVENT);
+    await r.chat.send({ body: 'Cake at nine.', pinned: false });
+    const only = r.chat.feed.get()[0]!;
+
+    await expect(r.chat.remove(only.id)).resolves.toBeUndefined();
+    expect(r.chat.feed.get()).toEqual([]);
+  });
+});
+
 describe('changing your own name (#43)', () => {
   const nameOn = (r: ReturnType<typeof make>, title: string) =>
     r.music.queue.get().find((q) => q.title === title)?.requestedByName;

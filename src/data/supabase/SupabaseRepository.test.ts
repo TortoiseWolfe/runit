@@ -749,15 +749,70 @@ describe('un-pinning an announcement (#26)', () => {
     expect(op.filters).toEqual([['id', 'bc1']]);
   });
 
-  it('sends true as readily as false, and lets the SERVER fold it', async () => {
-    // No client-side entitlement check on this path, deliberately. `fold_pin_to_plan`
-    // folds a pin the tier cannot carry -- on INSERT **or UPDATE** -- so a free-tier
-    // host's `true` returns as `false` through realtime rather than being refused. A
-    // second copy of the rule here is a copy that drifts from the one in Postgres.
+  it('sends true as readily as false, and never gates the direction', async () => {
+    // No client-side entitlement check on this path, and there is no longer a server-side
+    // one either: `fold_pin_to_plan` folded a pin the tier could not carry until pinning
+    // stopped being a tier feature entirely (#30/#70). The reason this test survives the
+    // fold's removal is that it was never asserting the fold -- it asserts that the client
+    // sends what it was asked to send and keeps no second copy of a rule that lives in
+    // Postgres.
     const c = creatable();
     const repo = await asHost(c);
     await repo.chat.setPinned('bc1', true);
     expect(c.find('update', 'broadcasts')[0]!.payload).toEqual({ pinned: true });
+  });
+});
+
+/**
+ * TAKING AN ANNOUNCEMENT BACK -- #68.
+ *
+ * `broadcasts` carried SELECT, INSERT and a `pinned`-scoped UPDATE and no DELETE at all,
+ * so a wrong address in an announcement was on every phone in the room permanently -- and
+ * `fan_out_push` had already delivered it. These assert the CLIENT half; lane E asserts
+ * that Postgres admits a host and refuses a guest.
+ */
+describe('removing an announcement (#68)', () => {
+  const asHost = async (c: FakeClient) => {
+    const repo = build(c);
+    await repo.event.create(NEW_EVENT);
+    return repo;
+  };
+
+  it('THROWS on the silent shape, because an RLS-refused DELETE affects zero rows and raises nothing', async () => {
+    // The whole reason `assertWrote` exists. Without it a refusal reads as success, the
+    // sheet closes, and the announcement is still on every phone in the room with nothing
+    // anywhere having said no. Same shape as the un-pin refusal above and as
+    // `invitees.remove`.
+    const c = creatable();
+    c.on((op) => (op.kind === 'delete' && op.table === 'broadcasts' ? refusedSilently() : undefined));
+    const repo = await asHost(c);
+    await expect(repo.chat.remove('bc1')).rejects.toThrow(/affected no rows/);
+  });
+
+  it('deletes by id from broadcasts and nothing else', async () => {
+    // A missing filter here would delete the whole feed under whatever the policy admits,
+    // which for a host is every announcement at her own event. `FakeClient` records the
+    // filters and never evaluates them, so this is the only place that can read them back.
+    const c = creatable();
+    const repo = await asHost(c);
+    await repo.chat.remove('bc1');
+
+    const ops = c.find('delete', 'broadcasts');
+    expect(ops).toHaveLength(1);
+    expect(ops[0]!.filters).toEqual([['id', 'bc1']]);
+    // NOT a soft delete. `broadcasts` has no `hidden` column and adding one would keep a
+    // moderation record about nobody -- see the policy comment in the migration.
+    expect(c.find('update', 'broadcasts')).toHaveLength(0);
+  });
+
+  it('does not reach into broadcast_reads, because the cascade does', async () => {
+    // `broadcast_reads.broadcast_id references broadcasts(id) on delete cascade`. A client
+    // that deleted the reads itself would be a second definition of the same rule, and the
+    // one in Postgres is the one that runs when somebody uses the SDK directly.
+    const c = creatable();
+    const repo = await asHost(c);
+    await repo.chat.remove('bc1');
+    expect(c.find('delete', 'broadcast_reads')).toHaveLength(0);
   });
 });
 
