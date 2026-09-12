@@ -735,3 +735,122 @@ test.describe('the composer on an event the host made herself', () => {
    * a narrow gap, and a real one.
    */
 });
+
+/**
+ * THE CONSOLE ASKS FOR GUESTS WHEN THERE ARE NONE -- #70.
+ *
+ * MEASURED ON A REAL PARTY, which is why this exists. S7Y9RX ran on 2026-09-11 with 40 seats
+ * provisioned, a build deployed 90 minutes before doors and a live install page. Zero people
+ * opened the app -- not zero joins, ZERO ANONYMOUS SIGN-INS, which happen before anything
+ * else a person can do. `invitees` was 0 and had been since the event was created two days
+ * earlier.
+ *
+ * The capability was never missing. `host-share` is one tap away and `shareMessage` writes a
+ * complete invitation with the link, three numbered steps and the code. What was missing is
+ * that nothing ever said to use it: the largest control on the screen was a send button
+ * addressed to an empty room, and the thing that mattered was a 15pt text link above it.
+ *
+ * NO NEW FIXTURE. Creating an event lands a host in exactly this state -- `create_event`
+ * mints `guest_count` 0 and `invited_count` 0 -- which is precisely where Melva was.
+ */
+test.describe('a console with nobody in the room', () => {
+  /** Returns the join code, which is shown once on the way through and nowhere after. */
+  const freshConsole = async (page: Page, scheme: 'dark' | 'light') => {
+    await open(page, scheme, '/create', 'create-event');
+    await page.getByTestId('create-host-name').fill('Ruth');
+    await page.getByTestId('create-name').fill("Ruth's 40th");
+    await page.getByTestId('create-date').fill('2026-09-11');
+    await page.getByTestId('create-time').fill('19:00');
+    await page.getByTestId('create-submit').click();
+    const code = await page.getByTestId('created-code').innerText();
+    await page.getByTestId('created-continue').click();
+    await expect(page.getByTestId('host-broadcast')).toBeVisible();
+    return code;
+  };
+
+  test('says nobody can see an announcement yet, and offers the invitation', async ({
+    page,
+  }, testInfo) => {
+    await freshConsole(page, testInfo.project.name as 'dark' | 'light');
+    await expect(page.getByTestId('empty-room-share')).toBeVisible();
+  });
+
+  /**
+   * IT IS THE SAME ACTION AS THE LINK ABOVE IT, not a second implementation. Both call
+   * `onShare`, which is `shareText(shareMessage(event))`. In this lane `share.web.ts` has no
+   * native sheet, so what is provable is that the control is wired and reaches the same
+   * path -- witnessed for real only on a device.
+   */
+  test('and the quiet link is still there, because this replaces nothing', async ({
+    page,
+  }, testInfo) => {
+    await freshConsole(page, testInfo.project.name as 'dark' | 'light');
+    await expect(page.getByTestId('host-share')).toBeVisible();
+    await expect(page.getByTestId('empty-room-share')).toBeVisible();
+  });
+
+  /**
+   * IT DOES SOMETHING, which the first version of this suite never checked -- it asserted
+   * the button was VISIBLE and stopped, so wiring `onPress` to `() => {}` left it green.
+   * Measured, then fixed.
+   *
+   * Headless Chromium has no `navigator.share`, so `shareText` returns false and `onShare`
+   * falls back to a toast naming the code. That toast is the proof: it can only appear if
+   * the press reached the real handler, and the code in it can only have come from
+   * `shareMessage(event)` built from the event that was just created.
+   */
+  test('and the button actually shares, rather than merely being drawn', async ({
+    page,
+  }, testInfo) => {
+    const code = await freshConsole(page, testInfo.project.name as 'dark' | 'light');
+    await page.getByTestId('empty-room-share').click();
+    await expect(page.getByTestId('toast')).toContainText('No share sheet here');
+    // THIS event's code, not any code. The toast can only carry it if the press reached the
+    // real handler and `shareMessage` was built from the event that was just created -- a
+    // button wired to a constant, or to nothing, fails here.
+    await expect(page.getByTestId('toast')).toContainText(code);
+  });
+
+  /**
+   * AND IT GETS OUT OF THE WAY. A prompt that stayed once the room filled would be worse
+   * than no prompt -- it is advice that has stopped being true, occupying the space above
+   * the composer for the rest of the night. `weddingSeed` is 172 here.
+   */
+  test('but not on a party that already has people in it', async ({ page }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await joinAsGuest(page, scheme);
+    await switchToHost(page);
+    await expect(page.getByTestId('empty-room-share')).toHaveCount(0);
+    await expect(page.getByTestId('host-share')).toBeVisible();
+  });
+
+  /**
+   * NOR ONCE SOMEBODY HAS BEEN INVITED, EVEN WITH THE ROOM STILL EMPTY -- a different state
+   * and a legitimate one: the host has done the asking and is waiting. The prompt's job is
+   * to say "you have not asked anyone", and that has stopped being true.
+   *
+   * THE FIRST VERSION OF THIS TEST WAS A DUPLICATE WEARING THIS NAME. It used `?fresh=1`,
+   * which is four people in the room with an empty list -- the opposite pairing -- so the
+   * prompt hid because of the HEADCOUNT and the invitation clause was never exercised.
+   * Proven: deleting `invitedList === 0` from the condition left it green.
+   *
+   * No fixture has this pairing, and it needs none: creating an event and adding one
+   * invitee reaches it, which is exactly the sequence a host walks.
+   */
+  test('and not once somebody has been invited, even before they turn up', async ({
+    page,
+  }, testInfo) => {
+    await freshConsole(page, testInfo.project.name as 'dark' | 'light');
+    await expect(page.getByTestId('empty-room-share')).toBeVisible();
+
+    await page.getByTestId('host-segment-event').click();
+    await page.getByTestId('invitees-toggle').click();
+    await page.getByTestId('invitee-email').fill('sam@example.test');
+    await page.getByTestId('invitee-add').click();
+
+    await page.getByTestId('host-segment-broadcast').click();
+    // Still nobody in the room -- and the prompt is gone, because the asking is done.
+    await expect(page.getByTestId('empty-room-share')).toHaveCount(0);
+    await expect(page.getByTestId('host-share')).toBeVisible();
+  });
+});
