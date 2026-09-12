@@ -1163,19 +1163,29 @@ begin
   execute 'set local role authenticated';
   select * into ce2 from public.create_event('Capped', now() + interval '1 day', 'UTC', 'The flat', '', 'Ruth');
 
-  -- #21. PINNING DEGRADES, IT DOES NOT REFUSE. MemoryRepository has always said why:
+  -- PINNING IS FREE (#70), AND THIS BLOCK USED TO ASSERT THE OPPOSITE.
+  --
+  -- It read: "a house_party pin is DEGRADED, not refused" -- `fold_pin_to_plan` silently set
+  -- `new.pinned := false` on a tier that had not bought it. That was right for #21 and it
+  -- degraded rather than refusing for a good reason, which MemoryRepository states:
   -- "Refusing to post an announcement because the plan cannot PIN it would be hostile."
-  -- The server now agrees, via a BEFORE INSERT trigger rather than a policy -- a policy
-  -- can only permit or deny a whole row, and denying the row loses the announcement.
+  --
+  -- But silent is what made it a defect on screen: the composer's Pin pill confirmed
+  -- "Pinned ✓" and the notice came out unpinned, and the sent-list Pin sprang back with no
+  -- toast. Two controls that lied (#70 · 2 and 3 of 5). The flag, the column and the trigger
+  -- are all gone, so the assertion inverts rather than disappearing -- the interesting claim
+  -- is now that a FREE event's pin STICKS.
   insert into public.broadcasts (event_id, author_host_id, author_name, author_role_label, kind, body, pinned)
-  values (ce2.event_id, ce2.host_id, 'Ruth', 'Host', 'announcement', 'free tier tries to pin', true)
+  values (ce2.event_id, ce2.host_id, 'Ruth', 'Host', 'announcement', 'free tier pins', true)
   returning pinned into pin;
-  out := out || format('%s a house_party pin is degraded, not refused (pinned=%s, want false)',
-                       case when pin = false then 'PASS' else 'FAIL' end, pin);
+  out := out || format('%s a house_party pin STICKS, because pinning is free (pinned=%s, want true)',
+                       case when pin = true then 'PASS' else 'FAIL' end, pin);
   select count(*) into n from public.broadcasts where event_id = ce2.event_id;
-  out := out || format('%s and the announcement still went out (%s, want 1)',
+  out := out || format('%s and the announcement went out (%s, want 1)',
                        case when n = 1 then 'PASS' else 'FAIL' end, n);
 
+  -- AND NOTHING FOLDS IT ON A PAID TIER EITHER, which is the clause that stops the one above
+  -- passing on a trigger that simply stopped running for `house_party` alone.
   execute 'reset role';
   update public.events set tier = 'event' where id = ce2.event_id;
   perform set_config('request.jwt.claims', json_build_object('sub',cuid,'role','authenticated')::text, true);
@@ -1183,8 +1193,17 @@ begin
   insert into public.broadcasts (event_id, author_host_id, author_name, author_role_label, kind, body, pinned)
   values (ce2.event_id, ce2.host_id, 'Ruth', 'Host', 'announcement', 'paid tier pins', true)
   returning id, pinned into bc, pin;
-  out := out || format('%s an event-tier pin sticks (pinned=%s, want true)',
+  out := out || format('%s an event-tier pin sticks too (pinned=%s, want true)',
                        case when pin = true then 'PASS' else 'FAIL' end, pin);
+
+  -- THE TRIGGER IS GONE, not merely inert. A `fold_pin_to_plan` left behind with every tier
+  -- true would pass both assertions above and still be dead enforcement waiting to wake up
+  -- the day somebody re-adds a column -- the #21 shape, one level down.
+  select count(*) into n from pg_trigger t
+    join pg_class c on c.oid = t.tgrelid
+   where c.relname = 'broadcasts' and t.tgname = 'broadcasts_pin_to_plan';
+  out := out || format('%s and the fold trigger is gone rather than inert (%s, want 0)',
+                       case when n = 0 then 'PASS' else 'FAIL' end, n);
 
   -- #26. Un-pinning. `broadcasts` carried a SELECT policy and an INSERT policy and
   -- nothing else, so a notice that stopped being true two hours in sat above the feed
@@ -1205,19 +1224,25 @@ begin
                          case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
   end;
 
-  -- THE TRAP #26 WOULD HAVE SET FOR #21. With an insert-only fold trigger, the UPDATE
-  -- policy added just above would leave a free-tier host one statement away from the pin
-  -- she was refused: insert (folded to false), then set pinned = true with nothing in the
-  -- path to fold it again. The cap would have been undone by the feature that came after
-  -- it, silently, with every gate still green. The trigger is `before insert OR UPDATE`.
+  -- THIS ASSERTED THE TRAP #26 WOULD HAVE SET FOR #21, and it inverts with the feature.
+  --
+  -- The trap was real and the lesson outlives the code: with an INSERT-ONLY fold trigger,
+  -- #26's new UPDATE policy would have left a free-tier host one statement from the pin she
+  -- had just been refused -- insert it folded, then set `pinned = true` with nothing in the
+  -- path to fold again. The cap undone by the feature that came after it, silently, every
+  -- gate green. The trigger was `before insert OR UPDATE` for exactly that.
+  --
+  -- Pinning is free now (#70), so there is no cap to undo and the assertion becomes its
+  -- opposite: a free-tier host pins by UPDATE too. **If a tier ever gates a column again,
+  -- gate every command that can write it.**
   execute 'reset role';
   update public.events set tier = 'house_party' where id = ce2.event_id;
   perform set_config('request.jwt.claims', json_build_object('sub',cuid,'role','authenticated')::text, true);
   execute 'set local role authenticated';
   update public.broadcasts set pinned = true where id = bc;
   select b.pinned into pin from public.broadcasts b where b.id = bc;
-  out := out || format('%s a free-tier host cannot pin via UPDATE either (pinned=%s, want false)',
-                       case when pin = false then 'PASS' else 'FAIL' end, pin);
+  out := out || format('%s a free-tier host can pin by UPDATE as well as by INSERT (pinned=%s, want true)',
+                       case when pin = true then 'PASS' else 'FAIL' end, pin);
   execute 'reset role';
   update public.events set tier = 'event' where id = ce2.event_id;
   perform set_config('request.jwt.claims', json_build_object('sub',cuid,'role','authenticated')::text, true);
@@ -1238,11 +1263,16 @@ begin
   -- UPDATE returns ZERO ROWS AND RAISES NOTHING. That silent shape is exactly what
   -- `SupabaseRepository.assertWrote()` exists to catch, and the un-pin control is the
   -- newest caller of it.
-  update public.broadcasts set pinned = true where id = bc;
+  -- SHE TRIES TO UN-PIN, not to pin, and the direction is what makes the VALUE load-bearing.
+  -- The row is pinned at this point (the host just pinned it), so a guest write that landed
+  -- would flip it to false -- which means `pinned` still reading true proves the write did
+  -- not happen, rather than merely agreeing with a literal. Asserting `pinned = false` here
+  -- used to work only because nothing had ever successfully pinned it.
+  update public.broadcasts set pinned = false where id = bc;
   get diagnostics n = row_count;
   select b.pinned into pin from public.broadcasts b where b.id = bc;
-  out := out || format('%s a guest pinning affects %s rows and raises nothing, pinned=%s (want 0, false)',
-                       case when n = 0 and pin = false then 'PASS' else 'FAIL' end, n, pin);
+  out := out || format('%s a guest un-pinning affects %s rows and raises nothing, pinned=%s (want 0, true)',
+                       case when n = 0 and pin = true then 'PASS' else 'FAIL' end, n, pin);
   begin
     perform h.auth_user_id from public.hosts h where h.event_id = ce2.event_id limit 1;
     out := out || format('FAIL a guest read auth_user_id off hosts');

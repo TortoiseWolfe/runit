@@ -362,13 +362,22 @@ describe('chat', () => {
     expect(r.chat.feed.get()[0]).toMatchObject({ body: 'Cake in ten', pinned: true });
   });
 
-  it('degrades pinning on a tier without it rather than refusing to post', async () => {
+  /**
+   * IT USED TO DEGRADE, AND NOW IT SIMPLY WORKS (#70). This asserted that a free-tier pin
+   * came out unpinned -- the announcement went out, it just did not stick, because refusing
+   * to POST over a pin would have been hostile. That fold was correct and invisible, which
+   * is exactly what made the composer's Pin pill say "Pinned ✓" over an unpinned notice.
+   *
+   * Pinning is free now, so the assertion inverts rather than disappearing: the thing worth
+   * pinning to a test is that a free-tier host's pin STICKS.
+   */
+  it('pins on the free tier, because pinning is not something anyone buys', async () => {
     const r = make();
     await r.event.setTier('house_party');
     await r.chat.send({ body: 'Pizza is here', pinned: true });
     const posted = r.chat.feed.get().find((b) => b.body === 'Pizza is here');
     expect(posted).toBeDefined();
-    expect(posted?.pinned).toBe(false);
+    expect(posted?.pinned).toBe(true);
   });
 
   it('un-pins an announcement that has stopped being true', async () => {
@@ -381,14 +390,21 @@ describe('chat', () => {
     expect(r.chat.feed.get().find((x) => x.id === b.id)?.pinned).toBe(false);
   });
 
-  it('still gates PINNING on the plan', async () => {
+  /**
+   * THE GATE IS GONE, and its absence is what is asserted (#70). This refused to put a pin
+   * UP on a tier that had not bought one -- silently against Supabase, where
+   * `SupabaseRepository.setPinned` never had a client check at all and the server's
+   * `fold_pin_to_plan` returned the row unpinned through realtime with no toast. Two
+   * controls that lied, #70 · 2 and 3 of 5.
+   */
+  it('lets a free-tier host pin an announcement she already sent', async () => {
     const r = make();
     await r.chat.send({ body: 'Cake in ten', pinned: false });
     const b = r.chat.feed.get().find((x) => x.body === 'Cake in ten')!;
     await r.event.setTier('house_party');
 
-    await expect(r.chat.setPinned(b.id, true)).rejects.toBeInstanceOf(EntitlementError);
-    expect(r.chat.feed.get().find((x) => x.id === b.id)?.pinned).toBe(false);
+    await expect(r.chat.setPinned(b.id, true)).resolves.toBeUndefined();
+    expect(r.chat.feed.get().find((x) => x.id === b.id)?.pinned).toBe(true);
   });
 
   /**
@@ -513,23 +529,39 @@ describe('entitlements are enforced in the repository, not the button', () => {
     expect(r.photos.approved.get().some((p) => p.id === 'pho_1')).toBe(false);
   });
 
-  // RE-POINTED TWICE, and never deleted, because this is the only test that exercises
-  // `denial.upgradeTo` -- the paywall's "which tier lifts this?" path. It moved off the
-  // djQueue gate when that was removed and moved onto `photoModeration`; moderation is not
-  // a tier feature at all now, so it moves again rather than going out with it. Deleting
-  // it alongside a retired gate is how that coverage would vanish unnoticed.
-  //
-  // `pinnedAnnouncements` is the right home: a real feature, gated in this adapter, and
-  // one of the three `audit:tiers` reports as granted AND enforced.
-  it('names the tier that lifts a refused feature, so the paywall can highlight it', async () => {
+  /**
+   * RE-POINTED THREE TIMES NOW, and never deleted, because it is the only test that
+   * exercises `denial.upgradeTo` -- the paywall's "which tier lifts this?" path. It began on
+   * the djQueue gate, moved to `photoModeration` when that was removed, moved to
+   * `pinnedAnnouncements` yesterday, and moves again today because pinning became free.
+   *
+   * THAT PATTERN IS ITSELF WORTH READING. Three features have left the ladder in two days,
+   * each because it turned out to be a safety setting, an event's own choice, or a thing
+   * nobody should pay for. `audit:tiers` is down to 10 features and 2 granted. If the fourth
+   * re-point ever has nowhere to go, `upgradeTo` has no reachable caller and the paywall
+   * path should go with it rather than being kept alive by a test.
+   *
+   * IT IS A **LIMIT** DENIAL NOW, NOT A FEATURE ONE, and that is a finding rather than a
+   * convenience. `hostRoles` is the last feature gated in this adapter, and its denial is
+   * UNREACHABLE: `invite` checks the seat cap first, and every fixture is already at its
+   * cap -- the wedding holds 3 hosts and `party` allows 2, `housePartySeed` holds 1 and
+   * `house_party` allows 1, and a created event mints its founder into the only seat. So
+   * there is no world here in which a role refusal fires before a seat refusal.
+   *
+   * What this test is actually for is `upgradeTo` -- the paywall's "which tier lifts this?"
+   * path -- and that is carried by limit denials too. So it moves to the one denial that
+   * IS reachable, and says why rather than quietly changing what it proves.
+   */
+  it('names the tier that lifts a refused denial, so the paywall can highlight it', async () => {
     const r = make();
     await r.event.setTier('house_party');
-    const id = r.chat.feed.get()[0]!.id;
-    await r.chat.setPinned(id, true).catch((e: EntitlementError) => {
-      expect(e.denial.kind).toBe('feature');
-      expect(e.denial).toMatchObject({ feature: 'pinnedAnnouncements' });
-      expect(e.denial.upgradeTo).toBeTruthy();
-    });
+    await r.hosts.invite({ displayName: 'Dee', role: 'host', roleLabel: 'Host' }).catch(
+      (e: EntitlementError) => {
+        expect(e.denial.kind).toBe('limit');
+        expect(e.denial).toMatchObject({ limit: 'hosts' });
+        expect(e.denial.upgradeTo).toBeTruthy();
+      },
+    );
     expect.hasAssertions();
   });
 

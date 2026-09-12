@@ -834,7 +834,8 @@ create extension if not exists pg_net with schema extensions;
 -- that class of second route.
 --
 -- A trigger fires on a row RLS has already admitted, so authorisation is settled before
--- the request is even built. Same reasoning as `fold_pin_to_plan`.
+-- the request is even built. Same reasoning `fold_pin_to_plan` used, before pinning became
+-- free and that trigger was removed (#70).
 --
 -- IT MUST NEVER FAIL THE INSERT. Losing a host's announcement because a notification
 -- could not be queued is precisely backwards -- the announcement is the thing she came
@@ -1659,47 +1660,31 @@ end $$;
 
 revoke execute on function public.mint_token(int) from public, anon, authenticated;
 
--- PINNING IS A PAID FEATURE, and the server has to say so.
+-- PINNING USED TO BE A PAID FEATURE, AND A TRIGGER HERE ENFORCED IT. Both are gone (#70).
 --
--- `pinnedAnnouncements` was granted by two tiers and read in exactly one place --
--- MemoryRepository -- so against Supabase a free-tier host could pin, which is issue #21.
--- SupabaseRepository.chat.send never looked at the flag; `pinned` went straight into the
--- INSERT.
+-- `fold_pin_to_plan` read `tier_limits.pinned_announcements` and silently folded
+-- `new.pinned` to false on a tier that had not bought it. It was right, and #21 is why it
+-- existed: the flag was granted by two tiers and read in exactly ONE place --
+-- `MemoryRepository` -- so against Supabase a free-tier host could pin and nothing stopped
+-- her. `SupabaseRepository.chat.send` never looked at the flag at all.
 --
--- IT DEGRADES RATHER THAN REFUSES, matching the reasoning already written into
--- MemoryRepository: "Refusing to post an announcement because the plan cannot PIN it
--- would be hostile." The announcement goes out; it simply does not stick to the top.
--- A trigger rather than a policy, because a policy can only permit or deny a whole row.
-create or replace function public.fold_pin_to_plan() returns trigger
-language plpgsql security definer set search_path = public as $$
-declare
-  v_ok boolean;
-begin
-  if new.pinned then
-    select tl.pinned_announcements into v_ok
-      from public.tier_limits tl
-      join public.events e on e.tier = tl.tier
-     where e.id = new.event_id;
-    -- coalesce, so an event on a tier with no row loses the pin rather than keeping it.
-    -- Failing toward the cheaper plan is the right direction for a paid feature.
-    if not coalesce(v_ok, false) then
-      new.pinned := false;
-    end if;
-  end if;
-  return new;
-end $$;
-
-revoke execute on function public.fold_pin_to_plan() from public, anon, authenticated;
-
--- INSERT **OR UPDATE**, and the OR UPDATE is load-bearing. #26 adds an UPDATE policy so
--- a host can un-pin; an insert-only trigger would then leave a free-tier host one UPDATE
--- away from the pin #21 just took off her: send the announcement (folded to false), then
--- set pinned = true, with nothing in the path to fold it a second time. The cap would
--- have been undone by the feature that came after it, silently, and every gate would
--- still have been green.
-create trigger broadcasts_pin_to_plan
-  before insert or update on public.broadcasts
-  for each row execute function public.fold_pin_to_plan();
+-- What it produced on screen was two controls that lied. The composer's Pin pill confirmed
+-- "Pinned ✓" and the announcement came out unpinned; the sent-list Pin sprang back with no
+-- toast, because the fold is silent BY DESIGN -- "refusing to post an announcement because
+-- the plan cannot pin it would be hostile" was the right call and made the refusal
+-- invisible. #70 · 2 and 3 of 5.
+--
+-- Pinning is free now, on every tier, so there is nothing left to fold. The column is gone
+-- from `tier_limits` rather than set true everywhere: a flag true on all four tiers is not
+-- a tier feature, and a trigger that can never fire is the dead-enforcement shape #21
+-- exists to prevent. The same surgery `photo_moderation` had.
+--
+-- ONE THING HERE IS WORTH KEEPING EVEN THOUGH THE CODE IS NOT. The trigger was
+-- `before insert OR UPDATE`, and the OR UPDATE was load-bearing: #26 added an UPDATE policy
+-- so a host could un-pin, and an insert-only trigger would have left her one statement from
+-- the pin she had just been refused -- send it folded, then set `pinned = true`, with
+-- nothing in the path to fold a second time. If a tier ever gates a column again, gate
+-- every command that can write it.
 
 -- ========================================================================
 -- CREATING AN EVENT -- the supply side, which did not exist
@@ -1886,8 +1871,6 @@ create table public.tier_limits (
   -- Whether a seat may be anything other than 'host'. The DJ QUEUE is free on every
   -- tier; this is about a co-host SEAT wearing a role, which is a different product.
   host_roles  boolean not null,
-  -- Whether an announcement may be pinned to the top of every guest's feed.
-  pinned_announcements boolean not null default false,
   -- Whether the fan-out actually sends (#27). This column did not exist while push did
   -- not exist -- a column claiming to gate a capability nothing has is a second place
   -- asserting a fiction. It exists now because `fan_out_push` READS it, which is the
@@ -1926,16 +1909,15 @@ create policy tier_limits_read on public.tier_limits for select using (true);
 revoke insert, update, delete on public.tier_limits from authenticated, anon;
 
 insert into public.tier_limits
-  (tier, max_guests, max_hosts, max_photos, max_folders, host_roles, pinned_announcements, push_notifications, album_retention_days)
-values ('house_party',   10,    1,  100,    1, false, false, false,   30),
-       ('party',         50,    2, 1000,    3, false, false, false,   90),
-       ('event',        300,    5, null,   10, true,  true,  true,   365),
-       ('venue',       3000, null, null, null, true,  true,  true,  null)
+  (tier, max_guests, max_hosts, max_photos, max_folders, host_roles, push_notifications, album_retention_days)
+values ('house_party',   10,    1,  100,    1, false, false,   30),
+       ('party',         50,    2, 1000,    3, false, false,   90),
+       ('event',        300,    5, null,   10, true,  true,   365),
+       ('venue',       3000, null, null, null, true,  true,  null)
 on conflict (tier) do update set
   max_guests  = excluded.max_guests,  max_hosts   = excluded.max_hosts,
   max_photos  = excluded.max_photos,  max_folders = excluded.max_folders,
   host_roles  = excluded.host_roles,
-  pinned_announcements = excluded.pinned_announcements,
   push_notifications   = excluded.push_notifications,
   album_retention_days = excluded.album_retention_days;
 
