@@ -103,6 +103,7 @@ pnpm audit:styles               # Lane A: the RN colour-parser gate
 pnpm audit:targets              # Lane A2: touch targets, WCAG 2.2 SC 2.5.8 (AA)
 pnpm audit:keyboard             # Lane A3: keyboard strategy + return-key contract
 pnpm audit:rpc                  # do .rpc() argument names exist on the function they are sent to
+pnpm audit:mail                 # the sending domain's DKIM/SPF, and the neighbour's inbound mail
 pnpm export:web && pnpm shots   # Lane B: screenshots at 402x874 + colour gate
 pnpm test:e2e                   # Lane B: 426 Playwright journeys, dark + light
 pnpm verify:links               # Lane G: is the invitation host OURS, and does it serve JSON
@@ -207,6 +208,43 @@ database, or the reverse, under a completely green board. That is why lane E ass
 set-null BEHAVIOUR (delete the running row, read the cursor back) instead of asserting the
 constraint exists -- a gate that cannot see a thing cannot guard it, and the honest response
 is to check the thing somewhere that can.
+
+**MAIL POLICY** (`pnpm audit:mail`) -- #18, and RunIt is a GUEST ON SOMEBODY ELSE'S DOMAIN.
+Host sign-in emails a 6-digit code; Supabase's built-in mail is 2/hour PROJECT-WIDE, so it
+needs custom SMTP, which needs a sending domain. The decision (2026-09-12) is
+**`runit.scripthammer.com`** -- a subdomain of a domain the owner already controls, already on
+Cloudflare, already a verified **Resend** sender at its root (`dkimSelector: 'resend'`, and
+Resend is wired across six repos in this workspace, so there was no provider decision left).
+
+**A SUBDOMAIN, NEVER THE ROOT, and that is not style.** `scripthammer.com` carries LIVE
+INBOUND MAIL -- Cloudflare Email Routing, and `admin@scripthammer.com` is the published
+security-contact address for that project. Email Routing is inbound-only and its SPF include
+already occupies the root TXT. Sending records go on the subdomain; the root is never edited.
+The gate asserts BOTH halves, and the neighbour half is the one no other repo checks.
+
+**It fails SILENTLY in both directions**, which is why a gate exists at all: a lost DKIM key
+does not error, and under `p=none` nothing visibly breaks until a provider starts junking
+sign-in codes. A guest never sees a bounce -- the host just cannot get in, and blames the app.
+
+**NOT YET SET UP is a different state from BROKEN.** An unconfigured subdomain prints
+`SKIPPED:` (which `run-checks.sh` counts and names in the summary) with instructions; a
+HALF-configured one -- SPF without DKIM, or the reverse -- fails. Conflating them is how a
+gate earns a reputation for crying wolf before the thing it guards exists.
+
+**THE ESTATE'S CONVENTION IS ONE PRODUCT, ONE APEX DOMAIN, and this departs from it
+deliberately.** `ACCOUNTS.md` records *"a project belongs to the account matching its
+domain"*, and every sibling has its own (`spoketowork.com`, `geolarp.com`, `turtlewolfe.com`).
+This is the first time a second product has lived under another product's domain. It costs
+nothing and unblocks the queue; it is a decision, not drift. Ported from
+`ScriptHammer/scripts/ci/check-mail-policy.mjs`.
+
+**"UNDER SCRIPTHAMMER" CANNOT MEAN THE APP STORE SELLER NAME.** The Apple membership is
+**Individual** (`ACCOUNTS.md`), and Apple lists the person's legal name as seller -- *"Do not
+enter an alias, nickname, or company name."* A studio name needs an Organization account,
+which needs a real legal entity (*"DBAs, fictitious businesses, trade names... are NOT
+accepted"*) plus a D-U-N-S number. Decided 2026-09-12: **branding only.** RunIt keeps
+`com.turtlewolfe.runit`, app record `6808766120` and TestFlight builds 3-7 -- a bundle id
+cannot change once builds exist, so moving namespace would mean a new app record.
 
 **A — static style audit** (`pnpm audit:styles`). The only check that catches a
 colour RN cannot parse. Has a coverage floor: if it audits fewer literals than

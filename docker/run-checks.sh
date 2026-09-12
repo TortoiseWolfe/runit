@@ -149,6 +149,15 @@ step "invitation host  (lane G -- skips LOUDLY until Cloudflare Pages is connect
 lane "lane G -- the invitation host serves OUR association file" \
   node tools/verify-links.mjs
 
+# Mail DNS, beside lane G because it is the other check that needs the network and the other
+# one whose subject lives in a dashboard. Two claims in one: that RunIt's sending domain
+# signs, and -- the half no other repo checks -- that ScriptHammer's INBOUND mail is
+# undisturbed by us being a guest on its zone. It skips LOUDLY on the first half until the
+# Resend domain exists (#18).
+step "mail policy  (the sending domain, and the neighbour it must not break)"
+lane "mail policy -- our sending domain is not live yet" \
+  node tools/check-mail-policy.mjs
+
 step "end-to-end journeys  (Playwright, 402x874, dark + light)"
 pnpm exec playwright test
 
