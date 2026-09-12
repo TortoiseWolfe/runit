@@ -5,7 +5,7 @@ import {
 
 import { EventHeader } from '@/features/chat/EventHeader';
 import { ReportSheet } from '@/features/moderation/ReportSheet';
-import { songKey } from '@/domain/songKey';
+import { orderedForRequest, songKey } from '@/domain/songKey';
 import { MIN_QUERY, searchSongs, type SongMatch } from '@/lib/musicSearch';
 import { useMusicActions } from '@/state/actions';
 import { useMyReports, useMyRequest, useMyVotes, useNowPlaying, useQueue } from '@/state/hooks';
@@ -163,7 +163,24 @@ export function MusicScreen() {
   }, [draft, picked]);
 
   const submit = async () => {
-    await request(draft);
+    /*
+     * THE HALVES, THE RIGHT WAY ROUND. `useMusicActions().request` splits on ` – ` and
+     * assigns positionally, so "Journey – Don't Stop Believin'" would file a song called
+     * Journey by Don't Stop Believin' -- a different `song_key` from the correctly-ordered
+     * one, so the votes split, which is the exact defect the type-ahead exists to stop.
+     *
+     * USUALLY FREE: `matches` was already fetched for this very text while she typed.
+     *
+     * BUT NOT ALWAYS, AND THE GAP IS REAL. Someone who types quickly and hits Request
+     * inside the 250ms debounce has no matches yet, and the first version of this silently
+     * did nothing for exactly those people -- which is the fastest typists, who are the
+     * likeliest to abbreviate and get the order wrong. So when there is nothing to check
+     * against and the draft actually has two halves, it asks once. One request, only on
+     * that path, and `searchSongs` answers `[]` rather than throwing if it fails.
+     */
+    const halves = draft.trim().split(/\s[–-]\s/).length === 2;
+    const known = matches.length > 0 || !halves ? matches : await searchSongs(draft);
+    await request(orderedForRequest(draft, known));
     setDraft('');
     setMatches([]);
     setPicked(false);

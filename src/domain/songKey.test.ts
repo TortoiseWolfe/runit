@@ -1,7 +1,7 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
-import { songKey } from './songKey';
+import { orderedForRequest, songKey } from './songKey';
 
 /**
  * "The same song" is defined ONCE, in SQL, and mirrored here — issue #44.
@@ -68,5 +68,95 @@ describe('the song key, against the SQL that enforces it', () => {
     // in the place that enforces it -- and doing it only here would make the fixture merge
     // songs the backend keeps apart.
     expect(songKey('Beyonce', '')).not.toBe(songKey('Beyoncé', ''));
+  });
+});
+
+/**
+ * PUTTING THE TWO HALVES THE RIGHT WAY ROUND.
+ *
+ * The composer splits on ` – ` and assigns positionally, so an artist typed first becomes the
+ * title. That is not cosmetic: `song_key(title, artist)` is the identity under a partial
+ * unique index, so the reversed spelling is a DIFFERENT SONG and the votes split -- the exact
+ * defect the type-ahead exists to stop, reached by the one route the type-ahead does not
+ * cover.
+ */
+describe('orderedForRequest', () => {
+  const JOURNEY = { title: "Don't Stop Believin'", artist: 'Journey' };
+  const ABBA = { title: 'Dancing Queen', artist: 'ABBA' };
+
+  it('swaps when the catalogue says the artist was typed first', () => {
+    expect(orderedForRequest("Journey – Don't Stop Believin'", [JOURNEY])).toBe(
+      "Don't Stop Believin' – Journey",
+    );
+  });
+
+  it('leaves a correctly ordered request exactly as typed', () => {
+    // NOT rewritten to the catalogue's spelling. That would be a different change and one
+    // the guest did not ask for -- she typed it right.
+    expect(orderedForRequest('Dont Stop Believin - Journey', [JOURNEY])).toBe(
+      'Dont Stop Believin - Journey',
+    );
+  });
+
+  it('folds punctuation and case, because song_key does', () => {
+    expect(orderedForRequest('journey - dont stop believin', [JOURNEY])).toBe(
+      'dont stop believin – journey',
+    );
+  });
+
+  /**
+   * THE PROMISE THAT FREE TEXT STILL WORKS. A local band, a mashup, an inside joke -- no
+   * catalogue has them, nothing confirms an order, so nothing is touched.
+   */
+  it('returns an unknown song untouched, whatever order it is in', () => {
+    expect(orderedForRequest("The Bridesmaids' Band – live set", [JOURNEY, ABBA])).toBe(
+      "The Bridesmaids' Band – live set",
+    );
+  });
+
+  it('and does nothing at all with no suggestions to check against', () => {
+    expect(orderedForRequest("Journey – Don't Stop Believin'", [])).toBe(
+      "Journey – Don't Stop Believin'",
+    );
+  });
+
+  it('leaves a bare title alone, because there are no halves to order', () => {
+    expect(orderedForRequest('Wonderwall', [JOURNEY])).toBe('Wonderwall');
+  });
+
+  it('does not tear an artist whose name contains a hyphen', () => {
+    // "Jay-Z" has no spaces around its hyphen, so the separator does not match it and the
+    // string has one part, not two. Same rule `actions.ts` relies on.
+    expect(orderedForRequest('Jay-Z', [JOURNEY])).toBe('Jay-Z');
+  });
+
+  /**
+   * ALREADY-CORRECT WINS, and this is the only test that can prove the early return earns
+   * its line. Mutation found the gap: deleting `if (mt === a && ma === b) return draft` left
+   * every other test green, because with a sane catalogue no later entry matches in reverse
+   * either, so the loop falls through to the same answer.
+   *
+   * It stops being redundant the moment the list contains BOTH orderings -- which a real
+   * catalogue can absolutely produce, since "Africa" by Toto and a band called Africa are
+   * both things that exist. Without the early return the reversed entry would win on a
+   * correctly-typed request and swap it into nonsense.
+   */
+  it('prefers the reading the guest already got right, even if the list also has it reversed', () => {
+    const REVERSED = { title: 'Journey', artist: "Don't Stop Believin'" };
+    expect(orderedForRequest("Don't Stop Believin' – Journey", [REVERSED, JOURNEY])).toBe(
+      "Don't Stop Believin' – Journey",
+    );
+    // AND THE OTHER DIRECTION TOO, which is the same rule rather than an exception: if the
+    // catalogue really holds both, then whatever she typed IS a real song, and there is
+    // nothing to correct. Ambiguity resolves to leaving her alone.
+    expect(orderedForRequest("Journey – Don't Stop Believin'", [JOURNEY, REVERSED])).toBe(
+      "Journey – Don't Stop Believin'",
+    );
+  });
+
+  it('picks the matching song out of several suggestions', () => {
+    expect(orderedForRequest('ABBA – Dancing Queen', [JOURNEY, ABBA])).toBe(
+      'Dancing Queen – ABBA',
+    );
   });
 });

@@ -752,3 +752,96 @@ test.describe('what happens to a song the DJ says no to', () => {
     await expect(page.getByTestId('my-request-status')).toHaveText('Waiting for DJ');
   });
 });
+
+/**
+ * ASKING FOR A SONG ARTIST-FIRST.
+ *
+ * Half the room says "Don't Stop Believin', Journey" and half says "Journey, Don't Stop
+ * Believin'". The composer splits on ` – ` and assigns POSITIONALLY, so the second half filed
+ * a song called Journey by an artist called Don't Stop Believin' -- a different
+ * `song_key(title, artist)` from the first, under a partial unique index, so the two never
+ * merged and the votes split. That is the exact defect the type-ahead exists to stop, reached
+ * by the one route the type-ahead did not cover.
+ *
+ * Measured against the real endpoint: `journey dont stop believin` and `abba dancing queen`
+ * both return the right song first, so the catalogue was never the limitation. The fixture
+ * WAS -- it prefix-matched `title+artist` concatenated, so "journey" matched nothing and
+ * these journeys could not have been written at all.
+ */
+test.describe('a song asked for artist-first', () => {
+  test('is offered by the type-ahead, not just by title', async ({ page }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await joinAsGuest(page, scheme);
+    await page.getByTestId('tab-music').click();
+
+    await page.getByTestId('request-input').click();
+    await page.getByTestId('request-input').pressSequentially('journey', { delay: 15 });
+    await expect(page.getByTestId('suggest-dontstopbelievin|journey')).toBeVisible();
+  });
+
+  /**
+   * AND THE TYPED FORM IS FILED THE RIGHT WAY ROUND even when she never picks a suggestion.
+   * The byline is the proof: it renders `artist · nickname`, so a reversed request shows the
+   * TITLE where the artist belongs.
+   */
+  test('and files with the title and artist in the right columns', async ({ page }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await joinAsGuest(page, scheme);
+    await page.getByTestId('tab-music').click();
+
+    await page.getByTestId('request-input').click();
+    await page.getByTestId('request-input').pressSequentially("Journey – Don't Stop Believin'", {
+      delay: 10,
+    });
+    await page.getByTestId('request-submit').click();
+
+    await expect(page.getByText(`Journey · ${NICKNAME}`)).toBeVisible();
+    await expect(page.getByTestId('my-request')).toContainText('in the queue');
+  });
+
+  /**
+   * THE WHOLE POINT: the two orderings become ONE row with two votes, rather than two rows
+   * with one each. Without the fix `song_key` sees two different songs and `request_song`
+   * inserts rather than merging.
+   */
+  test('so both ways of saying it are the same song', async ({ page }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await joinAsGuest(page, scheme);
+    await page.getByTestId('tab-music').click();
+    const before = await page.getByTestId('music-queue').locator('[data-testid^="vote-"]').count();
+
+    await submitRequest(page, "Don't Stop Believin' – Journey");
+    const after = await page.getByTestId('music-queue').locator('[data-testid^="vote-"]').count();
+    expect(after).toBe(before + 1);
+
+    // Now the other way round, typed so the type-ahead has something to check against.
+    await page.getByTestId('request-input').click();
+    await page.getByTestId('request-input').pressSequentially("Journey – Don't Stop Believin'", {
+      delay: 10,
+    });
+    await page.getByTestId('request-submit').click();
+
+    await expect(page.getByTestId('toast')).toContainText('Already in the queue');
+    const end = await page.getByTestId('music-queue').locator('[data-testid^="vote-"]').count();
+    expect(end).toBe(after);
+  });
+
+  /**
+   * AND A SONG NO CATALOGUE HAS IS LEFT EXACTLY AS TYPED. Nothing confirms an order, so
+   * nothing is reordered -- the free-text promise, one layer deeper than the suggestion list.
+   */
+  test('while an unknown song keeps whatever order it was given', async ({ page }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await joinAsGuest(page, scheme);
+    await page.getByTestId('tab-music').click();
+
+    await page.getByTestId('request-input').click();
+    await page.getByTestId('request-input').pressSequentially("The Bridesmaids' Band – live set", {
+      delay: 10,
+    });
+    await page.getByTestId('request-submit').click();
+
+    // Typed first half stays the title, so the second half is still the byline.
+    await expect(page.getByText(`live set · ${NICKNAME}`)).toBeVisible();
+  });
+});
