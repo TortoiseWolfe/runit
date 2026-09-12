@@ -13,9 +13,14 @@ import { subjectKey, type SongRequest, type SongRequestStatus } from '@/data/typ
 import { alpha, border, eyebrow, radius, useTheme, weight } from '@/theme';
 
 /**
- * The canvas's `statusText` map has no `declined` key, so a declined request
- * renders `undefined` -- and its `live` filter drops declined rows from the
- * queue, so the guest's request silently vanishes. FIDELITY note C.
+ * The canvas's `statusText` map has no `declined` key, so a declined request renders
+ * `undefined` -- and its `live` filter drops declined rows from the queue, so the guest's
+ * request silently vanishes. FIDELITY note C.
+ *
+ * THIS MAP WAS RIGHT AND UNREACHABLE FOR MONTHS. Adding the two keys fixed half of it; the
+ * other half was that `useMyRequest` read the QUEUE, which is exactly the list those two
+ * statuses are filtered out of -- so the strip unmounted before either string could render.
+ * It reads `music.mine` now, off the unfiltered list. #70.
  */
 const STATUS_TEXT: Record<SongRequestStatus, string> = {
   pending: 'Waiting for DJ',
@@ -200,7 +205,7 @@ export function MusicScreen() {
         keyboardDismissMode="on-drag"
       >
         {nowPlaying && (
-          <View style={[s.nowPlaying, { backgroundColor: tokens.neutral }]}>
+          <View testID="now-playing" style={[s.nowPlaying, { backgroundColor: tokens.neutral }]}>
             <View style={[s.art, { backgroundColor: tokens.base300 }]} />
             <View style={s.npText}>
               <Text style={[s.npEyebrow, { color: alpha(tokens.neutralContent, fade.body) }]}>
@@ -217,11 +222,23 @@ export function MusicScreen() {
         )}
 
         {mine && (
-          <View style={[s.mineStrip, { backgroundColor: tokens.secondary }]}>
+          <View testID="my-request" style={[s.mineStrip, { backgroundColor: tokens.secondary }]}>
+            {/* THE RANK GOES WHEN THE SONG DOES. A declined request has no position, and
+                "#3 in the queue" beside "Not this time" is two sentences arguing on one
+                strip. The status line below carries the whole message in that case. */}
             <Text style={[s.mineText, { color: tokens.secondaryContent }]}>
-              Your request is <Text style={s.mineRank}>#{mine.rank}</Text> in the queue
+              {mine.rank === null ? (
+                <>Your request · {mine.request.title}</>
+              ) : (
+                <>
+                  Your request is <Text style={s.mineRank}>#{mine.rank}</Text> in the queue
+                </>
+              )}
             </Text>
-            <Text style={[s.mineStatus, { color: alpha(tokens.secondaryContent, 0.8) }]}>
+            <Text
+              testID="my-request-status"
+              style={[s.mineStatus, { color: alpha(tokens.secondaryContent, 0.8) }]}
+            >
               {STATUS_TEXT[mine.request.status]}
             </Text>
           </View>

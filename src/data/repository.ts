@@ -636,6 +636,21 @@ export interface RunitRepository {
   music: {
     /** Live queue: not played, not declined, ranked by votes desc. */
     queue: Observable<SongRequest[]>;
+    /**
+     * THIS GUEST'S OWN REQUEST, WHATEVER HAPPENED TO IT -- and it is a separate observable
+     * because `queue` deliberately cannot answer the question.
+     *
+     * `queue` drops `played` and `declined`, correctly: the ranked list a room votes on
+     * should not carry songs that are over. But the guest's own strip was reading that same
+     * list, so the moment a host declined a request the strip UNMOUNTED -- the one person
+     * who needed to be told is the one the filter hid it from. `MusicScreen`'s STATUS_TEXT
+     * has carried 'Not this time' and 'Played' since it was written and neither could ever
+     * render.
+     *
+     * Null for a host, and for a guest who has asked for nothing. Not filtered by status,
+     * so it survives the whole lifecycle; not ranked, because a declined song has no rank.
+     */
+    mine: Observable<SongRequest | null>;
     incoming: Observable<SongRequest[]>;
     accepted: Observable<SongRequest[]>;
     nowPlaying: Observable<NowPlaying | null>;

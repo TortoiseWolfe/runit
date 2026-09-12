@@ -57,13 +57,28 @@ export const useReports = () => useObservable(useRepository().moderation.reports
 /** Subject keys this guest has already reported. See `subjectKey` in data/types. */
 export const useMyReports = () => useObservable(useRepository().moderation.myReports);
 
-/** The current guest's own request, if they have one in the live queue. */
+/**
+ * The current guest's own request, whatever happened to it -- and its rank ONLY while it is
+ * still in the running.
+ *
+ * IT READ THE QUEUE, AND THE QUEUE IS THE ONE LIST THAT CANNOT ANSWER THIS. `queue` drops
+ * `played` and `declined`, correctly -- a room should not vote on songs that are over -- so
+ * the moment a host declined a request, `findIndex` returned -1 and the guest's strip
+ * unmounted. The one person entitled to be told was the one the filter hid it from, and
+ * `MusicScreen`'s STATUS_TEXT has carried 'Not this time' and 'Played' since it was written
+ * without either ever being reachable.
+ *
+ * `music.mine` comes off the unfiltered list in both adapters, one line above that filter.
+ *
+ * RANK IS NULL ONCE THE SONG LEAVES THE QUEUE, rather than a stale number. "#3 in the queue"
+ * beside "Not this time" would be two sentences contradicting each other on one strip.
+ */
 export function useMyRequest() {
+  const mine = useObservable(useRepository().music.mine);
   const queue = useQueue();
-  const session = useSession();
-  if (session.kind !== 'guest') return null;
-  const idx = queue.findIndex((r) => r.requestedByGuestId === session.guestId);
-  return idx === -1 ? null : { request: queue[idx]!, rank: idx + 1 };
+  if (!mine) return null;
+  const idx = queue.findIndex((r) => r.id === mine.id);
+  return { request: mine, rank: idx === -1 ? null : idx + 1 };
 }
 
 /** Active folder, resolved. New uploads file into it. */
