@@ -1067,11 +1067,23 @@ hold, the second says which VIEW you are looking at. A host who switched to the 
 reads `kind: 'guest'` and still holds her seat. Gate a control on the wrong one and you
 either show a door to people who cannot open it (#29) or take the way back from a host.
 
-**`invitedCount` IS NOT `guestCount`, and the difference is tested.** The composer
-addresses everyone INVITED; the guest header counts everyone PRESENT. They never appear on
-the same screen, which is why collapsing them is invisible by inspection --
-`host-console.spec.ts` switches roles mid-test to catch it. "Send to 180 guests" was never
-a fiction; the gap was that no screen could set the number, which #25 closed.
+**`invitedCount` IS NOT `guestCount`, and they swapped surfaces in #72.** The composer names
+the ROOM, because that is who a broadcast can reach: `broadcasts_read` is
+`my_guest_id(event_id) is not null or is_host(event_id)` and `send-push` reads its tokens
+`from('guests')`, so an invitee who never typed the code can neither read an announcement nor
+be pushed one. **"Send to 180 guests" WAS a fiction about delivery** -- this file said
+otherwise for months -- and it overstated the wedding by 8.
+
+`invitedCount` moved rather than went, which is the half that matters: deleting it would have
+left #25's work with no reader at all. It lives on the guest list's own row now, as
+`180 invited · 173 here`, where both numbers are visible together and neither pretends to be
+the other. **That is still #25's rule**, and `host-console.spec.ts` still guards it --
+mutation-checked: pointing the guest-list row at `guestCount` turns four tests red.
+
+**The row reads `event.invitedCount`, NOT `invitees.length`.** The count is folded from the
+rows by a trigger, and against Supabase they always agree -- but `weddingSeed` carries 180
+with no rows behind it on purpose (`MemoryRepository.ts:922`), so the loaded list is the wrong
+thing to render.
 
 **Dead ends a host reaches by using the app as designed — all three closed.** #29
 (`RoleSwitch` was shown to every guest and, against Supabase, only ever refused) · #37 (a

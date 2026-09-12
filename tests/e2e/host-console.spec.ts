@@ -137,30 +137,48 @@ test.describe('host console', () => {
    * -- is proven by the toast and by nothing else, and only a phone closes it.
    */
 
-  test('the composer addresses all 180 invited, not the 173 standing in the room', async ({
+  /**
+   * THIS TEST USED TO ASSERT THE OPPOSITE, and rewriting it rather than deleting it is the
+   * point. It read "the composer addresses all 180 invited, not the 173 standing in the
+   * room", and it existed to stop the two numbers being collapsed into one -- which is a
+   * real bug, #25, and still is.
+   *
+   * But the 180 was wrong about DELIVERY the whole time. A broadcast reaches only somebody
+   * holding a `guests` row: `broadcasts_read` is `my_guest_id(event_id) is not null or
+   * is_host(event_id)`, and `send-push` reads its tokens `from('guests')`. Eight of the
+   * wedding's 180 never arrived and could never have received it. #72.
+   *
+   * SO THE PROPERTY SURVIVES AND THE NUMBERS SWAP SURFACES. The composer names the room,
+   * because that is who it reaches. The invitation list keeps its own number on the guest
+   * list, where it is true. Both still exist, both are still on screen, and neither is the
+   * other -- which is exactly what #25 asked for. A fix that simply deleted `invitedCount`
+   * would have passed the first half of this test and quietly undone the second.
+   */
+  test('the composer names the room it reaches, and the list keeps its own number', async ({
     page,
   }, testInfo) => {
     const scheme = testInfo.project.name as 'dark' | 'light';
     await joinAsGuest(page, scheme);
 
-    // Both numbers exist in this one session, which is the whole point: joining
-    // pushed the room count to 173 while the invite list stayed at 180.
-    // Collapsing the two was a real bug -- the host would have been told they
-    // were announcing to however many phones happened to be awake.
     const here = WEDDING.present + 1;
     await expect(page.getByText(`${here} here`)).toBeVisible();
 
     await switchToHost(page);
+    // THE ROOM, not the list. Joining pushed it to 173 and the composer moves with it.
+    await expect(page.getByTestId('broadcast-send')).toHaveText(`Send to ${here} guests`);
     await expect(page.getByTestId('broadcast-draft')).toHaveAttribute(
       'placeholder',
-      `Announce something to all ${WEDDING.invited} guests…`,
+      `Announce something to all ${here} guests…`,
     );
-    await expect(page.getByTestId('broadcast-send')).toHaveText(
-      `Send to ${WEDDING.invited} guests`,
-    );
-    // Belt and braces: if the two counts are ever wired to the same field this
-    // still fails, even should the copy above be reworded.
-    await expect(page.getByTestId('broadcast-send')).not.toContainText(String(here));
+    // And it does NOT quote the invitation list, which is the half that was wrong.
+    await expect(page.getByTestId('broadcast-send')).not.toContainText(String(WEDDING.invited));
+
+    // THE OTHER HALF, and without it this is a collapse rather than a move: the invitation
+    // list still has its own number, on the surface where it is true, beside the headcount
+    // so the two can be told apart.
+    await page.getByTestId('host-segment-event').click();
+    await expect(page.getByTestId('invitees-toggle')).toContainText(`${WEDDING.invited} invited`);
+    await expect(page.getByTestId('invitees-toggle')).toContainText(`${here} here`);
   });
 
   test('a broadcast sent by the host lands in Sent and reaches the guest feed credited to its author', async ({

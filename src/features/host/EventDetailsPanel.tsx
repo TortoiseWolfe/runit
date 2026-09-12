@@ -53,6 +53,20 @@ export function EventDetailsPanel() {
   } = useHostActions();
   const hosts = useHosts();
   const invitees = useInvitees();
+  /**
+   * THE TWO NUMBERS THE GUEST-LIST ROW CARRIES, and they are not `invitees.length`.
+   *
+   * `invitedCount` is the server's own count, folded from `invitees` by a trigger
+   * (`fold_invited_count`). The LIST is fetched separately, and the two can disagree in the
+   * fixture -- `weddingSeed` carries 180 with no rows behind it on purpose
+   * (`MemoryRepository.ts:922`). Against Supabase they always agree, because one is derived
+   * from the other.
+   *
+   * The summary reads the COUNT rather than the loaded rows, so the row states the event's
+   * actual fact rather than how much of it has arrived over the wire.
+   */
+  const inTheRoom = event?.guestCount ?? 0;
+  const invitedCount = event?.invitedCount ?? 0;
   const guestLists = useGuestLists();
 
   /**
@@ -503,15 +517,25 @@ export function EventDetailsPanel() {
             explicit that a summary restating the title makes the screen worse: a host would
             have to open every section to find out where she is. "Nobody yet" is still the
             first thing on the row. What follows it is not a restatement of "Who is invited"
-            -- it names what is behind the fold, which the title does not. */}
+            -- it names what is behind the fold, which the title does not.
+
+            AND THE SUMMARY CARRIES BOTH NUMBERS NOW (#72). `invitedCount` used to live on the
+            composer, which was wrong -- a broadcast reaches only people holding a `guests`
+            row, so it overstated the wedding by 8. Taking it off there would have left it
+            with no screen reader at all, the #41 shape, so it moved rather than went. Here
+            the two read together and neither pretends to be the other: how many were ASKED,
+            how many CAME. #25's distinction, kept on one surface instead of split across two
+            that never appear together. */}
       {event ? (
         <Disclosure
           title="Who is invited"
           summary={
-            invitees.length === 0 ? 'Nobody yet · add from your contacts' : `${invitees.length} invited`
+            invitedCount === 0
+              ? 'Nobody yet · add from your contacts'
+              : `${invitedCount} invited · ${inTheRoom} here`
           }
           testID="invitees"
-          defaultOpen={invitees.length === 0}
+          defaultOpen={invitedCount === 0}
         >
 
           {invitees.length === 0 ? (

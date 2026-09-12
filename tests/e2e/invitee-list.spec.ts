@@ -57,28 +57,42 @@ async function openInvitees(page: Page) {
 const ADDRESS = 'sam@example.test';
 
 test.describe('who is invited', () => {
-  test('adding someone moves the number the composer addresses', async ({ page }, testInfo) => {
+  /**
+   * THE NUMBER STILL MOVES; IT MOVED SURFACES (#72). This read the SEND BUTTON, because
+   * `invitedCount` used to drive it — and #25's claim was exactly that: "a list that renders
+   * while the composer still says 180 would have changed nothing that matters."
+   *
+   * The composer names the ROOM now, because that is who a broadcast can reach, so it no
+   * longer moves when the invitation list does — correctly. The claim survives on the guest
+   * list's own row, which is where the number is true.
+   */
+  test('adding someone moves the number on the guest list', async ({ page }, testInfo) => {
     const scheme = testInfo.project.name as 'dark' | 'light';
     await joinAsGuest(page, scheme);
     await switchToHost(page);
+    await page.getByTestId('host-segment-event').click();
 
-    // BEFORE: the seeded 180, on the send button itself.
-    await expect(page.getByTestId('broadcast-send')).toHaveText(
-      `Send to ${WEDDING.invited} guests`,
+    // BEFORE: the seeded 180, on the row that carries it.
+    await expect(page.getByTestId('invitees-toggle')).toContainText(
+      `${WEDDING.invited} invited`,
     );
 
-    await page.getByTestId('host-segment-event').click();
     await openInvitees(page);
     await expect(page.getByTestId('invitee-email')).toBeVisible();
     await page.getByTestId('invitee-email').fill(ADDRESS);
     await page.getByTestId('invitee-add').click();
     await expect(page.getByTestId('invitee-row')).toHaveCount(1);
 
-    // AFTER. The number moving is the entire claim of this issue — a list that renders
-    // while the composer still says 180 would have changed nothing that matters.
+    // AFTER.
+    await expect(page.getByTestId('invitees-toggle')).toContainText(
+      `${WEDDING.invited + 1} invited`,
+    );
+
+    // AND THE COMPOSER DID NOT MOVE, which is the other half and is new. Inviting somebody
+    // does not change who an announcement reaches — only joining does.
     await page.getByTestId('host-segment-broadcast').click();
     await expect(page.getByTestId('broadcast-send')).toHaveText(
-      `Send to ${WEDDING.invited + 1} guests`,
+      `Send to ${WEDDING.present + 1} guests`,
     );
   });
 
@@ -100,9 +114,9 @@ test.describe('who is invited', () => {
     await page.locator('[data-testid^="invitee-remove-"]').first().click();
     await expect(row).toHaveCount(0);
 
-    await page.getByTestId('host-segment-broadcast').click();
-    await expect(page.getByTestId('broadcast-send')).toHaveText(
-      `Send to ${WEDDING.invited} guests`,
+    // Back to the seeded count, on the row that carries it.
+    await expect(page.getByTestId('invitees-toggle')).toContainText(
+      `${WEDDING.invited} invited`,
     );
   });
 
