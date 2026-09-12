@@ -418,6 +418,35 @@ begin
     raise exception 'not authenticated' using errcode = '28000';
   end if;
 
+  /*
+   * A GUEST NEEDS A NAME, AND THIS IS WHERE THAT IS DECIDED (#66).
+   *
+   * The column is `text not null` and `''` satisfies that, so a guest could tap Run it
+   * without touching the field and be in -- with every song request and photo they sent
+   * captioned by a blank space for the rest of the night. Worse, the one control that
+   * could fix it is drawn only when the nickname is NON-EMPTY, so it was missing for
+   * exactly the people who needed it and `set_nickname` was unreachable.
+   *
+   * SAME SHAPE AND SAME ERRCODE AS `set_nickname`, deliberately -- one rule asked in both
+   * places rather than two rules that drift. That function's comment has claimed since it
+   * was written that "join_event would have refused it too". It would not have. It does
+   * now, and the comment is true.
+   *
+   * THE 40 IS HERE FOR THE SAME REASON. `set_nickname` caps at 40 because that is what the
+   * header pill renders without pushing the event name off its own screen; without the cap
+   * here, a 60-character name could walk in through the door and then be un-editable,
+   * because the only way to change it would refuse the name already stored.
+   *
+   * A client guard is the third layer, not the first: a check in a button handler is
+   * bypassed by the second caller.
+   */
+  if coalesce(btrim(p_nickname), '') = '' then
+    raise exception 'empty_nickname' using errcode = '22023';
+  end if;
+  if length(btrim(p_nickname)) > 40 then
+    raise exception 'nickname_too_long' using errcode = '22023';
+  end if;
+
   select id into v_event from public.events
    where upper(code) = upper(btrim(p_code));
 
@@ -612,7 +641,8 @@ begin
   end if;
 
   -- Trimmed, and refused rather than defaulted when empty: a blank nickname is the one
-  -- identity in the room with nothing on it, and `join_event` would have refused it too.
+  -- identity in the room with nothing on it, and `join_event` refuses it too -- which it
+  -- did NOT when this sentence was first written, and #66 is where that was closed.
   v_name := btrim(coalesce(p_nickname, ''));
   if v_name = '' then
     raise exception 'empty_nickname' using errcode = '22023';

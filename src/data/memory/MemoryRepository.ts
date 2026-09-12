@@ -609,6 +609,21 @@ export class MemoryRepository implements RunitRepository {
       if (code.trim().toUpperCase() !== this.ev?.code) {
         throw new JoinError('unknown_code');
       }
+      /*
+       * THE FIXTURE STOPS BEING KINDER THAN THE BACKEND (#66), and that kindness is the
+       * whole reason 304 journeys missed this. It substituted `nickname.trim() || 'you'`,
+       * so every test rendered a healthy name pill for a case that has none against
+       * Supabase -- where `join_event` inserted `btrim(p_nickname)` into a `text not null`
+       * column that `''` satisfies, and a guest walked in nameless.
+       *
+       * `join_event` refuses both of these now, and so does this. Same order, same rules:
+       * an adapter that is more forgiving than the database is the one thing this one
+       * exists not to be.
+       */
+
+      if (nickname.trim() === '') throw new JoinError('needs_a_name');
+      if (nickname.trim().length > 40) throw new JoinError('name_too_long');
+
       const seat = checkLimit(this.computeEntitlements(), 'guests');
       if (!seat.allowed) throw new JoinError('event_full');
 
@@ -621,7 +636,7 @@ export class MemoryRepository implements RunitRepository {
       this.sigSession.set({
         kind: 'guest',
         guestId: this.myGuestId,
-        nickname: nickname.trim() || 'you',
+        nickname: nickname.trim(),
       });
       this.recompute();
     },

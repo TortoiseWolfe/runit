@@ -218,7 +218,7 @@ test.describe('Join', () => {
     expect(await peopleHere(page)).toBe(WEDDING.present + 1);
   });
 
-  test('the welcome toast greets you by the name you typed, and drops the name when you type none', async ({
+  test('the welcome toast greets you by the name you typed, whichever name that is', async ({
     page,
   }, testInfo) => {
     const scheme = testInfo.project.name as 'dark' | 'light';
@@ -235,12 +235,17 @@ test.describe('Join', () => {
     await expect(page.getByTestId('toast')).toHaveText("Welcome, Zephyr. You're in.");
     await expect(page.getByTestId('chat-feed')).toBeVisible();
 
-    // Fresh load, no nickname: the greeting drops the name rather than greeting
-    // an empty string. This is the half that proves the line above is
-    // interpolated from the field instead of being fixed copy.
+    // A SECOND, DIFFERENT NAME, which is what proves the line above is interpolated from
+    // the field rather than fixed copy.
+    //
+    // THIS HALF USED TO JOIN WITH NO NAME AT ALL and assert "Welcome. You're in." -- it was
+    // encoding #66 as behaviour: `join_event` let a nameless guest in, and the test proved
+    // the greeting coped. It is refused now, so the property is kept the only way still
+    // available, with two names instead of one name and none.
     await open(page, scheme);
+    await page.getByTestId('join-nickname').fill('Quill');
     await page.getByTestId('join-submit').click();
-    await expect(page.getByTestId('toast')).toHaveText("Welcome. You're in.");
+    await expect(page.getByTestId('toast')).toHaveText("Welcome, Quill. You're in.");
     await expect(page.getByTestId('chat-feed')).toBeVisible();
   });
 
@@ -426,5 +431,95 @@ test.describe('Join · add to calendar', () => {
     // On web there is no share sheet, so the honest outcome is a message naming why --
     // not silence, and not a claim that something was added.
     await expect(page.getByTestId('toast')).toContainText(/calendar/i);
+  });
+});
+
+/**
+ * A GUEST NEEDS A NAME -- #66.
+ *
+ * You typed the code, tapped Run it without touching the name field, and you were in. Every
+ * song request and photo you sent that night was captioned with a blank space in front of the
+ * room -- and the one control that could fix it, the name pill, was drawn only when the
+ * nickname was NON-EMPTY. It was missing for exactly the people who needed it.
+ *
+ * WHY 304 JOURNEYS MISSED IT, which is the part worth keeping: `MemoryRepository` substituted
+ * `nickname.trim() || 'you'`, so every test rendered a healthy name pill for a case that had
+ * none against Supabase. The fixture was kinder than the backend, which is the one thing this
+ * adapter exists not to be. It refuses now, in the same order and by the same rules as
+ * `join_event`, so these tests can exist at all.
+ *
+ * THE DATABASE IS THE GUARD, not this screen. `join_event` raises 22023; lane E pins it. A
+ * check in a button handler is bypassed by the second caller.
+ */
+test.describe('joining without a name', () => {
+  test('is refused, and says what to do about it', async ({ page }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await open(page, scheme);
+    await page.getByTestId('join-code').fill(WEDDING.code);
+    // The name field deliberately untouched -- this is the whole case.
+    await page.getByTestId('join-submit').click();
+
+    await expect(page.getByTestId('toast')).toContainText('Add a name');
+    // And it does NOT blame the code, which was fine. The reason and the message have to
+    // agree -- that is what JOIN_COPY exists for.
+    await expect(page.getByTestId('toast')).not.toContainText("doesn't match");
+    await expect(page.getByTestId('chat-feed')).toHaveCount(0);
+  });
+
+  test('and whitespace is not a name either', async ({ page }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await open(page, scheme);
+    await page.getByTestId('join-code').fill(WEDDING.code);
+    await page.getByTestId('join-nickname').fill('   ');
+    await page.getByTestId('join-submit').click();
+
+    await expect(page.getByTestId('toast')).toContainText('Add a name');
+    await expect(page.getByTestId('chat-feed')).toHaveCount(0);
+  });
+
+  /**
+   * THE CAP IS ON THE WAY IN TOO. `set_nickname` has always refused over 40 -- what the
+   * header renders without pushing the event name off its own screen -- so without the same
+   * rule at the door a longer name could walk in and then be impossible to change, because
+   * the only way to edit it would refuse the name already stored.
+   */
+  test('nor is a name too long for the header to carry', async ({ page }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await open(page, scheme);
+    await page.getByTestId('join-code').fill(WEDDING.code);
+    await page.getByTestId('join-nickname').fill('A'.repeat(41));
+    await page.getByTestId('join-submit').click();
+
+    await expect(page.getByTestId('toast')).toContainText('40 characters');
+    await expect(page.getByTestId('chat-feed')).toHaveCount(0);
+  });
+
+  /**
+   * THE NAME PILL NO LONGER VANISHES WHEN THERE IS NOTHING IN IT, and no test here can
+   * prove that, which is worth stating rather than faking.
+   *
+   * `EventHeader` drew it only when the nickname was NON-EMPTY -- so the one control that
+   * could fix a blank name was hidden from exactly the people who had one. It prompts now.
+   * But the state is no longer reachable through the product: `join_event` raises 22023,
+   * `set_nickname` always did, and `becomeGuest` throws rather than seating a host with an
+   * empty name. Production holds no nameless guest either -- checked, 0 of 20.
+   *
+   * So the change is defence for a state the app can no longer create, and mutation
+   * confirms it: putting the old `nickname !== ''` condition back leaves every test green.
+   * It stays because a pill that disappears when its subject is empty is the wrong shape
+   * regardless, and because the guard above it could be relaxed by someone who never reads
+   * this file.
+   */
+  test('but a real name still gets you in, which is the thing that must not regress', async ({
+    page,
+  }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await open(page, scheme);
+    await page.getByTestId('join-code').fill(WEDDING.code);
+    await page.getByTestId('join-nickname').fill('Ada');
+    await page.getByTestId('join-submit').click();
+
+    await expect(page.getByTestId('chat-feed')).toBeVisible();
+    await expect(page.getByTestId('name-pill')).toHaveText('Ada');
   });
 });
