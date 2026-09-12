@@ -767,6 +767,27 @@ that lives in a button handler is bypassed by the second caller.
   content down is a review obligation rather than a feature — and stopping it being shown at
   all is that obligation, earlier. `photos.approve` is ungated in both adapters for the same
   reason: a tier gate there could only ever refuse the host who turned approval on.
+- **PINNING IS FREE, AND THAT MADE IT NOT A TIER FEATURE AT ALL (#70).** `fold_pin_to_plan`
+  read `tier_limits.pinned_announcements` and silently folded `new.pinned` to false on a tier
+  that had not bought it. Right for #21 -- the flag was granted by two tiers and read in ONE
+  place, `MemoryRepository`, so against Supabase a free-tier host could pin and nothing
+  stopped her -- and **invisible by design**, because "refusing to post an announcement
+  because the plan cannot pin it would be hostile". Invisible is what made it two controls
+  that lied: the composer's pill confirmed "Pinned ✓" over an unpinned notice, and the
+  sent-list Pin sprang back with no toast. The column, the flag and the trigger are all gone
+  rather than set true everywhere -- a flag true on all four tiers is not a tier feature, and
+  a trigger that can never fire is the dead enforcement #21 exists to prevent. **The lesson
+  that outlives it:** the trigger was `before insert OR UPDATE` because #26's un-pin policy
+  would otherwise have left a host one statement from the pin she was refused. If a tier ever
+  gates a column again, gate every command that can write it.
+- **`denial.upgradeTo` IS DOWN TO A LIMIT DENIAL, and the drift is worth reading.** The one
+  test covering the paywall's "which tier lifts this?" path has been re-pointed three times in
+  two days -- djQueue, then `photoModeration`, then `pinnedAnnouncements` -- because each
+  feature in turn left the ladder. `audit:tiers` is at **10 features, 2 granted**. `hostRoles`
+  is the last one gated in `MemoryRepository` and **its denial is unreachable**: `invite`
+  checks the seat cap first and every fixture is already at its cap. If the next re-point has
+  nowhere to go, `upgradeTo` has no reachable caller and the paywall path should go with it
+  rather than be kept alive by a test.
 - **THE TIER CAPS LIVE IN TWO PLACES ON PURPOSE**, and `src/domain/tiers.test.ts` is what
   makes that safe. `public.tier_limits` is what `invite_host` enforces against, because a
   check in a client is bypassed by the second client; `src/domain/tiers.ts` is what the
@@ -1009,9 +1030,9 @@ point — the remedy `audit-tier-claims.mjs` prints, and how its eight unenforce
 still live. **That is no longer the state and this paragraph used to claim it was**: #27
 built the fan-out, so `pushNotifications` is `true` on the top two tiers and "+ push" is
 back in the $79 copy. See PUSH IS BUILT below, which is the current word.
-`pnpm audit:tiers` reports 11 features, 3 granted, every one enforced, no yellow line. It
-was 12 until `photoModeration` left the ladder entirely — see PHOTO APPROVAL IS NOT A TIER
-FEATURE under "Things that will bite you".
+`pnpm audit:tiers` reports 10 features, 2 granted, every one enforced, no yellow line. It was
+12 two days ago: `photoModeration` and then `pinnedAnnouncements` both left the ladder — see
+PHOTO APPROVAL IS NOT A TIER FEATURE and PINNING IS FREE under "Things that will bite you".
 Still open: #30 (every paid tier is unreachable — the pricing screen is cut and no
 purchase path exists) · #41 (`eventTtlHours` still has zero readers: a free event never
 goes read-only).

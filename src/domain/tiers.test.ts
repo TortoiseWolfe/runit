@@ -45,7 +45,7 @@ function seededLimits(): Record<string, Record<string, number | boolean | null>>
 
   const rows: Record<string, Record<string, number | boolean | null>> = {};
   const re =
-    /\('(\w+)',\s*([\d]+|null),\s*([\d]+|null),\s*([\d]+|null),\s*([\d]+|null),\s*(true|false),\s*(true|false),\s*(true|false),\s*([\d]+|null)\)/g;
+    /\('(\w+)',\s*([\d]+|null),\s*([\d]+|null),\s*([\d]+|null),\s*([\d]+|null),\s*(true|false),\s*(true|false),\s*([\d]+|null)\)/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(block)) !== null) {
     rows[m[1]!] = {
@@ -54,13 +54,12 @@ function seededLimits(): Record<string, Record<string, number | boolean | null>>
       maxPhotos: fromSql(m[4]!),
       maxFolders: fromSql(m[5]!),
       hostRoles: m[6] === 'true',
-      pinnedAnnouncements: m[7] === 'true',
-      pushNotifications: m[8] === 'true',
+      pushNotifications: m[7] === 'true',
       // NOT `fromSql`. That maps SQL null to Infinity, which is the convention the numeric
       // CAPS use (`maxGuests: INF`). `albumRetentionDays` is `number | null` in TypeScript
       // and uses null for unlimited, so the two would never compare equal on the venue
       // tier -- caught by this test on its first run.
-      albumRetentionDays: m[9] === 'null' ? null : Number(m[9]),
+      albumRetentionDays: m[8] === 'null' ? null : Number(m[8]),
     };
   }
   return rows;
@@ -146,11 +145,28 @@ describe('tier_limits in Postgres matches src/domain/tiers.ts', () => {
   });
 
   /**
-   * Only the flags Postgres can actually enforce are mirrored. `pinnedAnnouncements` is,
-   * by a trigger on `broadcasts` that folds a pin the tier cannot carry (#21).
+   * PINNING IS NOT ON EITHER SIDE ANY MORE (#70), and its absence is asserted rather than
+   * merely true. It was mirrored here because Postgres genuinely enforced it, by
+   * `fold_pin_to_plan` folding a pin the tier could not carry (#21). It is free on every
+   * tier now, so the column, the flag and the trigger are all gone -- a flag true on all
+   * four tiers is not a tier feature, and a trigger that can never fire is the dead
+   * enforcement #21 exists to prevent. Same surgery `photoModeration` had.
+   *
+   * If either side grows it back they will be a feature nothing enforces, so both are
+   * checked, and the trigger is checked too -- the seed and the ladder could agree while
+   * a live trigger still folded pins nobody asked it to.
    */
-  it.each(TIER_ORDER)('%s allows pinning on both sides or neither', (tier) => {
-    expect(SEEDED[tier]!.pinnedAnnouncements).toBe(TIERS[tier].features.pinnedAnnouncements);
+  it('no longer carries pinned announcements on either side', () => {
+    for (const tier of TIER_ORDER) {
+      expect(SEEDED[tier]).not.toHaveProperty('pinnedAnnouncements');
+      expect(TIERS[tier].features).not.toHaveProperty('pinnedAnnouncements');
+    }
+    const table = SQL.slice(
+      SQL.indexOf('create table public.tier_limits'),
+      SQL.indexOf('insert into public.tier_limits'),
+    );
+    expect(table).not.toMatch(/pinned_announcements\s+boolean/);
+    expect(SQL).not.toMatch(/create trigger broadcasts_pin_to_plan/);
   });
 
 

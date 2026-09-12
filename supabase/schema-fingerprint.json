@@ -1,16 +1,16 @@
 {
   "capturedFrom": "the LIVE project qwusbxallkbzfladvgfx, via the Supabase MCP",
   "capturedAt": "2026-09-12",
-  "verifiedAgainst": "Re-captured after #63 was reverted. `update public.tier_limits set max_guests = 10, max_hosts = 1 where tier = 'house_party'` -- BOTH columns; the statement published in #63's body named only max_guests, and a half-revert would have been invisible to CI forever because policies.yml points schema:check at a LOCAL build whose hash does not move. Verified by READING production back rather than inferring it from the UPDATE succeeding: house_party is 10/1 and tier_limits hashes 05b6569c6289, which is the reverted value and not the 8ae49d36f401 a half-revert would produce. Production and the committed migration now agree on all six groups for the first time since 2026-09-10, so the expectedDivergence allowance added in #71 is DELETED rather than emptied -- a dead entry would read `ok` before allowances are ever consulted and would never expire or say anything. The other five groups were re-read in the same query and are unchanged: columns 130/a75c18446d7d, functions 38/0252ffb3d5a0, indexes 35/2f99bce6594a, policies 36/2ed32833c817, triggers 21/50229d51c089.",
+  "verifiedAgainst": "Re-captured after pinning became free (#70). `fold_pin_to_plan`, its `broadcasts_pin_to_plan` trigger and `tier_limits.pinned_announcements` are all removed: a flag true on every tier is not a tier feature, and a trigger that can never fire is the dead-enforcement shape #21 exists to prevent. columns 130->129, functions 38->37, triggers 21->19 (the trigger plus `fold_pin_to_plan` itself), tier_limits re-hashed because schema-fingerprint.sql no longer includes the field. indexes and policies unchanged. VERIFIED BY READING PRODUCTION BACK and comparing all six groups to a local build of the committed migration -- every one matches, so this records a fact rather than a wish.",
   "howToRefresh": "pnpm schema:fingerprint --write, and only after re-checking production. See docs/lane-e.md and issue #49.",
   "schema": {
     "columns": {
-      "n": 130,
-      "fingerprint": "a75c18446d7d9135c826572e9bdc6f67"
+      "n": 129,
+      "fingerprint": "ee4d1a2f83475f07d93a67df3ef368e7"
     },
     "functions": {
-      "n": 38,
-      "fingerprint": "0252ffb3d5a0a8b1cbcf2d9b22defbdb"
+      "n": 37,
+      "fingerprint": "0e885f1b229d3e5e5dbd24c238f570de"
     },
     "indexes": {
       "n": 35,
@@ -22,11 +22,11 @@
     },
     "tier_limits": {
       "n": 4,
-      "fingerprint": "05b6569c628930058ffe8ba9fc49fa88"
+      "fingerprint": "b0c377271fd89cfc37c68c001f121ea3"
     },
     "triggers": {
-      "n": 21,
-      "fingerprint": "50229d51c089fb291c749843886eabe1"
+      "n": 19,
+      "fingerprint": "16e930773c652f6b6f9796a2ee58ed98"
     }
   }
 }

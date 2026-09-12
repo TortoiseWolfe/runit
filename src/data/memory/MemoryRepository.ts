@@ -1148,14 +1148,14 @@ export class MemoryRepository implements RunitRepository {
       // Pressable and imports no entitlements at all, so this is the only gate
       // IN THIS ADAPTER.
       //
-      // It is no longer the only gate anywhere. `fold_pin_to_plan` is a trigger on
-      // `public.broadcasts` that folds a pin the tier does not carry, so a free-tier
-      // host cannot pin against Supabase either -- and it fires on INSERT **OR UPDATE**,
-      // which is what keeps #26's un-pin control from handing the pin straight back.
-      // The two must keep agreeing; `src/domain/tiers.test.ts` is what guards the
-      // numbers, and Lane E is what proves the behaviour.
-      const e = this.computeEntitlements();
-      const canPin = pinned && checkFeature(e, 'pinnedAnnouncements').allowed;
+      // PINNING IS FREE NOW (#70), so nothing folds. This read `pinnedAnnouncements` and
+      // silently dropped the pin on a tier that had not bought it -- correctly, and
+      // invisibly, which is what made the composer's Pin pill say "Pinned ✓" over an
+      // announcement that came out unpinned.
+      //
+      // `fold_pin_to_plan` is deleted from the migration for the same reason, so this is
+      // not one gate outliving another: there is no rule left on either side.
+      const canPin = pinned;
 
       this.broadcastList = [
         ...this.broadcastList,
@@ -1191,12 +1191,11 @@ export class MemoryRepository implements RunitRepository {
       // left with a pinned notice nothing could move, which is precisely the dead end
       // #26 exists to close, re-created inside its own fix.
       //
-      // `chat.send` has the same shape for the same reason (`pinned && checkFeature`),
-      // and so does the server: `fold_pin_to_plan` acts only `if new.pinned`.
-      if (pinned) {
-        const gate = checkFeature(this.computeEntitlements(), 'pinnedAnnouncements');
-        if (!gate.allowed) throw new EntitlementError(gate.denial);
-      }
+      // THE ASYMMETRY IS GONE WITH THE FEATURE (#70). This refused to put a pin UP on a
+      // tier that had not bought one, while deliberately still allowing one to come DOWN --
+      // because gating both directions leaves a downgraded host with a pinned notice
+      // nothing can move, the dead end #26 exists to close. Pinning is free now, so both
+      // directions are simply allowed and the asymmetry has nothing to protect.
 
       this.broadcastList = this.broadcastList.map((b) =>
         b.id === id ? { ...b, pinned } : b,
