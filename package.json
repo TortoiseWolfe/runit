@@ -14,6 +14,8 @@
     "audit:targets": "node tools/audit-touch-targets.mjs",
     "audit:tiers": "node tools/audit-tier-claims.mjs",
     "audit:brand": "node tools/audit-brand-casing.mjs",
+    "dns:plan": "node tools/dns-apply.mjs",
+    "dns:apply": "node tools/dns-apply.mjs --apply",
     "audit:mail": "node tools/check-mail-policy.mjs",
     "audit:rpc": "node tools/audit-rpc-names.mjs",
     "checks": "./docker/run-checks.sh",

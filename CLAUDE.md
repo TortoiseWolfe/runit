@@ -104,6 +104,8 @@ pnpm audit:targets              # Lane A2: touch targets, WCAG 2.2 SC 2.5.8 (AA)
 pnpm audit:keyboard             # Lane A3: keyboard strategy + return-key contract
 pnpm audit:rpc                  # do .rpc() argument names exist on the function they are sent to
 pnpm audit:mail                 # the sending domain's DKIM/SPF, and the neighbour's inbound mail
+pnpm dns:plan                   # what our DNS intent would change. Writes NOTHING
+pnpm dns:apply                  # write it
 pnpm export:web && pnpm shots   # Lane B: screenshots at 402x874 + colour gate
 pnpm test:e2e                   # Lane B: 426 Playwright journeys, dark + light
 pnpm verify:links               # Lane G: is the invitation host OURS, and does it serve JSON
@@ -209,6 +211,28 @@ set-null BEHAVIOUR (delete the running row, read the cursor back) instead of ass
 constraint exists -- a gate that cannot see a thing cannot guard it, and the honest response
 is to check the thing somewhere that can.
 
+**DNS IS DECLARED, NOT CLICKED** (`tools/dns-intent.mjs`, `pnpm dns:plan` / `dns:apply`).
+Four records for `runit.scripthammer.com` -- Resend's DKIM, the bounce MX and SPF on a
+`send.` label, and our own DMARC -- live in a file, are applied by API, and are verified by
+`audit:mail`. Ported from `ScriptHammer/scripts/ci/cloudflare-apply.mjs`, which already
+managed one record this way: declared intent, a `plans[]` array, **dry run unless `--apply`**,
+`--only` to narrow. **It stores no zone or record ids** -- everything is discovered by name,
+which is what lets the same file run against a different zone the day RunIt gets its own apex.
+
+**A DRY RUN THAT PLANS NOTHING IS THE ASSERTION.** `pnpm dns:plan` printing `0 changes` is how
+you know live DNS still matches the file, and it cannot drift from what the applier would do
+because it IS the applier.
+
+**RESEND'S "AUTO CONFIGURE" WAS DECLINED.** It writes the records itself over an OAuth grant
+-- which would hand a third party DNS-write on a zone carrying ScriptHammer's MX, root SPF,
+DMARC and `admin@scripthammer.com`, a published security-contact address. A standing privilege
+over all of that, to save a copy-paste, never revoked.
+
+**NAMES ARE FQDNs AND RESEND SHOWS THEM RELATIVE.** `send.runit` means
+`send.runit.scripthammer.com`; passing the short form to Cloudflare creates
+`...scripthammer.com.scripthammer.com`, the domain never verifies, and nothing says why.
+`assertFqdn` refuses the short form rather than trusting the next editor.
+
 **MAIL POLICY** (`pnpm audit:mail`) -- #18, and RunIt is a GUEST ON SOMEBODY ELSE'S DOMAIN.
 Host sign-in emails a 6-digit code; Supabase's built-in mail is 2/hour PROJECT-WIDE, so it
 needs custom SMTP, which needs a sending domain. The decision (2026-09-12) is
@@ -226,10 +250,31 @@ The gate asserts BOTH halves, and the neighbour half is the one no other repo ch
 does not error, and under `p=none` nothing visibly breaks until a provider starts junking
 sign-in codes. A guest never sees a bounce -- the host just cannot get in, and blames the app.
 
-**NOT YET SET UP is a different state from BROKEN.** An unconfigured subdomain prints
-`SKIPPED:` (which `run-checks.sh` counts and names in the summary) with instructions; a
-HALF-configured one -- SPF without DKIM, or the reverse -- fails. Conflating them is how a
-gate earns a reputation for crying wolf before the thing it guards exists.
+**NOT YET SET UP is a different state from BROKEN, and "not set up" means NOTHING AT ALL.**
+An empty subdomain prints `SKIPPED:` (which `run-checks.sh` counts and names in the summary)
+with instructions. Any signal present -- DKIM, SPF, the bounce MX or our DMARC -- means the
+domain is in use, and every missing piece is then a FAILURE. Keying "configured" on DKIM alone
+got this wrong: a domain whose signing key had been deleted off a working sender reported
+`measured nothing` and advised setting it up, which is reassuring and false. Caught by
+mutation.
+
+**SPF LIVES ON THE BOUNCE LABEL, NOT THE SENDING DOMAIN**, and the first version of this gate
+asserted otherwise. Resend puts SPF and the feedback MX on `send.<domain>` because SPF
+authorises the ENVELOPE sender, not the From address. DMARC still passes: DKIM's `d=` is the
+From domain so it aligns strictly, and SPF aligns in relaxed mode. Applying the real records
+is what exposed it -- the gate cried "half-configured" over a correctly-configured domain.
+
+**A REMINDER IS NOT A SKIP.** `SKIPPED:` is reserved for measured-nothing, because
+`run-checks.sh` greps for that exact word. An outstanding task on a fully-measured domain --
+today, `_dmarc` still at `p=none` -- prints `todo:` and stays green. Devaluing the word is how
+a summary stops being read.
+
+**DMARC IS STAGED: `p=none` NOW, `p=reject` ONCE A REAL SEND IS READ BACK.** The plan said
+reject immediately, reasoning that our mail is 100% Resend and therefore aligned. Sound, and
+still an assertion -- no mail had been sent, so nothing had observed the alignment it rests
+on. The cost of being wrong at reject is the first sign-in code refused outright rather than
+junked. Publishing our own `_dmarc` at all is the point: without it the subdomain inherits the
+neighbour's policy and could not be enforced independently of it.
 
 **THE ESTATE'S CONVENTION IS ONE PRODUCT, ONE APEX DOMAIN, and this departs from it
 deliberately.** `ACCOUNTS.md` records *"a project belongs to the account matching its
