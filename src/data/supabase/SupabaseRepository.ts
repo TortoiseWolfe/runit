@@ -1975,6 +1975,23 @@ export class SupabaseRepository implements RunitRepository {
         throw error;
       }
     },
+
+    remove: async (id: BroadcastId) => {
+      // The same shape as `invitees.remove` and `schedule.remove`, and `assertWrote` is
+      // load-bearing for the same reason in all three: an RLS-refused DELETE returns ZERO
+      // ROWS AND RAISES NOTHING. `broadcasts_read` admits every member, so a successful
+      // delete reads its id back and a refusal does not -- which makes empty mean refused
+      // rather than "already gone".
+      const { data, error } = await this.db
+        .from('broadcasts').delete().eq('id', id).select('id');
+      if (error) throw error;
+      SupabaseRepository.assertWrote(data, 'chat.remove');
+      // `broadcast_reads` cascades. Its fold trigger then updates a row that is already
+      // gone, which matches nothing and raises nothing -- deliberately not worked around,
+      // because the alternative is a trigger that has to know why it was fired.
+      await this.loadFetchOnce();
+      this.recompute();
+    },
   };
 
   /* ---------------------------------------------------------------- schedule */

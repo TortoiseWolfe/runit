@@ -158,6 +158,60 @@ create table public.schedule_items (
   unique (event_id, position) deferrable initially deferred
 );
 
+-- THE RUN-OF-SHOW CURSOR IS A REAL FOREIGN KEY NOW, AND THREE COMMENTS SAID IT ALREADY WAS.
+--
+-- `events.now_schedule_item_id` was a bare `uuid`. Meanwhile `repository.ts`,
+-- `SupabaseRepository.schedule.remove` and `MemoryRepository.schedule.remove` each stated
+-- that the cursor is cleared by "the column's own `on delete set null`" -- and the memory
+-- adapter SIMULATES that set-null, so every one of the 408 journeys rendered the behaviour
+-- the database did not have. The fixture was kinder than the backend, in the one place no
+-- lane could see it.
+--
+-- WHAT THE DANGLING POINTER ACTUALLY COSTS. The first draft of this comment claimed it
+-- DISARMED the rewind guard, and a mutation against a local stack said otherwise -- worth
+-- recording, because the reasoning is nearly right. `start_schedule_item` finds the current
+-- position by joining `events` to `schedule_items` on this column, so a pointer at a deleted
+-- row yields a null `v_cur_pos` and the guard goes inert. But a NULL cursor yields null too,
+-- so both states behave identically there. The guard is not the harm.
+--
+-- The harm is that the two adapters DIVERGE on observable state. `MemoryRepository` performs
+-- the set-null in TypeScript; `SupabaseRepository` leaves it to a database that was not doing
+-- it. So `events.now_schedule_item_id` came back from Postgres as a non-null id naming no
+-- row, forever, while all 408 journeys -- which run the memory adapter -- rendered the null.
+-- The seam exists to make swapping adapters a checked property, and this is the one shape no
+-- lane here can check: the fixture was kinder than the backend.
+--
+-- AND A HOST CANNOT REPAIR IT. `now_schedule_item_id` is deliberately left out of the
+-- `events_host_update` column grant so the cursor has exactly one writer; `verify-policies`
+-- pins the 42501. So the column could be left pointing at nothing, by a host, permanently,
+-- with no route back -- and the only thing that was ever going to catch that is a
+-- constraint, because an invariant nothing enforces is a comment.
+--
+-- AN `alter table` RATHER THAN AN INLINE `references`, because `events` is declared ~100
+-- lines above `schedule_items` and the two tables are mutually referential: schedule rows
+-- cascade from the event, the event points at one schedule row. Postgres is fine with the
+-- cycle; the declaration order is what forces the split.
+--
+-- The `update` runs first because an existing database may already hold a dangling pointer
+-- from exactly the delete described above, and `add constraint` validates existing rows.
+update public.events e
+   set now_schedule_item_id = null
+ where e.now_schedule_item_id is not null
+   and not exists (
+     select 1 from public.schedule_items s where s.id = e.now_schedule_item_id
+   );
+
+alter table public.events
+  drop constraint if exists events_now_schedule_item_fk;
+alter table public.events
+  add constraint events_now_schedule_item_fk
+  foreign key (now_schedule_item_id) references public.schedule_items(id) on delete set null;
+
+-- `active_folder_id` is left a bare uuid on purpose, and the asymmetry is not an oversight:
+-- NOBODY can delete a folder (`folders_insert` and `folders_update` only -- see the note
+-- there, and the incident that split them by command), so that pointer has no way to dangle.
+-- Add the constraint the day a folder delete exists, not before.
+
 -- ========================================================================
 -- MUSIC
 -- ========================================================================
@@ -1161,6 +1215,39 @@ create policy broadcasts_pin on public.broadcasts for update
 -- that was said; only its prominence is still editable afterwards.
 revoke update on public.broadcasts from authenticated, anon;
 grant  update (pinned) on public.broadcasts to authenticated;
+
+-- NOTHING A HOST SENT COULD BE TAKEN BACK -- #68, and `fan_out_push` is what makes it
+-- urgent rather than untidy. An announcement with the wrong address in it is on every phone
+-- in the room, and the trigger has ALREADY delivered it: the more successful push is, the
+-- more expensive an unremovable message becomes. There was no edit and no delete, in the UI
+-- or in the schema.
+--
+-- `is_host(event_id)`, NOT the author, and #68's own text asked for the author. A co-host
+-- and a DJ both post here, and the person who most needs to remove a wrong announcement is
+-- the host running the party -- who under an author scope would be the one person who
+-- could not. It is also what `broadcasts_pin` already does, and two policies on one table
+-- disagreeing about who a host is would be its own trap. An event's staff are trusted with
+-- the feed; that is what a seat means.
+--
+-- DELETE RATHER THAN A `hidden` FLAG, which is the opposite of the call #65 made for
+-- photos -- and the difference is who is being protected. A hidden photo keeps a
+-- moderation record about a GUEST, and erasing it would let the person complained about
+-- erase the complaint. A broadcast is the host's own words to a room she runs: nobody is
+-- being moderated, there is no report to preserve, and `subject_kind` cannot even name one
+-- (`check (subject_kind in ('photo','song_request','guest'))`). Keeping a tombstone would
+-- be keeping evidence of nothing.
+--
+-- THE BYTES RULE DOES NOT APPLY HERE, and that is why this is safe where a photo delete is
+-- not. `broadcasts` owns no storage object, so there is nothing to strand -- the same
+-- reasoning that already grants DELETE on `invitees` and withholds it from `photos` and
+-- `folders`. The only referent is `broadcast_reads`, which cascades; its
+-- `broadcast_reads_fold` trigger then runs `update broadcasts ... where id = old.broadcast_id`
+-- against a row that is already gone, matching zero rows and raising nothing.
+--
+-- WHAT IT CANNOT DO is unsend a push. `pg_net` is fire-and-forget and the notification is
+-- on the lock screen already. The confirmation sheet says so rather than implying otherwise.
+create policy broadcasts_host_delete on public.broadcasts for delete
+  using (public.is_host(event_id));
 
 create policy reads_own on public.broadcast_reads for all
   using (guest_id = public.my_guest_id(

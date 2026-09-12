@@ -104,7 +104,7 @@ pnpm audit:targets              # Lane A2: touch targets, WCAG 2.2 SC 2.5.8 (AA)
 pnpm audit:keyboard             # Lane A3: keyboard strategy + return-key contract
 pnpm audit:rpc                  # do .rpc() argument names exist on the function they are sent to
 pnpm export:web && pnpm shots   # Lane B: screenshots at 402x874 + colour gate
-pnpm test:e2e                   # Lane B: 408 Playwright journeys, dark + light
+pnpm test:e2e                   # Lane B: 414 Playwright journeys, dark + light
 pnpm verify:links               # Lane G: is the invitation host OURS, and does it serve JSON
 pnpm qr:poster                  # regenerate the scan target from the app's own EventQr
 pnpm scan:device                # Lane C: witness expo-camera reading that QR off a real lens
@@ -198,6 +198,16 @@ it. **The schema fingerprint cannot do this** -- it hashes a function as
 `proname(identity_arguments)`, the SIGNATURE, so a body can be replaced wholesale under six
 green lines.
 
+**AND IT CANNOT SEE A CONSTRAINT AT ALL**, which #68 measured rather than assumed. The six
+groups are policies, functions, columns, triggers, indexes and the `tier_limits` seed --
+constraints are not among them, and a foreign key creates no index. So adding the real
+`events_now_schedule_item_fk` moved **nothing**: production and a local build agreed on all
+six before and after. A referential rule can therefore exist in the file and not in the
+database, or the reverse, under a completely green board. That is why lane E asserts the
+set-null BEHAVIOUR (delete the running row, read the cursor back) instead of asserting the
+constraint exists -- a gate that cannot see a thing cannot guard it, and the honest response
+is to check the thing somewhere that can.
+
 **A — static style audit** (`pnpm audit:styles`). The only check that catches a
 colour RN cannot parse. Has a coverage floor: if it audits fewer literals than
 expected it fails, because a matcher that stops matching passes having measured
@@ -221,7 +231,7 @@ switched off inside a week. `<Screen>` sets VERTICAL insets only, by design, so 
 container that omits `paddingHorizontal` renders flush at x=0; that shipped on both create
 screens, including the one that prints the recovery key. FIDELITY note X.
 
-`pnpm test:e2e` runs 408 journey tests (`tests/e2e/`) across both colour
+`pnpm test:e2e` runs 414 journey tests (`tests/e2e/`) across both colour
 schemes: join and its rejection path, the three guest tabs, the host console,
 the pricing ladder and every denial it can render, and the painted theme
 tokens. Each spec was written against the canvas and then attacked by a critic
@@ -478,7 +488,7 @@ without credentials, in the same shape as lane E.
 see row-level security behave. It runs `supabase/verify-policies.sql`, which seeds an
 event, a guest and a host inside a `DO` block, switches
 role with `set local role authenticated` and a forged `request.jwt.claims`, asserts
-**a hundred and eighty-one** behaviours, and RAISES at the end so nothing commits -- the
+**a hundred and ninety-five** behaviours, and RAISES at the end so nothing commits -- the
 "error" it prints IS the report.
 
 **`supabase db push` AND `db reset` WERE A SILENT NO-OP, and #48 fixed it.** The CLI
@@ -1095,6 +1105,35 @@ founder could not leave the host console: `becomeGuest` opened with `requireGues
 `create_event` mints her no `guests` row — she takes a seat on demand now) · #24 (`seen by
 0` forever: `broadcast_reads` had a policy and a fold and no writer).
 
+**NOTHING A HOST SENDS IS PERMANENT ANY MORE -- two of #68's three halves.** `broadcasts`
+now carries `broadcasts_host_delete` (`using is_host(event_id)`, matching `broadcasts_pin`
+rather than #68's own "scoped to the author" -- a co-host and a DJ both post here, and under
+an author scope the host running the party is the one person who could not remove somebody
+else's mistake). A DELETE rather than a `hidden` flag, which is the OPPOSITE of the call #65
+made for photos, and the difference is who is protected: a hidden photo keeps a moderation
+record about a GUEST, and `reports.subject_kind` cannot even name a broadcast. There is no
+byte to strand either, which is what makes it safe here and not on `photos` or `folders`.
+**It cannot unsend a push** -- `pg_net` is fire-and-forget and the notification is already on
+the lock screen -- so the confirmation sheet says so out loud.
+
+**`events.now_schedule_item_id` IS A REAL FOREIGN KEY NOW, AND THREE COMMENTS SAID IT ALREADY
+WAS.** It was a bare `uuid`; `repository.ts`, `SupabaseRepository.schedule.remove` and
+`MemoryRepository.schedule.remove` each stated the cursor is cleared by "the column's own
+`on delete set null`", and the memory adapter SIMULATED it. So every journey rendered
+behaviour Postgres did not have. The harm is not the rewind guard -- a dangling pointer and a
+null one both yield a null `v_cur_pos`, measured by mutation -- it is that **the two adapters
+diverged on observable state**, which is the one thing the seam exists to make checkable and
+the one shape no lane here can check.
+
+**EVENT DELETION IS DELIBERATELY NOT BUILT**, and lane E now guards its absence rather than
+leaving it to a policy that merely does not exist -- the state `folders` was in before its own
+incident. One `events` row cascades through sixteen tables: every photo byte is stranded
+permanently (`hosts` cascades too, so `is_host()` goes false and `event_photos_delete` can
+never admit anyone for that prefix again) and `reports` cascades, erasing the moderation
+record the person complained about would most like erased. It has to be bytes-first through
+the Storage API with a service role -- the `sweep-photos` shape -- and bounded, because a
+cascade is one non-resumable statement.
+
 **STAFF ARE NOT GUESTS, and it is now one rule asked in three places.**
 `public.guest_seats()` excludes a seat held by a host of that event, and it is what
 `fold_guest_count` and `join_event`'s cap check both read; `fold_seen_count` applies the
@@ -1177,7 +1216,7 @@ and `false`; a test demanding absence contradicts the remedy `audit:tiers` print
 removes the flag from the ladder-monotonicity test that was already covering it. FIDELITY
 note Z.
 
-**The reason the rest kept arriving by phone.** #20 — all 408 journeys boot
+**The reason the rest kept arriving by phone.** #20 — all 414 journeys boot
 `MemoryRepository`.
 
 Still true and not an issue: the in-memory transfer completes instantly because nothing

@@ -875,3 +875,129 @@ test.describe('a console with nobody in the room', () => {
     await expect(page.getByTestId('host-share')).toBeVisible();
   });
 });
+
+/**
+ * NOTHING A HOST SENT COULD BE TAKEN BACK -- #68.
+ *
+ * `broadcasts` carried SELECT, INSERT and a `pinned`-scoped UPDATE, and no DELETE policy at
+ * all. An announcement with the wrong address in it was in the feed on every phone in the
+ * room permanently, and `fan_out_push` had already delivered it -- so the more successful
+ * push is, the more expensive an unremovable message becomes.
+ *
+ * WHAT THESE CANNOT PROVE. The memory adapter has no RLS, so "a host may and a guest may
+ * not" is a claim only lane E can make; it asserts both, against the live database. What is
+ * provable here is the half that lives in the app: the control exists on the sent list, it
+ * asks before it acts, and the announcement leaves the GUEST's feed and not merely the
+ * host's own list.
+ */
+test.describe('taking an announcement back', () => {
+  test('removes it from the room, not just from the host\'s own list', async ({
+    page,
+  }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await joinAsGuest(page, scheme);
+    await switchToHost(page);
+
+    await page.getByTestId('broadcast-draft').fill(ANNOUNCEMENT);
+    await page.getByTestId('broadcast-send').click();
+    await expect(page.getByTestId('broadcast-draft')).toHaveValue('');
+
+    // IT IS IN THE ROOM FIRST. Without this the test below could pass against a send that
+    // never worked -- removing something nobody ever saw proves nothing.
+    await page.getByTestId('role-switch').click();
+    await expect(page.getByTestId('chat-feed').getByText(ANNOUNCEMENT)).toHaveCount(1);
+    const before = (await lines(page, 'chat-feed')).filter((l) => BYLINE.test(l)).length;
+
+    // Located by its BODY rather than an index, so a change in send order cannot make this
+    // remove the wrong one -- the same rule the un-pin test above follows.
+    await switchToHost(page);
+    const row = page
+      .getByTestId('host-broadcast')
+      .locator('[data-testid^="sent-"]')
+      .filter({ hasText: ANNOUNCEMENT });
+    await row.getByText('Remove', { exact: true }).click();
+
+    await expect(page.getByTestId('delete-broadcast-sheet')).toBeVisible();
+    await page.getByTestId('delete-broadcast-confirm').click();
+    await expect(page.getByTestId('delete-broadcast-sheet')).toHaveCount(0);
+    await expect(row).toHaveCount(0);
+
+    // THE CLAIM. The host's Sent list is her own view; the feed is everybody's.
+    await page.getByTestId('role-switch').click();
+    await expect(page.getByTestId('chat-feed').getByText(ANNOUNCEMENT)).toHaveCount(0);
+    // And exactly one went, not the whole feed -- which is what a DELETE with no id filter
+    // would do under a policy that admits a host to every announcement at her own event.
+    expect((await lines(page, 'chat-feed')).filter((l) => BYLINE.test(l))).toHaveLength(
+      before - 1,
+    );
+  });
+
+  test('asks first, and keeping it keeps it', async ({ page }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await joinAsGuest(page, scheme);
+    await switchToHost(page);
+
+    await page.getByTestId('broadcast-draft').fill(PLAIN);
+    await page.getByTestId('broadcast-send').click();
+
+    const row = page
+      .getByTestId('host-broadcast')
+      .locator('[data-testid^="sent-"]')
+      .filter({ hasText: PLAIN });
+    await row.getByText('Remove', { exact: true }).click();
+
+    // The sheet quotes the body back, because the sent list is a column of similar cards
+    // and this is not undoable -- "delete this announcement?" over whichever card the thumb
+    // landed on is the failure mode a confirmation is supposed to remove.
+    await expect(page.getByTestId('delete-broadcast-sheet')).toContainText(PLAIN);
+    // AND IT SAYS WHAT IT CANNOT DO. A push that has gone out has gone out; a confirmation
+    // overstating its own reach would stop a host going to find the guest in person.
+    await expect(page.getByTestId('delete-broadcast-sheet')).toContainText(
+      /notification.*cannot be taken back/i,
+    );
+
+    await page.getByTestId('delete-broadcast-cancel').click();
+    await expect(page.getByTestId('delete-broadcast-sheet')).toHaveCount(0);
+    // Still there. A confirmation that removes on cancel is worse than no confirmation.
+    await expect(row).toHaveCount(1);
+    await page.getByTestId('role-switch').click();
+    await expect(page.getByTestId('chat-feed').getByText(PLAIN)).toHaveCount(1);
+  });
+
+  test('offers removal on every announcement, including the ones the app wrote', async ({
+    page,
+  }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await joinAsGuest(page, scheme);
+    await switchToHost(page);
+
+    // A `schedule_started` broadcast is machine-written, and it is exactly the kind that
+    // needs taking back: starting the wrong row announces the wrong thing to everyone, and
+    // the rewind guard exists because that is a thumb slip rather than an exotic case.
+    //
+    // ONE IS MADE HERE RATHER THAN LOOKED FOR. The first draft counted Remove controls
+    // against the feed's bylines and passed with the control hidden on every kind except
+    // `announcement` -- because `weddingSeed`'s three broadcasts are ALL `announcement`, so
+    // the case the test is named for was not in the world it ran in. Starting a row is what
+    // puts one there.
+    //
+    // THE LAST ROW, not the first. `weddingSeed`'s cursor sits on "Dinner + toasts" at index
+    // 3, so starting an earlier row is a REWIND -- `schedule.start()` refuses it and posts
+    // no broadcast at all, which is how the first attempt at this found zero cards and read
+    // as a missing control rather than as a guard doing its job.
+    await page.getByRole('button', { name: 'Start Shuttle to hotel' }).click();
+    const machine = page
+      .getByTestId('host-broadcast')
+      .locator('[data-testid^="sent-"]')
+      .filter({ hasText: /is starting ·/ });
+    await expect(machine).toHaveCount(1);
+    await expect(machine.getByText('Remove', { exact: true })).toHaveCount(1);
+
+    // And it removes like any other, rather than being a control that is merely drawn.
+    await machine.getByText('Remove', { exact: true }).click();
+    await page.getByTestId('delete-broadcast-confirm').click();
+    await expect(machine).toHaveCount(0);
+    await page.getByTestId('role-switch').click();
+    await expect(page.getByTestId('chat-feed').getByText(/is starting ·/)).toHaveCount(0);
+  });
+});

@@ -620,6 +620,26 @@ export interface RunitRepository {
      * already here". `fold_seen_count` enforces it in SQL; the adapters mirror it.
      */
     markRead(ids: BroadcastId[]): Promise<void>;
+    /**
+     * TAKE AN ANNOUNCEMENT BACK -- #68, and the reason it is a DELETE rather than a flag is
+     * the same reason `hide` on a photo is a flag: who is being protected.
+     *
+     * A hidden photo keeps a moderation record about a GUEST, and erasing it would let the
+     * person complained about erase the complaint (#65). A broadcast is the host's own words
+     * to a room she runs -- nobody is being moderated and there is no report to preserve.
+     * `reports.subject_kind` cannot even name one.
+     *
+     * IT DOES NOT UNSEND A PUSH, and callers must say so. `fan_out_push` fires on INSERT
+     * through `pg_net`, which is fire-and-forget; by the time anyone decides an announcement
+     * was wrong it is on the lock screen. Removing it from the feed is the whole of what
+     * this does, and the confirmation copy is where that has to be admitted.
+     *
+     * SCOPED TO THE EVENT'S STAFF, not to the author, which is a deliberate departure from
+     * #68's own wording. A co-host and a DJ both post here; under an author scope the host
+     * running the party would be the one person unable to remove somebody else's mistake.
+     * `broadcasts_host_delete` is `is_host(event_id)`, matching `broadcasts_pin`.
+     */
+    remove(id: BroadcastId): Promise<void>;
   };
 
   schedule: {

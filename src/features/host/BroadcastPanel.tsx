@@ -3,6 +3,8 @@ import {
   Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import { EventQr } from '@/components/ui/EventQr';
+import type { Broadcast } from '@/data/types';
+import { DeleteBroadcastSheet } from './DeleteBroadcastSheet';
 import { icsFilename, icsFor, shareMessage } from '@/lib/invite';
 import { shareIcs, shareText } from '@/lib/share';
 import { useToast } from '@/state/ToastProvider';
@@ -28,6 +30,10 @@ export function BroadcastPanel() {
   const [showQr, setShowQr] = useState(false);
   const [itemTitle, setItemTitle] = useState('');
   const [itemTime, setItemTime] = useState('');
+  // The announcement the confirmation sheet is asking about, or null. The WHOLE row, not
+  // an id: the sheet quotes the body back, and re-finding it from `feed` would re-render
+  // the sheet's copy every time a realtime update repaints the list.
+  const [deleting, setDeleting] = useState<Broadcast | null>(null);
   const { show } = useToast();
 
   /**
@@ -452,9 +458,35 @@ export function BroadcastPanel() {
                 {b.pinned ? 'Pinned · tap to un-pin' : 'Pin to top'}
               </Text>
             </Pressable>
+            {/*
+              NOTHING A HOST SENT COULD BE TAKEN BACK -- #68. The feed had a SELECT, an
+              INSERT and an UPDATE policy scoped to `pinned`, and no DELETE anywhere. A
+              wrong address in an announcement was on every phone in the room permanently,
+              and `fan_out_push` had already delivered it.
+
+              A SHEET, unlike the ✕ on a schedule row above, because the schedule row is
+              private until it is started and this has already been read by people. The
+              sheet quotes the body back and says the one thing a delete cannot do.
+
+              hitSlop for the same reason as its neighbour: ~13pt of text, under SC 2.5.8's
+              24x24, and `pnpm audit:targets` is the only lane that can see it.
+            */}
+            <Pressable
+              onPress={() => setDeleting(b)}
+              accessibilityRole="button"
+              accessibilityLabel="Remove this announcement"
+              accessibilityHint="Takes it off every guest's Chat tab. A notification that has been sent cannot be taken back."
+              testID={`sent-remove-${b.id}`}
+              hitSlop={12}
+            >
+              <Text style={[s.sentPin, { color: alpha(tokens.baseContent, fade.soft) }]}>
+                Remove
+              </Text>
+            </Pressable>
           </View>
         </View>
       ))}
+      <DeleteBroadcastSheet broadcast={deleting} onClose={() => setDeleting(null)} />
     </ScrollView>
   );
 }

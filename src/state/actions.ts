@@ -567,6 +567,26 @@ export function useHostActions() {
           return false;
         }
       },
+
+      /**
+       * TAKE AN ANNOUNCEMENT BACK -- #68.
+       *
+       * NOT THROUGH `guarded`, because there is no entitlement to breach: removing a
+       * mistake is not a feature a tier sells, and gating it could only ever refuse the
+       * host who most needs it. The same call #65 made when it ungated `hide`.
+       *
+       * Reports the outcome so the sheet can stay open on a failure rather than closing
+       * over an announcement that is still on every phone in the room.
+       */
+      removeBroadcast: async (id: BroadcastId) => {
+        try {
+          await repo.chat.remove(id);
+          return true;
+        } catch (e) {
+          show(e instanceof Error ? e.message : 'Could not remove that announcement.');
+          return false;
+        }
+      },
       /**
        * Mint a co-host seat and hand back the key that redeems it, once.
        *

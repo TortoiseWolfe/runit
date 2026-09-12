@@ -1,7 +1,7 @@
 {
   "capturedFrom": "the LIVE project qwusbxallkbzfladvgfx, via the Supabase MCP",
   "capturedAt": "2026-09-12",
-  "verifiedAgainst": "Re-captured after pinning became free (#70). `fold_pin_to_plan`, its `broadcasts_pin_to_plan` trigger and `tier_limits.pinned_announcements` are all removed: a flag true on every tier is not a tier feature, and a trigger that can never fire is the dead-enforcement shape #21 exists to prevent. columns 130->129, functions 38->37, triggers 21->19 (the trigger plus `fold_pin_to_plan` itself), tier_limits re-hashed because schema-fingerprint.sql no longer includes the field. indexes and policies unchanged. VERIFIED BY READING PRODUCTION BACK and comparing all six groups to a local build of the committed migration -- every one matches, so this records a fact rather than a wish.",
+  "verifiedAgainst": "Re-captured after #68: `broadcasts_host_delete` (policies 36->37) and the real foreign key on `events.now_schedule_item_id`. VERIFIED BY READING PRODUCTION BACK and comparing all six groups to a local build of the committed migration -- every one matches, so this records a fact rather than a wish. THE FOREIGN KEY IS INVISIBLE TO THIS FILE, and that is the thing to know: constraints are not one of the six groups, and a FK creates no index, so `events_now_schedule_item_fk` moved NOTHING here. Only the policy did. That is the same blind spot as function BODIES (functions hash as `proname(identity_arguments)`), and it is why lane E asserts the set-null behaviour rather than the constraint's existence -- a gate that cannot see a thing cannot guard it.",
   "howToRefresh": "pnpm schema:fingerprint --write, and only after re-checking production. See docs/lane-e.md and issue #49.",
   "schema": {
     "columns": {
@@ -17,8 +17,8 @@
       "fingerprint": "2f99bce6594a96ed068b86f337fc21a1"
     },
     "policies": {
-      "n": 36,
-      "fingerprint": "2ed32833c81792beffa8267aac773044"
+      "n": 37,
+      "fingerprint": "2561a2c0e5f0697d5e3f7f00981017ac"
     },
     "tier_limits": {
       "n": 4,

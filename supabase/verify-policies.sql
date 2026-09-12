@@ -64,6 +64,9 @@ declare
   -- #40 retention fixture. ITS OWN NAME: `pho` above belongs to the moderation block, and
   -- one DECLARE block cannot hold it twice -- 42601, which is what killed this whole lane.
   spho uuid;
+  -- #68 fixtures: the announcement a host takes back, and the run-of-show row whose
+  -- deletion must clear the cursor that points at it.
+  bdel uuid; sch1 uuid; sch2 uuid; cur uuid;
   out text[] := '{}';
   fails int := 0;
 
@@ -1836,6 +1839,116 @@ begin
   -- Not armed and wrong answer identically, so a prober cannot learn whether push is live.
   out := out || format('%s and so is a null one',
                        case when public.push_authorised(null) = false then 'PASS' else 'FAIL' end);
+  -- ==================================================================
+  -- NOTHING A HOST SENDS IS PERMANENT (#68)
+  -- ==================================================================
+  -- `broadcasts` carried SELECT, INSERT and a `pinned`-scoped UPDATE and NO DELETE policy,
+  -- so an announcement with the wrong address in it was on every phone in the room
+  -- permanently -- and `fan_out_push` had already delivered it.
+  --
+  -- ONLY THIS LANE CAN SEE ANY OF IT. Lane B boots `MemoryRepository`, where the feed is an
+  -- array and a filter always works; the unit tests drive `FakeClient`, which records what
+  -- was sent and never evaluates a policy. Whether Postgres ADMITS a host and REFUSES a
+  -- guest is a question no other check here can ask.
+  execute 'reset role';
+  perform set_config('request.jwt.claims', json_build_object('sub',cuid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+
+  insert into public.broadcasts (event_id, author_host_id, author_name, author_role_label, kind, body)
+  values (ce2.event_id, ce2.host_id, 'Ruth', 'Host', 'announcement', 'Wrong address, sorry.')
+  returning id into bdel;
+
+  -- THE GUEST FIRST, because she must fail against a row that still exists. Running the
+  -- host's delete first would leave her deleting nothing, and `0 rows` would then be the
+  -- right answer for the wrong reason -- the shape that made an earlier assertion in this
+  -- file pass only because nothing had ever successfully pinned.
+  execute 'reset role';
+  perform set_config('request.jwt.claims', json_build_object('sub',auid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  delete from public.broadcasts where id = bdel;
+  get diagnostics n = row_count;
+  out := out || format('%s a guest DELETE on broadcasts affects %s rows and raises nothing (want 0)',
+                       case when n = 0 then 'PASS' else 'FAIL' end, n);
+  -- AND THE ROW IS STILL THERE. `row_count = 0` alone is also what a successful delete of
+  -- an already-missing row reports, so the survival is the half that makes it a refusal.
+  select count(*) into n from public.broadcasts where id = bdel;
+  out := out || format('%s and the announcement survives her (%s, want 1)',
+                       case when n = 1 then 'PASS' else 'FAIL' end, n);
+
+  execute 'reset role';
+  perform set_config('request.jwt.claims', json_build_object('sub',cuid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  delete from public.broadcasts where id = bdel;
+  get diagnostics n = row_count;
+  out := out || format('%s a host DELETE on broadcasts affects %s rows (want 1)',
+                       case when n = 1 then 'PASS' else 'FAIL' end, n);
+  select count(*) into n from public.broadcasts where id = bdel;
+  out := out || format('%s and it is gone from the room (%s, want 0)',
+                       case when n = 0 then 'PASS' else 'FAIL' end, n);
+
+  -- THE EVENT ITSELF IS STILL UNDELETABLE, and nothing guarded that but a policy's absence
+  -- -- exactly the state `folders` was in before the block above. One `events` row cascades
+  -- through sixteen tables: every photo byte is stranded permanently (`hosts` cascades too,
+  -- so `is_host()` goes false and `event_photos_delete` can never admit anyone for that
+  -- prefix again) and `reports` cascades, erasing the moderation record the person
+  -- complained about would most like erased. Deletion has to be bytes-first through the
+  -- Storage API with a service role; until that exists, this is the guard.
+  delete from public.events where id = ce2.event_id;
+  get diagnostics n = row_count;
+  out := out || format('%s a host DELETE on events affects %s rows (want 0)',
+                       case when n = 0 then 'PASS' else 'FAIL' end, n);
+
+  -- THE RUN-OF-SHOW CURSOR, AND THREE COMMENTS IN THE CLIENT SAID THIS ALREADY WORKED.
+  -- `events.now_schedule_item_id` was a bare `uuid` with no foreign key, while
+  -- `repository.ts`, `SupabaseRepository.schedule.remove` and `MemoryRepository.schedule.remove`
+  -- each stated the cursor is cleared by "the column's own `on delete set null`". The memory
+  -- adapter SIMULATES it, so every journey rendered behaviour the database did not have.
+  insert into public.schedule_items (event_id, position, time_label, title, place)
+  values (ce2.event_id, 1, '8:00 PM', 'Speeches', 'Barn') returning id into sch1;
+  insert into public.schedule_items (event_id, position, time_label, title, place)
+  values (ce2.event_id, 2, '9:00 PM', 'Cake', 'Barn') returning id into sch2;
+
+  perform public.start_schedule_item(sch1);
+  select e.now_schedule_item_id into cur from public.events e where e.id = ce2.event_id;
+  out := out || format('%s starting a row moves the cursor onto it (%s)',
+                       case when cur = sch1 then 'PASS' else 'FAIL' end, coalesce(cur::text,'null'));
+
+  delete from public.schedule_items where id = sch1;
+  select e.now_schedule_item_id into cur from public.events e where e.id = ce2.event_id;
+  out := out || format('%s deleting the RUNNING row nulls the cursor (%s, want null)',
+                       case when cur is null then 'PASS' else 'FAIL' end, coalesce(cur::text,'null'));
+
+  -- THE GUARD IS STILL ARMED AFTER A DELETE, which is a weaker claim than the one this
+  -- comment first made and is the one that is true. The first version said a dangling
+  -- pointer DISARMED the rewind guard; dropping the constraint on a local stack and
+  -- re-running showed this assertion still passing, because a dangling cursor and a NULL
+  -- cursor both yield a null `v_cur_pos` and the guard is inert either way. The constraint
+  -- earns its place on the adapter divergence instead -- see the migration's own note.
+  --
+  -- So what this asserts is narrower and still worth having: after deleting the running row
+  -- and starting another, a step backwards is refused. It fails if the guard is removed.
+  perform public.start_schedule_item(sch2);
+  insert into public.schedule_items (event_id, position, time_label, title, place)
+  values (ce2.event_id, 0, '7:00 PM', 'Doors', 'Barn') returning id into sch1;
+  begin
+    perform public.start_schedule_item(sch1);
+    out := out || format('FAIL the rewind guard let the cursor walk backwards');
+  exception when others then
+    out := out || format('%s and the rewind guard still refuses a step backwards (%s)',
+                         case when sqlstate = 'P0001' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  -- Deleting a row that is NOT the cursor leaves the cursor alone, which is the other half
+  -- of `set null` -- a constraint that nulled on any sibling delete would pass the assertion
+  -- above and stop the evening every time a host tidied the list.
+  delete from public.schedule_items where id = sch1;
+  select e.now_schedule_item_id into cur from public.events e where e.id = ce2.event_id;
+  out := out || format('%s deleting a DIFFERENT row leaves the cursor where it was (%s)',
+                       case when cur = sch2 then 'PASS' else 'FAIL' end, coalesce(cur::text,'null'));
+
+  execute 'reset role';
+  delete from public.schedule_items where event_id = ce2.event_id;
+
   delete from public.photos where id = spho;
   update public.events set tier = 'event', starts_at = now() + interval '1 day' where id = ce2.event_id;
 
