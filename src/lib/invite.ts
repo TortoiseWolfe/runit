@@ -38,6 +38,54 @@ import { whenAndWhere } from './format';
 export const INVITE_ORIGIN = 'https://runit-app.pages.dev';
 
 /**
+ * HOSTS WE USED TO MINT LINKS FROM, AND STILL ACCEPT SCANS FROM.
+ *
+ * `INVITE_ORIGIN` is a ONE-WAY DOOR without this, and that is the whole reason it exists.
+ * `codeFromScan` below refused any `/i/CODE` link whose origin was not the single origin the
+ * app happened to be built with -- so the day that constant moves, EVERY ALREADY-DISTRIBUTED
+ * ARTEFACT STOPS WORKING. Not degrades: stops. A printed QR on a card, the committed poster
+ * at `design/device/qr-poster.png`, and every invitation minted by the generator at
+ * `design/brand/invite-template.html` all encode the origin that was current when they were
+ * made, and a guest scanning one gets a camera that sees the code and does nothing. There is
+ * no error, because a refused scan is indistinguishable from a QR the lens has not resolved
+ * yet -- it presents as a scanner that hangs.
+ *
+ * RunIt is a tenant on `scripthammer.com` by decision and expects to move to its own apex
+ * domain. This list is what turns that move from a migration into a value edit: retire the
+ * old origin into it, and yesterday's cards keep working.
+ *
+ * IT WIDENS WHAT IS ACCEPTED, NEVER WHAT IS PRODUCED. `joinLink` and `EventQr` keep minting
+ * `INVITE_ORIGIN` alone, so nothing new is ever stamped with a dead host. An entry here is a
+ * statement about paper already in the world.
+ *
+ * ONLY HOSTS WE HAVE ACTUALLY CONTROLLED may be listed, and the reason is written in the
+ * constant above: `runit.pages.dev` was in `INVITE_ORIGIN` for one commit and belongs to a
+ * stranger whose site answers 200 on every path. An origin added here carelessly is a
+ * standing instruction to trust somebody else's server. Empty until a host is genuinely
+ * retired -- and `pnpm verify:links` only ever checks the CURRENT one, so entries here are
+ * unverified by construction.
+ */
+export const RETIRED_ORIGINS: readonly string[] = [];
+
+/**
+ * Every origin a `/i/CODE` link may legitimately arrive from.
+ *
+ * `retired` IS A PARAMETER FOR THE SAME REASON `icsFor` TAKES A CLOCK: a test that cannot
+ * supply a value cannot assert the behaviour. `RETIRED_ORIGINS` is empty and must stay empty
+ * until a host is genuinely retired, so without this seam the multi-origin path would be
+ * untestable -- and it was: the first version of the test asserted
+ * `acceptedOrigins()` equals `[INVITE_ORIGIN, ...RETIRED_ORIGINS]`, which is
+ * `[INVITE_ORIGIN, ...[]]`, which is `[INVITE_ORIGIN]`. Deleting the spread entirely left it
+ * green. The mechanism that makes retirement work was provably unprotected, by a test written
+ * to protect it.
+ */
+export function acceptedOrigins(
+  retired: readonly string[] = RETIRED_ORIGINS,
+): readonly string[] {
+  return [INVITE_ORIGIN, ...retired];
+}
+
+/**
  * The invitation link, and the string the QR encodes.
  *
  * IT USED TO BE `runit://join?code=…`, and this docblock used to explain that it "only
@@ -146,7 +194,10 @@ export function shareMessage(
  * It returns the code UPPERCASED and trimmed, because that is what `join_event` compares
  * (`upper(code) = upper(btrim(p_code))`) and what the field expects.
  */
-export function codeFromScan(raw: string): string | null {
+export function codeFromScan(
+  raw: string,
+  accepted: readonly string[] = acceptedOrigins(),
+): string | null {
   const text = raw.trim();
   if (!text) return null;
 
@@ -171,7 +222,11 @@ export function codeFromScan(raw: string): string | null {
 
   // Origin, not hostname: a `http://` copy of our own host is somebody else's server as
   // far as this is concerned.
-  if (url.origin !== INVITE_ORIGIN) return null;
+  //
+  // The CURRENT host or a RETIRED one. Cards printed before a move have to keep working --
+  // see `RETIRED_ORIGINS`. Everything else is still refused, including a plausible typo of
+  // our own name, which is the case the `runit.pages.dev` incident was.
+  if (!accepted.includes(url.origin)) return null;
   const m = /^\/i\/([A-Za-z0-9]{4,12})\/?$/.exec(url.pathname);
   return m ? m[1]!.toUpperCase() : null;
 }
