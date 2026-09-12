@@ -18,6 +18,7 @@ import { RoleSwitch } from '@/components/ui/RoleSwitch';
 import { LeaveSheet } from '@/features/session/LeaveSheet';
 import { BroadcastBubble } from './BroadcastBubble';
 import { EventHeader } from './EventHeader';
+import { EventLine } from './EventLine';
 import { NowNextCard } from './NowNextCard';
 
 /**
@@ -26,6 +27,10 @@ import { NowNextCard } from './NowNextCard';
  * Canvas: header, a scrolling column at `padding: 16px 20px` with `gap: 14`
  * holding the run-of-show card then the broadcasts, and a base-300 topped
  * footer reading "Announcements only · hosts post here".
+ *
+ * `EventLine` opens the column ahead of the card and the canvas draws no such
+ * row -- FIDELITY note AY, #62. The canvas had no need of one: in a prototype
+ * the guest arrives by an invitation that is always on screen.
  */
 export function ChatScreen() {
   const { tokens, fade } = useTheme();
@@ -104,6 +109,11 @@ export function ChatScreen() {
         // enough to mark what you landed on and nothing you scrolled past.
         scrollEventThrottle={16}
       >
+        {/* ABOVE the run-of-show, because they answer different questions and the order
+            is the answer: this one says which evening and where, and is the same for the
+            whole party; the card below says what is happening right now, and changes all
+            night. #62. */}
+        <EventLine />
         <NowNextCard />
         {feed.map((b) => (
           // A wrapper rather than an onLayout prop on BroadcastBubble: the bubble is a

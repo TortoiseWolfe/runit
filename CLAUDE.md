@@ -104,7 +104,7 @@ pnpm audit:targets              # Lane A2: touch targets, WCAG 2.2 SC 2.5.8 (AA)
 pnpm audit:keyboard             # Lane A3: keyboard strategy + return-key contract
 pnpm audit:rpc                  # do .rpc() argument names exist on the function they are sent to
 pnpm export:web && pnpm shots   # Lane B: screenshots at 402x874 + colour gate
-pnpm test:e2e                   # Lane B: 270 Playwright journeys, dark + light
+pnpm test:e2e                   # Lane B: 408 Playwright journeys, dark + light
 pnpm verify:links               # Lane G: is the invitation host OURS, and does it serve JSON
 pnpm qr:poster                  # regenerate the scan target from the app's own EventQr
 pnpm scan:device                # Lane C: witness expo-camera reading that QR off a real lens
@@ -221,7 +221,7 @@ switched off inside a week. `<Screen>` sets VERTICAL insets only, by design, so 
 container that omits `paddingHorizontal` renders flush at x=0; that shipped on both create
 screens, including the one that prints the recovery key. FIDELITY note X.
 
-`pnpm test:e2e` runs 326 journey tests (`tests/e2e/`) across both colour
+`pnpm test:e2e` runs 408 journey tests (`tests/e2e/`) across both colour
 schemes: join and its rejection path, the three guest tabs, the host console,
 the pricing ladder and every denial it can render, and the painted theme
 tokens. Each spec was written against the canvas and then attacked by a critic
@@ -838,11 +838,15 @@ was green and the half a guest actually walks was dead.
   bcrypt hash is stored. A screen that drops that string has destroyed it, and no support
   route, backup or service-role dump gets it back. `rotate_host_key` is the only way to
   issue another, and it retires the old one.
-- **`doorsLabel` is the doors line ONLY.** It used to be the canvas's whole subtitle,
-  date and venue included, because nothing could derive a day. `JoinScreen` composes
-  `formatEventDate · doorsLabel · venue` now. A date stored as prose cannot disagree
-  with `starts_at` out loud -- it disagrees silently, which is how HOUSE7 came to hold
-  an 11:13 AM start under a "Doors 7:00 PM" label.
+- **`doorsLabel` is the doors line ONLY, and `whenAndWhere` is the whole line.** The label
+  used to be the canvas's entire subtitle, date and venue included, because nothing could
+  derive a day. A date stored as prose cannot disagree with `starts_at` out loud -- it
+  disagrees silently, which is how HOUSE7 came to hold an 11:13 AM start under a "Doors
+  7:00 PM" label. `whenAndWhere` (`src/lib/format.ts`) composes
+  `formatEventDate · doorsLabel · venue` and is the ONLY place that does. It was
+  hand-built in `shareMessage` and again in `JoinScreen`, each carrying a comment noting the
+  other existed; the chat tab's event line would have been the third (#62). Two copies
+  agreeing is luck. If you need this string, call it -- do not rebuild it.
 - `schedule.start()` refuses to move the run-of-show cursor **backwards** unless
   passed `{ rewind: true }`. `nowScheduleItemId` drives every guest's Now/Next card,
   so a mis-tap on a past row rewound the evening for the whole room. FIDELITY note I.
@@ -1173,7 +1177,7 @@ and `false`; a test demanding absence contradicts the remedy `audit:tiers` print
 removes the flag from the ladder-monotonicity test that was already covering it. FIDELITY
 note Z.
 
-**The reason the rest kept arriving by phone.** #20 — all ~294 journeys boot
+**The reason the rest kept arriving by phone.** #20 — all 408 journeys boot
 `MemoryRepository`.
 
 Still true and not an issue: the in-memory transfer completes instantly because nothing

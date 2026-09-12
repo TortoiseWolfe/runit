@@ -20,7 +20,7 @@ import { icsFilename, icsFor } from "@/lib/invite";
 import { openMaps } from "@/lib/maps";
 import { QrScanner } from "./QrScanner";
 import { MyEventsList } from "@/components/ui/MyEventsList";
-import { formatEventDate } from "@/lib/format";
+import { whenAndWhere } from "@/lib/format";
 import { shareIcs } from "@/lib/share";
 import {
   alpha,
@@ -93,14 +93,11 @@ export function JoinScreen() {
    * disagreed with it out loud. It disagreed silently instead. HOUSE7 on the live
    * project holds a start time of 11:13 AM under a label reading "Doors 7:00 PM".
    *
-   * Composed from the parts, an event that has not had its time set now says so.
+   * Composed from the parts, an event that has not had its time set now says so. It is
+   * `whenAndWhere` rather than a local copy so that this screen, the invitation message
+   * and the chat tab's event line cannot drift into three descriptions of one evening.
    */
-  const subtitle = invite
-    ? [formatEventDate(invite.startsAt, invite.timezone), invite.doorsLabel, invite.venue]
-        .map((part) => part.trim())
-        .filter(Boolean)
-        .join(" · ")
-    : "";
+  const subtitle = invite ? whenAndWhere(invite) : "";
 
   const [nickname, setNickname] = useState("");
   const [hostKey, setHostKey] = useState("");
@@ -237,6 +234,7 @@ export function JoinScreen() {
               {invite?.name ?? 'Enter your code'}
             </Text>
             <Text
+              testID="join-subtitle"
               style={[
                 s.subtitle,
                 { color: alpha(tokens.baseContent, fade.body) },

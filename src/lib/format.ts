@@ -2,6 +2,8 @@
  * Presentation derivations the canvas hardcodes into its seed data.
  */
 
+import type { RunitEvent } from '@/data/types';
+
 /**
  * An instant -> '4:10 PM', in the EVENT's timezone.
  *
@@ -41,6 +43,37 @@ export function formatEventDate(iso: string, timeZone: string): string {
     day: 'numeric',
     timeZone,
   }).format(new Date(iso));
+}
+
+/**
+ * "Fri, Sep 11 · Doors 7:00 PM · The garden" -- the one line that says when and where.
+ *
+ * THIS WAS COMPOSED BY HAND IN THREE PLACES and the third was the one that made it worth
+ * extracting. `shareMessage` builds it for the invitation, `JoinScreen` builds it for the
+ * subtitle, and each carried its own copy of the same `.filter(Boolean).join(' · ')` --
+ * with `shareMessage`'s own comment noting it was "the same composition JoinScreen makes
+ * from the same three fields". Two copies agreeing is luck; three is a matter of time.
+ *
+ * A `Pick` rather than four positional strings, which is a departure from every other
+ * function in this file. The alternative is `f(startsAt, timezone, doorsLabel, venue)` --
+ * four strings whose order nothing can check, where swapping the last two produces a
+ * plausible sentence about the wrong thing. Every caller already holds the whole event.
+ *
+ * EMPTY PARTS ARE DROPPED, never rendered as a gap. An event with no venue yet reads
+ * "Fri, Sep 11 · Doors 7:00 PM"; a " ·  · " reads as a bug, and the date is the one part
+ * that is always present because it is derived from `startsAt` rather than typed.
+ */
+export function whenAndWhere(
+  event: Pick<RunitEvent, 'startsAt' | 'timezone' | 'doorsLabel' | 'venue'>,
+): string {
+  return [
+    formatEventDate(event.startsAt, event.timezone),
+    event.doorsLabel,
+    event.venue,
+  ]
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join(' · ');
 }
 
 /**

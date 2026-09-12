@@ -2813,3 +2813,44 @@ assertions are *"before/after on a value, never 'the heading rendered'"*.
 that draw `Host`; the pairing gate only checks that a declared render file exists, so it
 cannot catch this. The human read is where the difference shows, and this note is what makes
 it a decision rather than a surprise. #58.
+
+## AY. The date follows the guest in
+The canvas's Chat tab opens on the run-of-show card. It now opens on one muted line —
+`Fri, Sep 11 · Doors 7:00 PM · The garden` — with a `+ Calendar` pill on the right, and the
+card sits beneath it. #62.
+
+### The calendar route existed and the wrong guests could reach it
+`+ Add to calendar` lives on `JoinScreen.tsx:313`, which is the screen **before** the join,
+drawn from `event ?? preview`. So a guest who tapped a link or scanned the QR met it, and:
+
+- a guest who **typed the code** never did — `useLookUpInvite` is driven by `params.code`
+  and deliberately not by the field, because a lookup per keystroke is an oracle handed out
+  one letter at a time;
+- a guest who **already joined** never sees that screen again — `src/app/index.tsx` redirects
+  a guest session straight to `/chat`.
+
+That second case is everybody, every night after the first. And the three guest tabs between
+them rendered the event's **name** and nothing else: no date, no venue, no calendar. The host
+could send an `.ics` from `BroadcastPanel` (#61); the guest standing in the room could not
+keep one.
+
+### Not in `EventHeader`, which is where it looks like it belongs
+The header already carries the event name and is on all three tabs. It is also already up to
+three pills wide beside a flexing name, and its own note records that a fourth does not fit at
+402pt — the connection pill **replaces** the headcount rather than joining it for exactly that
+reason. A row in the scrolling document costs nothing it has to take from something else.
+
+### Above the card, because the order is the answer
+They answer different questions. The line says which evening and where, and is the same for
+the whole party all night. The card says what is happening right now, and changes hourly.
+
+### One composition, not a third copy
+`whenAndWhere` (`src/lib/format.ts`) is new and is an extraction, not an addition:
+`shareMessage` built this string by hand and `JoinScreen` built it again, each with a comment
+noting the other existed. Two copies agreeing is luck. The invitation message, the join
+screen's subtitle and this line are now one function, so a guest who reads the text and then
+the app cannot meet two descriptions of one evening.
+
+### Lane D: `02-guest-chat` pairs and the render will differ
+The pairing gate checks that a declared render exists, not that the pixels match, so it stays
+green. The canvas draws no such row; this note is the decision.

@@ -5,6 +5,7 @@ import {
   formatRelative,
   wallClockToInstant,
   instantToWallClock,
+  whenAndWhere,
 } from './format';
 
 describe('formatClock', () => {
@@ -149,5 +150,43 @@ describe('instantToWallClock', () => {
       date: '2026-09-11',
       time: '00:00',
     });
+  });
+});
+
+/**
+ * THE ONE LINE THREE SURFACES PRINT -- the invitation message, the join screen's subtitle
+ * and the chat tab's event line. It was composed by hand in the first two, which is why
+ * it is worth asserting here rather than through any one of them.
+ */
+describe('whenAndWhere', () => {
+  const EVENT = {
+    startsAt: '2026-09-11T23:00:00.000Z',
+    timezone: 'America/New_York',
+    doorsLabel: 'Doors 7:00 PM',
+    venue: 'The garden',
+  };
+
+  it('reads date, doors and venue in that order', () => {
+    expect(whenAndWhere(EVENT)).toBe('Fri, Sep 11 \u00b7 Doors 7:00 PM \u00b7 The garden');
+  });
+
+  it('dates in the EVENT zone, never the machine running this', () => {
+    // 23:00Z is Sep 11 in New York and Sep 12 in London. A guest standing in the garden
+    // must read the same day as the sign on the door, whatever their phone thinks.
+    expect(whenAndWhere({ ...EVENT, timezone: 'Europe/London' })).toContain('Sat, Sep 12');
+  });
+
+  it('drops an empty part rather than rendering the separator around it', () => {
+    // An event created without a venue yet. " \u00b7  \u00b7 " reads as a bug, and the
+    // separator is what makes an empty field visible instead of invisible.
+    expect(whenAndWhere({ ...EVENT, venue: '   ' })).toBe('Fri, Sep 11 \u00b7 Doors 7:00 PM');
+    expect(whenAndWhere({ ...EVENT, doorsLabel: '', venue: '' })).toBe('Fri, Sep 11');
+  });
+
+  it('always says SOMETHING, because the date is derived and cannot be blank', () => {
+    // doorsLabel and venue are typed by a host and can both be empty; startsAt cannot.
+    // So this never returns '' -- which is what lets the chat line key its own rendering
+    // on the event existing rather than on this string being non-empty.
+    expect(whenAndWhere({ ...EVENT, doorsLabel: '', venue: '' })).not.toBe('');
   });
 });

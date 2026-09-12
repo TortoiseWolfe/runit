@@ -1,5 +1,5 @@
 import type { RunitEvent } from '@/data/types';
-import { formatEventDate } from './format';
+import { whenAndWhere } from './format';
 
 /**
  * Turning an event into something you can hand to a person: a link, a message, and a
@@ -93,7 +93,7 @@ export function appSchemeLink(code: string): string {
  *
  * THE DATE IS COMPOSED IN THE EVENT'S OWN ZONE, never the phone's, for the same reason
  * `JoinScreen` does it: a guest standing in the barn should read the same time as the sign on
- * the door. `formatEventDate` is the same function that screen uses, so a guest who reads the
+ * the door. `whenAndWhere` is the same function that screen uses, so a guest who reads the
  * text and then the app does not meet two different descriptions of one evening.
  *
  * PLAIN TEXT, and it has to stay that way. This goes through `Share.share({ message })` into
@@ -104,15 +104,10 @@ export function shareMessage(
   event: Pick<RunitEvent, 'name' | 'code' | 'venue' | 'doorsLabel' | 'startsAt' | 'timezone'>,
 ): string {
   const code = event.code.toUpperCase();
-  const when = [
-    formatEventDate(event.startsAt, event.timezone),
-    event.doorsLabel.trim(),
-    event.venue.trim(),
-  ]
-    // Only what the event actually has. An empty " · · " reads as a bug, and this is the
-    // same composition JoinScreen makes from the same three fields.
-    .filter(Boolean)
-    .join(' · ');
+  // ONE COMPOSITION, shared with the join screen's subtitle and the chat tab's event line
+  // (`whenAndWhere`, src/lib/format.ts). This used to be built here by hand and again in
+  // JoinScreen, with a comment in each noting the other existed.
+  const when = whenAndWhere(event);
 
   const lines = [`You're invited to ${event.name}.`];
   if (when) lines.push(when);
