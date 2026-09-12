@@ -28,7 +28,16 @@ export interface TierLimits {
   maxHosts: number;
   maxPhotos: number;
   maxFolders: number;
-  /** Free events go read-only after this many hours. Null = no expiry. */
+  /**
+   * Free events go read-only this many hours after `starts_at`. Null = no expiry.
+   *
+   * IT HAD NO READER AT ALL UNTIL #41 -- the one grep hit outside this file was a comment
+   * in a seed script. `public.event_is_open()` reads `tier_limits.event_ttl_hours` now and
+   * the write policies consult it, so this number finally describes something that happens.
+   * 168, not the 48 it claimed for months: guests upload their photos days later, and a
+   * Friday party closing on Sunday evening cuts off exactly the people slowest to get round
+   * to it.
+   */
   eventTtlHours: number | null;
   albumRetentionDays: number | null;
 }
@@ -76,7 +85,7 @@ export const TIERS: Record<TierId, Tier> = {
       '100 photos · 1 folder',
       'Requests, upvotes, play next',
     ],
-    limits: { maxGuests: 10, maxHosts: 1, maxPhotos: 100, maxFolders: 1, eventTtlHours: 48, albumRetentionDays: 30 },
+    limits: { maxGuests: 10, maxHosts: 1, maxPhotos: 100, maxFolders: 1, eventTtlHours: 168, albumRetentionDays: 30 },
     features: {
       hostRoles: false, customBranding: false,
       venueBranding: false, pushNotifications: false,

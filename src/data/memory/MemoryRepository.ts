@@ -24,7 +24,7 @@ import {
   type Observable, type RunitRepository, type Unsubscribe,
   HostedEvent,
 } from '../repository';
-import { checkFeature, checkLimit, type Entitlements } from '@/domain/entitlements';
+import { checkFeature, checkLimit, type Entitlements, checkOpen } from '@/domain/entitlements';
 import { TIERS } from '@/domain/tiers';
 import { songKey } from '@/domain/songKey';
 import { phoneKey } from '@/domain/phoneKey';
@@ -1133,6 +1133,7 @@ export class MemoryRepository implements RunitRepository {
     send: async ({ body, pinned }: { body: string; pinned: boolean }) => {
       const text = body.trim();
       if (!text) return;
+      this.requireOpen();
       const s = this.sigSession.get();
       const host =
         s.kind === 'host'
@@ -1280,6 +1281,7 @@ export class MemoryRepository implements RunitRepository {
       this.recompute();
     },
     add: async ({ title, timeLabel, place }: { title: string; timeLabel: string | null; place: string }) => {
+      this.requireOpen();
       const position = Math.max(0, ...this.scheduleList.map((s) => s.position)) + 1;
       this.scheduleList = [
         ...this.scheduleList,
@@ -1311,6 +1313,7 @@ export class MemoryRepository implements RunitRepository {
     myVotes: undefined as unknown as Observable<ReadonlySet<SongRequestId>>,
 
     request: async ({ title, artist }: { title: string; artist: string }) => {
+      this.requireOpen();
       const s = this.sigSession.get();
 
       // ONE SONG, ONE ROW (#44), mirroring the unique index rather than inventing a rule.
@@ -1361,6 +1364,11 @@ export class MemoryRepository implements RunitRepository {
     setVote: async (id: SongRequestId, on: boolean) => {
       const had = this.votes.has(id);
       if (had === on) return; // idempotent, unlike the canvas's toggle
+      // ONLY THE `true` DIRECTION, matching `votes_write`'s `with check`: adding a vote is
+      // new content, removing one you already cast is letting go of something. Same
+      // asymmetry `setPinned` has, and for the same reason -- a symmetric gate would trap
+      // a vote on a closed event with no way to take it back.
+      if (on) this.requireOpen();
       if (on) this.votes.add(id);
       else this.votes.delete(id);
       const r = this.requestList.find((x) => x.id === id);
@@ -1402,6 +1410,25 @@ export class MemoryRepository implements RunitRepository {
     },
   };
 
+
+  /**
+   * THE WINDOW, MIRRORED FROM POSTGRES -- #41.
+   *
+   * `public.event_is_open()` is the gate; this is the parity that keeps the harness honest.
+   * Without it lane B would render an event still taking photos a fortnight after it ended,
+   * because `MemoryRepository` has no policies -- the fixture kinder than the backend, which
+   * is the one thing this adapter exists not to be.
+   *
+   * Called on every path Postgres gates and on no path it does not: reading, reporting,
+   * hiding, blocking, marking seen and deleting all stay open forever.
+   */
+  private requireOpen(): void {
+    const ev = this.ev;
+    if (!ev) return;
+    const open = checkOpen(this.computeEntitlements(), ev.startsAt);
+    if (!open.allowed) throw new EntitlementError(open.denial);
+  }
+
   // ----------------------------------------------------------------- photos
 
   photos = {
@@ -1411,6 +1438,7 @@ export class MemoryRepository implements RunitRepository {
     mine: undefined as unknown as Observable<Photo[]>,
 
     upload: async ({ localUri }: { localUri: string }) => {
+      this.requireOpen();
       const e = this.computeEntitlements();
       const cap = checkLimit(e, 'photos');
       if (!cap.allowed) throw new EntitlementError(cap.denial);
@@ -1507,6 +1535,7 @@ export class MemoryRepository implements RunitRepository {
     },
 
     addFolder: async ({ name }: { name: string }) => {
+      this.requireOpen();
       const e = this.computeEntitlements();
       const cap = checkLimit(e, 'folders');
       if (!cap.allowed) throw new EntitlementError(cap.denial);

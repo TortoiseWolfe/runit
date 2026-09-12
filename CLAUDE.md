@@ -104,7 +104,7 @@ pnpm audit:targets              # Lane A2: touch targets, WCAG 2.2 SC 2.5.8 (AA)
 pnpm audit:keyboard             # Lane A3: keyboard strategy + return-key contract
 pnpm audit:rpc                  # do .rpc() argument names exist on the function they are sent to
 pnpm export:web && pnpm shots   # Lane B: screenshots at 402x874 + colour gate
-pnpm test:e2e                   # Lane B: 414 Playwright journeys, dark + light
+pnpm test:e2e                   # Lane B: 426 Playwright journeys, dark + light
 pnpm verify:links               # Lane G: is the invitation host OURS, and does it serve JSON
 pnpm qr:poster                  # regenerate the scan target from the app's own EventQr
 pnpm scan:device                # Lane C: witness expo-camera reading that QR off a real lens
@@ -231,7 +231,7 @@ switched off inside a week. `<Screen>` sets VERTICAL insets only, by design, so 
 container that omits `paddingHorizontal` renders flush at x=0; that shipped on both create
 screens, including the one that prints the recovery key. FIDELITY note X.
 
-`pnpm test:e2e` runs 414 journey tests (`tests/e2e/`) across both colour
+`pnpm test:e2e` runs 426 journey tests (`tests/e2e/`) across both colour
 schemes: join and its rejection path, the three guest tabs, the host console,
 the pricing ladder and every denial it can render, and the painted theme
 tokens. Each spec was written against the canvas and then attacked by a critic
@@ -488,7 +488,7 @@ without credentials, in the same shape as lane E.
 see row-level security behave. It runs `supabase/verify-policies.sql`, which seeds an
 event, a guest and a host inside a `DO` block, switches
 role with `set local role authenticated` and a forged `request.jwt.claims`, asserts
-**a hundred and ninety-five** behaviours, and RAISES at the end so nothing commits -- the
+**two hundred and five** behaviours, and RAISES at the end so nothing commits -- the
 "error" it prints IS the report.
 
 **`supabase db push` AND `db reset` WERE A SILENT NO-OP, and #48 fixed it.** The CLI
@@ -1134,6 +1134,49 @@ record the person complained about would most like erased. It has to be bytes-fi
 the Storage API with a service role -- the `sweep-photos` shape -- and bounded, because a
 cascade is one non-resumable statement.
 
+**AN EVENT THAT HAS ENDED REFUSES NEW CONTENT AND NOTHING ELSE (#41).** `eventTtlHours`
+had no reader anywhere -- one grep hit outside `tiers.ts` and it was a comment in a seed
+file -- so a free event opened on Friday still took chat, songs and photos the following
+Wednesday. `public.event_is_open()` reads `tier_limits.event_ttl_hours` now. **168 hours,
+not the 48 it claimed**: guests upload their photos days later, and a Friday party closing
+on Sunday evening cuts off exactly the people slowest to get round to it. The clock runs
+from `starts_at`, never `created_at` -- a host planning three weeks ahead must not find her
+party already expired on the night.
+
+**The rule is statable and that is the point.** REFUSED: a photo, a song request, a vote, an
+announcement, a run-of-show row, a folder. STILL ALLOWED, FOREVER: reading everything;
+reporting content and resolving a report; hiding a photo; blocking somebody; marking an
+announcement seen; deleting a row you already have; joining (it is read ACCESS, and
+`photos_read` requires a `guests` row); and `events_host_update`, which is how a host
+changes tier and therefore how **paying reopens the event**. The safety half is an
+obligation, not a courtesy -- the album stays visible for another three weeks under #40's
+clock, so somebody has to be able to report what they can still see.
+
+**`with check`, NEVER `using`, and lane E pins it.** `using` says which rows you may TOUCH;
+`with check` says what you may WRITE. Putting the window in `using` on a `for all` policy
+also blocks DELETE, so a host could not tidy a run-of-show row after the event -- punishing
+housekeeping to enforce a paywall. Mutation-checked: moving it turns `a host can still
+DELETE from a closed event` red.
+
+**A POLICY PREDICATE ALONE WOULD HAVE BEEN A GREEN GATE OVER A DEAD RULE.** `request_song`
+and `start_schedule_item` are SECURITY DEFINER, so they bypass RLS entirely and
+`requests_insert`'s window clause never runs on the path `music.request` actually uses
+(#44). Both carry the check in their own bodies. Proven by mutation: stripping the
+in-function guard while leaving every policy intact still let a song land on a closed event.
+`play_next` is deliberately NOT gated -- it promotes a row that already exists, the same act
+as `requests_moderate`.
+
+**`?ended=1` boots `endedSeed`** -- a `house_party` event ten days past its start, furnished
+on purpose so "reading never stops" is assertable. No other seed can reach a closed window:
+the wedding is on a tier with no expiry and both free seeds are current.
+
+**Two live defects fell out of writing the journeys**, neither related to the window except
+that nothing could refuse these paths before it: `music.request` was not wrapped in
+`guarded`, so an `EntitlementError` was an unhandled rejection -- the guest tapped and
+nothing happened, which is the silent refusal the denial copy exists to prevent. And
+`MusicScreen` cleared the composer unconditionally, so a refusal destroyed what was typed --
+the rule `BroadcastPanel` and the schedule composer already follow.
+
 **STAFF ARE NOT GUESTS, and it is now one rule asked in three places.**
 `public.guest_seats()` excludes a seat held by a host of that event, and it is what
 `fold_guest_count` and `join_event`'s cap check both read; `fold_seen_count` applies the
@@ -1216,7 +1259,7 @@ and `false`; a test demanding absence contradicts the remedy `audit:tiers` print
 removes the flag from the ladder-monotonicity test that was already covering it. FIDELITY
 note Z.
 
-**The reason the rest kept arriving by phone.** #20 — all 414 journeys boot
+**The reason the rest kept arriving by phone.** #20 — all 426 journeys boot
 `MemoryRepository`.
 
 Still true and not an issue: the in-memory transfer completes instantly because nothing

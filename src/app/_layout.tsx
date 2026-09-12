@@ -18,6 +18,7 @@ import { Stack } from 'expo-router';
 import { MemoryRepository } from '@/data/memory/MemoryRepository';
 import { weddingSeed } from '@/data/memory/fixtures/wedding';
 import { emptySeed } from '@/data/memory/fixtures/empty';
+import { endedSeed } from '@/data/memory/fixtures/ended';
 import { freshSeed } from '@/data/memory/fixtures/fresh';
 import { invitedSeed } from '@/data/memory/fixtures/invited';
 import { hostingSeed } from '@/data/memory/fixtures/hosting';
@@ -237,6 +238,18 @@ export default function RootLayout() {
     new URLSearchParams(window.location.search).get('fresh') === '1';
 
   /**
+   * `?ended=1` -- the party that is over (#41). A free event ten days past its start, so
+   * `event_is_open()` is false and every write is refused while every read still works.
+   * No other seed can reach it: the wedding is on a tier with no expiry and the two free
+   * ones are current. Same reason `?empty=1` and `?stale=1` exist.
+   */
+  const endedWorld =
+    fidelity &&
+    typeof window !== 'undefined' &&
+    typeof window.location?.search === 'string' &&
+    new URLSearchParams(window.location.search).get('ended') === '1';
+
+  /**
    * The one place an implementation is named.
    *
    * NOT a straight swap, and the reason is worth stating: all 142 e2e runs boot
@@ -261,21 +274,23 @@ export default function RootLayout() {
             // it has to be read before the plainer flag can claim the same request.
             // Order matters: each is a strictly more furnished empty world, so the richer
             // flags have to be read before a plainer one claims the same request.
-            freshWorld
-              ? freshSeed
-              : hostingWorld
-                ? hostingSeed
-                : invitedWorld
-                  ? invitedSeed
-                  : emptyWorld
-                    ? emptySeed
-                    : weddingSeed,
+            endedWorld
+              ? endedSeed
+              : freshWorld
+                ? freshSeed
+                : hostingWorld
+                  ? hostingSeed
+                  : invitedWorld
+                    ? invitedSeed
+                    : emptyWorld
+                      ? emptySeed
+                      : weddingSeed,
             {
               ...(flaky ? { transfer: flakyTransfer({ steps: [0.4], failAttempts: [1] }) } : {}),
               ...(staleWorld ? { connection: 'stale' as const } : {}),
             },
           ),
-    [flaky, emptyWorld, invitedWorld, staleWorld, hostingWorld, freshWorld],
+    [flaky, emptyWorld, invitedWorld, staleWorld, hostingWorld, freshWorld, endedWorld],
   );
 
   const app = (

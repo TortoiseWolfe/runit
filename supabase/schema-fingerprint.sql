@@ -23,6 +23,11 @@ union all
 select 'tier_limits', count(*)::int, md5(coalesce(string_agg(x, e'\n' order by x), ''))
   from (select tier||'|'||coalesce(max_guests::text,'-')||'|'||coalesce(max_hosts::text,'-')||'|'||
                coalesce(max_photos::text,'-')||'|'||coalesce(max_folders::text,'-')||'|'||host_roles||'|'||
-               push_notifications||'|'||coalesce(album_retention_days::text,'-') as x
+               push_notifications||'|'||coalesce(album_retention_days::text,'-')||'|'||
+               -- #41. ADDED THE DAY THE COLUMN GOT A READER. The seed is hashed here
+               -- because these numbers are what a customer is sold; a column left out is a
+               -- number production could change with every gate green -- the same blind
+               -- spot this file has for constraints, and avoidable in this one case.
+               coalesce(event_ttl_hours::text,'-') as x
           from public.tier_limits) tl
 order by 1;

@@ -362,7 +362,15 @@ test.describe('the event line on the chat tab', () => {
     // correct and is not this test's subject.
     await open(page, scheme, '/join?fresh=1');
 
-    const LINE = 'Fri, Sep 11 · Doors 7:00 PM · The garden';
+    // DERIVED, NOT WRITTEN DOWN. `freshSeed` anchored to a fixed 2026-09-11 until #41 gave
+    // `house_party` a 168-hour window -- a hardcoded past date is a fuse on a fixture whose
+    // tier expires, so it anchors to today now. The claim this test carries was never the
+    // literal day: it is that the join screen and the chat tab print the IDENTICAL composed
+    // string, separators and all.
+    const day = new Intl.DateTimeFormat('en-US', {
+      weekday: 'short', month: 'short', day: 'numeric', timeZone: 'America/New_York',
+    }).format(new Date(`${new Date().toISOString().slice(0, 10)}T12:00:00Z`));
+    const LINE = `${day} · Doors 7:00 PM · The garden`;
 
     // The invitation says it first. Asserting it HERE and then again after the join is what
     // the shared `whenAndWhere` buys: two surfaces, one composition, so a guest cannot read

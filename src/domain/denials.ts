@@ -40,5 +40,11 @@ export function denialMessage(denial: EntitlementDenial): string {
   if (denial.kind === 'limit') {
     return LIMIT_COPY[denial.limit] ?? `This event has reached its ${denial.limit} limit.`;
   }
+  // #41. NOT phrased as a loss. Everything already here is still readable and still
+  // savable -- only new things are refused -- and saying so is the difference between a
+  // guest closing the app and a guest saving the photos before the retention clock runs.
+  if (denial.kind === 'closed') {
+    return 'This event has ended. Everything here is still yours to look at and save.';
+  }
   return FEATURE_COPY[denial.feature] ?? 'That is not enabled for this event.';
 }

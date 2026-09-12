@@ -2,7 +2,7 @@
 
 `supabase/verify-policies.sql` is the only check in this repo that can watch row-level
 security behave. It seeds an event, a guest and a host inside a `DO` block, switches role
-with `set local role authenticated` and a forged `request.jwt.claims`, asserts **195**
+with `set local role authenticated` and a forged `request.jwt.claims`, asserts **205**
 behaviours, and RAISES at the end so nothing commits — the "error" it prints *is* the report.
 
 ## It had never run

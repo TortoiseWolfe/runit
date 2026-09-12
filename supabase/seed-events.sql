@@ -51,8 +51,15 @@ on conflict (code) do nothing;
 --
 -- SEPARATE FROM THE PARTY on purpose. A reviewer poking at a live event would post
 -- broadcasts to real guests' phones. And it must not expire: the free tier carries
--- eventTtlHours 48, which would end a demo mid-review and show a reviewer exactly what
--- a broken app looks like.
+-- `event_ttl_hours` 168, which would end a demo mid-review and show a reviewer exactly
+-- what a broken app looks like.
+--
+-- THAT STOPPED BEING A PRECAUTION AND BECAME LOAD-BEARING IN #41. The number used to be 48
+-- and was enforced NOWHERE -- this comment was the only thing in the repo that read it, so
+-- the `'event'` tier below was protecting the demo from a rule that did not exist. It does
+-- now: `public.event_is_open()` is consulted by every content-write policy and by
+-- `request_song` and `start_schedule_item` inside their own bodies. Change this tier and
+-- the demo genuinely goes read-only a week after it seeds.
 
 insert into public.events (code, name, venue, starts_at, timezone, doors_label, tier)
 -- The demo stays in the PAST -- a reviewer should land mid-event, with a run of show

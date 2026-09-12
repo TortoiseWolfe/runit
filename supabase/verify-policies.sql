@@ -67,6 +67,8 @@ declare
   -- #68 fixtures: the announcement a host takes back, and the run-of-show row whose
   -- deletion must clear the cursor that points at it.
   bdel uuid; sch1 uuid; sch2 uuid; cur uuid;
+  -- #41 fixtures: the event whose window is shut, and a photo id to try under it.
+  ttlpho uuid; ttlreq uuid;
   out text[] := '{}';
   fails int := 0;
 
@@ -1839,6 +1841,142 @@ begin
   -- Not armed and wrong answer identically, so a prober cannot learn whether push is live.
   out := out || format('%s and so is a null one',
                        case when public.push_authorised(null) = false then 'PASS' else 'FAIL' end);
+  -- ==================================================================
+  -- AN EVENT THAT HAS ENDED (#41)
+  -- ==================================================================
+  -- `tier_limits.event_ttl_hours` had NO READER anywhere -- one grep hit outside
+  -- `src/domain/tiers.ts` and it was a comment in a seed file -- so a free event opened on
+  -- Friday still took chat, songs and photos the following Wednesday. `event_is_open()`
+  -- reads it now and the write policies consult it.
+  --
+  -- ONLY THIS LANE CAN SEE THE ENFORCEMENT. `MemoryRepository` mirrors the window in
+  -- TypeScript so the harness is not kinder than the backend, but a mirror is not a gate:
+  -- whether POSTGRES refuses is a question no other check here can ask.
+  --
+  -- `ce2` is moved back eleven days and dropped to `house_party`, whose window is 168 hours.
+  execute 'reset role';
+  -- A SUBJECT TO REPORT, CREATED WHILE THE EVENT IS STILL OPEN and owned by somebody other
+  -- than Ada, because `file_report` refuses a self-report. Without this the reporting
+  -- assertion below had nothing real to aim at and passed on a 42501 that meant "no such
+  -- subject" -- an assertion measuring the wrong thing, which is the one failure mode this
+  -- file exists to avoid.
+  select g.id into ttlpho from public.guests g
+   where g.event_id = ce2.event_id and g.id <> gcap limit 1;
+  insert into public.song_requests (event_id, title, artist, requested_by_guest_id, requested_by_name)
+  values (ce2.event_id, 'Disco 2000', 'Pulp', ttlpho, 'Filler 1')
+  returning id into ttlreq;
+
+  -- ...and a run-of-show row, so the DELETE assertion further down has something real to
+  -- remove rather than reporting 0 for the wrong reason.
+  insert into public.schedule_items (event_id, position, time_label, title, place)
+  values (ce2.event_id, 1, '9:00 PM', 'Speeches', 'Barn') returning id into sch1;
+
+  update public.events
+     set tier = 'house_party', starts_at = now() - interval '11 days'
+   where id = ce2.event_id;
+
+  out := out || format('%s a free event 11 days past its start is closed (%s, want false)',
+                       case when public.event_is_open(ce2.event_id) = false then 'PASS' else 'FAIL' end,
+                       public.event_is_open(ce2.event_id));
+
+  -- THE PAID TIERS HAVE NO WINDOW AT ALL, and this is what stops the assertion above
+  -- passing on a function that simply returns false for everything.
+  update public.events set tier = 'event' where id = ce2.event_id;
+  out := out || format('%s the same event on a paid tier is open (%s, want true)',
+                       case when public.event_is_open(ce2.event_id) = true then 'PASS' else 'FAIL' end,
+                       public.event_is_open(ce2.event_id));
+  update public.events set tier = 'house_party' where id = ce2.event_id;
+
+  ------------------------------------------------------------- WRITES ARE REFUSED
+  perform set_config('request.jwt.claims', json_build_object('sub',auid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+
+  -- A PHOTO. `photos_insert`'s `with check` carries the window, so this is a policy
+  -- refusal: 42501, raised, not silent -- an INSERT that fails a `with check` throws where
+  -- an UPDATE that matches no row does not.
+  begin
+    insert into public.photos (event_id, folder_id, uploaded_by_guest_id, uploaded_by_name, hue)
+    values (ce2.event_id, fid, gcap, 'Ada', 10);
+    out := out || format('FAIL a guest uploaded a photo to an event that has ended');
+  exception when others then
+    out := out || format('%s a photo is refused on a closed event (%s)',
+                         case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  -- A SONG REQUEST, AND THIS IS THE ONE THE POLICY CANNOT CATCH. `request_song` is SECURITY
+  -- DEFINER, so it bypasses row-level security entirely and `requests_insert`'s window
+  -- clause never runs on this path -- which is the path `music.request` actually uses (#44).
+  -- The check had to go INSIDE the function; without it every song request would have
+  -- landed on an expired event while the policy gate read green.
+  begin
+    perform public.request_song(ce2.event_id, 'Common People', 'Pulp');
+    out := out || format('FAIL a song was requested on an event that has ended');
+  exception when others then
+    out := out || format('%s request_song refuses a closed event, bypassing RLS as it does (%s)',
+                         case when sqlstate = '22023' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  ------------------------------------------------------------- READS DO NOT STOP
+  -- THE HALF MOST LIKELY TO BE GOT WRONG, and the reason the window lives in `with check`
+  -- rather than `using`. An expiry that blanked the screen would be a worse product than no
+  -- expiry: the album is still there to save until #40's retention clock runs out.
+  select count(*) into n from public.broadcasts where event_id = ce2.event_id;
+  out := out || format('%s a guest still READS the feed of a closed event (%s rows)',
+                       case when n >= 1 then 'PASS' else 'FAIL' end, n);
+  select count(*) into n from public.photos where event_id = ce2.event_id;
+  out := out || format('%s and still reads its photos (%s rows)',
+                       case when n >= 1 then 'PASS' else 'FAIL' end, n);
+
+  -- AND SAFETY DOES NOT STOP EITHER. The album stays visible for another three weeks, so
+  -- somebody has to be able to report what they can still see. That obligation does not
+  -- expire because a party did -- the same call #65 made when it ungated `hide`.
+  begin
+    perform public.file_report(ce2.event_id, 'song_request', ttlreq, 'other', '');
+    out := out || format('PASS reporting a song still works on a closed event');
+  exception when others then
+    -- ANY error is a failure here, not just a 22023. The first draft accepted anything that
+    -- was not the closed-event errcode, and passed on a 42501 raised because the subject did
+    -- not exist -- green while measuring nothing, over the one assertion in this block that
+    -- is about somebody's safety.
+    out := out || format('FAIL reporting was refused on a closed event (%s)', sqlstate);
+  end;
+
+  ------------------------------------------------ AND A HOST IS REFUSED THE SAME WAY
+  execute 'reset role';
+  perform set_config('request.jwt.claims', json_build_object('sub',cuid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  begin
+    insert into public.broadcasts (event_id, author_host_id, author_name, author_role_label, kind, body)
+    values (ce2.event_id, ce2.host_id, 'Ruth', 'Host', 'announcement', 'anyone still here?');
+    out := out || format('FAIL a host announced to an event that has ended');
+  exception when others then
+    out := out || format('%s a host cannot announce to a closed event either (%s)',
+                         case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  -- AND SHE CAN STILL DELETE, WHICH IS WHAT PINS `with check` OVER `using`. `schedule_write`
+  -- is `for all`; a DELETE consults only `using`, so putting the window there instead would
+  -- also stop a host tidying a run-of-show row after the event -- punishing housekeeping to
+  -- enforce a paywall. This is the assertion that fails if somebody "simplifies" the two
+  -- clauses into one.
+  delete from public.schedule_items where id = sch1;
+  get diagnostics n = row_count;
+  out := out || format('%s a host can still DELETE from a closed event (%s row, want 1)',
+                       case when n = 1 then 'PASS' else 'FAIL' end, n);
+
+  -- BUT SHE CAN STILL CHANGE THE TIER, WHICH IS HOW PAYING REOPENS IT. If
+  -- `events_host_update` carried the window the event would be sealed shut forever and the
+  -- paywall would have no door -- enforcing a boundary by making it unliftable.
+  update public.events set venue = 'The Anchor' where id = ce2.event_id;
+  get diagnostics n = row_count;
+  out := out || format('%s a host can still edit a closed event, so upgrading can reopen it (%s row)',
+                       case when n = 1 then 'PASS' else 'FAIL' end, n);
+
+  execute 'reset role';
+  update public.events
+     set tier = 'event', starts_at = now() + interval '1 day'
+   where id = ce2.event_id;
+
   -- ==================================================================
   -- NOTHING A HOST SENDS IS PERMANENT (#68)
   -- ==================================================================

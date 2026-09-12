@@ -1,9 +1,10 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { checkOpen } from '@/domain/entitlements';
 import { whenAndWhere } from '@/lib/format';
 import { icsFilename, icsFor } from '@/lib/invite';
 import { shareIcs } from '@/lib/share';
-import { useEvent } from '@/state/hooks';
+import { useEntitlements, useEvent } from '@/state/hooks';
 import { useToast } from '@/state/ToastProvider';
 import { alpha, border, radius, useTheme } from '@/theme';
 
@@ -39,9 +40,26 @@ import { alpha, border, radius, useTheme } from '@/theme';
 export function EventLine() {
   const { tokens, fade } = useTheme();
   const event = useEvent();
+  const entitlements = useEntitlements();
   const { show } = useToast();
 
   if (!event) return null;
+
+  /**
+   * SAID BEFORE ANYONE TAPS -- #41.
+   *
+   * A free event stops accepting things a week after it starts, and the controls stay on
+   * screen: this is a limit a host can lift by upgrading, so the house rule is a refusal
+   * that NAMES the limit rather than a greyed control that explains nothing. But a refusal
+   * you only meet by trying is still a guest typing a song request into a field that was
+   * never going to take it. One muted sentence here is what makes the toast a confirmation
+   * instead of a surprise.
+   *
+   * The tense matters. It does not say what was lost -- everything is still readable and
+   * still savable for another three weeks under #40's retention clock -- so it says what
+   * remains, which is the thing a guest can still act on.
+   */
+  const open = checkOpen(entitlements, event.startsAt).allowed;
 
   const onAddToCalendar = async () => {
     // The same `Pick<RunitEvent, ...>` the join screen and the host console pass, and the
@@ -54,7 +72,7 @@ export function EventLine() {
     show(shared ? 'Calendar file ready.' : 'Calendar export needs the app on a phone.');
   };
 
-  return (
+  const row = (
     <View style={s.row} testID="chat-event-line">
       <Text
         testID="chat-when-where"
@@ -84,10 +102,26 @@ export function EventLine() {
       </Pressable>
     </View>
   );
+
+  return open ? (
+    row
+  ) : (
+    <View style={s.stack}>
+      {row}
+      <Text
+        testID="event-ended"
+        style={[s.ended, { color: alpha(tokens.baseContent, fade.muted) }]}
+      >
+        This event has ended · everything here is still yours to look at and save
+      </Text>
+    </View>
+  );
 }
 
 const s = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  stack: { gap: 6 },
+  ended: { fontSize: 13, lineHeight: 17 },
   when: { flex: 1, fontSize: 13, lineHeight: 17 },
   pill: {
     flexGrow: 0,
