@@ -508,7 +508,10 @@ try {
   // lane H is deliberately NOT in `run-checks.sh` (every run writes to production), so
   // nothing had exercised it since. A lane nobody runs guards nothing, which is the
   // sentence this repo keeps re-earning.
-  await page.getByTestId('invitees-toggle').click();
+  // NO TOGGLE CLICK ANY MORE. This lane creates its own event, so the list is empty, and an
+  // empty list now opens the section by default -- a click here would close it and time out
+  // on the field below, which is the same failure recorded above wearing the opposite sign.
+  await page.waitForSelector('[data-testid="invitee-email"]', { timeout: 20_000 });
   await page.getByTestId('invitee-email').fill(`smoke-${STAMP}@example.test`);
   await page.getByTestId('invitee-add').click();
   await page.waitForSelector('[data-testid="invitee-row"]', { timeout: 20_000 });

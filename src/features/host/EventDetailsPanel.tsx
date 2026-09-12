@@ -484,11 +484,34 @@ export function EventDetailsPanel() {
         who have not heard of it is a product and legal decision, and adding a name to a
         list one host can read is not that decision.
       */}
+      {/* OPEN WHILE THE LIST IS EMPTY, closed once there is one -- and the asymmetry is
+            the point rather than an inconsistency.
+
+            `Disclosure` exists because five permanently-open sections made this screen
+            1309px against an 874px viewport, and it folds away THE MEANS OF CHANGING a
+            state while leaving the state itself on the row. That trade is right for a
+            section a host fills once before doors. It is wrong for the one section she has
+            not filled at all: there is no state to read, the row says so, and everything
+            she needs is behind a tap that nothing invites her to make.
+
+            Measured, on a real party: S7Y9RX ran with `invitees` at 0 and every route into
+            this list -- the contacts picker and the only send control in the product --
+            folded behind a row summarising as "Nobody yet", which reads as a status line
+            rather than a door.
+
+            THE SUMMARY STILL LEADS WITH THE STATE, because the component's docblock is
+            explicit that a summary restating the title makes the screen worse: a host would
+            have to open every section to find out where she is. "Nobody yet" is still the
+            first thing on the row. What follows it is not a restatement of "Who is invited"
+            -- it names what is behind the fold, which the title does not. */}
       {event ? (
         <Disclosure
           title="Who is invited"
-          summary={invitees.length === 0 ? 'Nobody yet' : `${invitees.length} invited`}
+          summary={
+            invitees.length === 0 ? 'Nobody yet · add from your contacts' : `${invitees.length} invited`
+          }
           testID="invitees"
+          defaultOpen={invitees.length === 0}
         >
 
           {invitees.length === 0 ? (
