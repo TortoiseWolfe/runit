@@ -86,6 +86,11 @@ const baseline = doc.schema;
 /**
  * A DIVERGENCE THAT IS ON PURPOSE, DATED, AND THEREFORE TEMPORARY.
  *
+ * NO ALLOWANCE IS IN FORCE TODAY, and this stays because the mechanism outlived its first
+ * use. #63 is reverted (2026-09-12) and `expectedDivergence` is deleted rather than emptied
+ * -- a dead entry would read `ok` at the top of `status()` before allowances are consulted,
+ * so it would never expire and never say anything.
+ *
  * The baseline records PRODUCTION, which is what makes it worth having. CI compares it to
  * a LOCAL build from the migration. Those two can only agree while production and the file
  * agree -- and #63 deliberately made them disagree, raising `max_guests` to 40 and
