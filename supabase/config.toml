@@ -179,7 +179,26 @@ refresh_token_reuse_interval = 10
 # Allow/disallow new user signups to your project.
 enable_signup = true
 # Allow/disallow anonymous sign-ins to your project.
-enable_anonymous_sign_ins = false
+#
+# TRUE, AND IT DISAGREED WITH PRODUCTION UNTIL NOW -- which made this line a landmine.
+#
+# Anonymous sign-in is not a feature of this product, it IS the product: a guest joins with a
+# code and a nickname and no account, and `signInAnonymously()` is the only sign-in path in
+# the codebase. With it off, every join fails -- and the failure is mapped to `unknown_code`,
+# so it reads as a wrong event code and sends you re-printing QR posters. That exact thing
+# shipped: a TestFlight build went out that could not admit a single guest, and only the one
+# lane that drives the real adapter could see it.
+#
+# This file said `false` while production said `true`. That is harmless right up until
+# somebody runs `supabase link` and `supabase config push`, at which point this file's value
+# becomes production's and the product turns off. Nothing in the repo would have said so.
+#
+# NOTE FOR WHOEVER REACHES FOR `config push`: this file is still LOCAL-FIRST and at least one
+# other value here is wrong for production -- `site_url` is `http://127.0.0.1:3000`, and that
+# is what an OTP email renders as its link and what the redirect allow-list checks. Pushing
+# this file wholesale would send hosts a sign-in link to their own laptop. Per-project values
+# belong in a `[remotes.<project-ref>]` block, not in the defaults.
+enable_anonymous_sign_ins = true
 # Allow/disallow testing manual linking of accounts
 enable_manual_linking = false
 # Passwords shorter than this value will be rejected as weak. Minimum 6, recommended 8 or more.
