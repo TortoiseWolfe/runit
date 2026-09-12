@@ -510,3 +510,148 @@ test.describe('the song actually starts', () => {
     await expect(page.getByText('Dancing Queen')).toBeVisible();
   });
 });
+
+/**
+ * THE SONG TYPE-AHEAD.
+ *
+ * `song_requests.title` and `.artist` are free text and identity is `song_key(title, artist)`
+ * under a partial unique index -- so "dont stop believin" and "Don't Stop Believin'" are two
+ * rows with one vote each, and the room's actual favourite sits below a typo. Issue #8 calls
+ * that "a real defect today". The fix is not a smarter key; it is offering the canonical
+ * strings.
+ *
+ * THESE TESTS TYPE. Every other submission in this file goes through `submitRequest`, which
+ * uses `fill()` -- one shot, no keystroke events -- so a debounced type-ahead would never
+ * fire and every assertion below would pass against a screen with no suggestions on it.
+ * `pressSequentially` is load-bearing here, not a style choice.
+ *
+ * WHAT THE LIST IS: `musicSearch.web.ts`'s four-song fixture, under EXPO_PUBLIC_FIDELITY=1.
+ * The real catalogue is Apple's iTunes Search API, which sends no CORS headers and so cannot
+ * be reached from a browser at all -- and pointing 300-plus journeys at a third party's
+ * uptime and ranking would make a green board a statement about somebody else's service.
+ */
+test.describe('the song type-ahead', () => {
+  const typeInto = async (page: Page, text: string) => {
+    await page.getByTestId('request-input').click();
+    await page.getByTestId('request-input').pressSequentially(text, { delay: 15 });
+  };
+
+  test('offers the canonical spelling of a song typed without its punctuation', async ({
+    page,
+  }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await joinAsGuest(page, scheme);
+    await page.getByTestId('tab-music').click();
+
+    await typeInto(page, 'dont stop believ');
+    await expect(page.getByTestId('request-suggestions')).toBeVisible();
+    // Keyed by song_key, so the testID itself asserts the identity rule folded the
+    // apostrophe -- a row keyed on the raw title would not match this name.
+    await expect(page.getByTestId('suggest-dontstopbelievin|journey')).toBeVisible();
+  });
+
+  test('and picking one puts the canonical string in the field, not what was typed', async ({
+    page,
+  }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await joinAsGuest(page, scheme);
+    await page.getByTestId('tab-music').click();
+
+    await typeInto(page, 'dont stop believ');
+    await page.getByTestId('suggest-dontstopbelievin|journey').click();
+
+    // THE APOSTROPHE IS THE PROOF. It was never typed, so this value can only have come from
+    // the catalogue -- an implementation that echoed the input would fail here.
+    await expect(page.getByTestId('request-input')).toHaveValue("Don't Stop Believin' – Journey");
+    // And the list gets out of the way of the Request button she is reaching for next.
+    await expect(page.getByTestId('request-suggestions')).toHaveCount(0);
+  });
+
+  test('the picked string files a row the composer parsed into title and artist', async ({
+    page,
+  }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await joinAsGuest(page, scheme);
+    await page.getByTestId('tab-music').click();
+
+    await typeInto(page, 'dont stop believ');
+    await page.getByTestId('suggest-dontstopbelievin|journey').click();
+    await page.getByTestId('request-submit').click();
+
+    // The en dash the pick writes is the separator `actions.ts` already splits on, so nothing
+    // downstream changed: the byline proves the artist landed in its own column.
+    await expect(page.getByText(`Journey · ${NICKNAME}`)).toBeVisible();
+    await expect(page.getByTestId('request-input')).toHaveValue('');
+  });
+
+  /**
+   * THE DEDUP WIN, WHICH IS THE WHOLE REASON FOR THE FEATURE. `req_1` is Dancing Queen,
+   * already in the wedding queue. A guest typing a lowercase, unpunctuated "dancing q" and
+   * picking the suggestion sends the canonical pair, which `request_song` merges rather than
+   * splitting the vote across two rows.
+   */
+  test('picking a song the room already asked for merges instead of splitting the vote', async ({
+    page,
+  }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await joinAsGuest(page, scheme);
+    await page.getByTestId('tab-music').click();
+    const before = await page.getByTestId('music-queue').locator('[data-testid^="request-"]').count();
+
+    await typeInto(page, 'dancing q');
+    await page.getByTestId('suggest-dancingqueen|abba').click();
+    await page.getByTestId('request-submit').click();
+
+    await expect(page.getByTestId('toast')).toContainText('Already in the queue');
+    const after = await page.getByTestId('music-queue').locator('[data-testid^="request-"]').count();
+    expect(after).toBe(before);
+  });
+
+  /**
+   * THE OWNER'S DECISION, AND IT IS LOAD-BEARING. Suggestions are an accelerator, never a
+   * filter: a local band, a mashup and an inside joke are all real requests at a real party.
+   * An implementation that gated Request on a match would fail here, which is the point.
+   */
+  test('a song no catalogue has can still be requested', async ({ page }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await joinAsGuest(page, scheme);
+    await page.getByTestId('tab-music').click();
+
+    await typeInto(page, "The Bridesmaids' Band – live");
+    await expect(page.getByTestId('request-suggestions')).toHaveCount(0);
+    await page.getByTestId('request-submit').click();
+
+    await expect(page.getByTestId('toast')).toContainText('Request sent to the DJ');
+    await expect(page.getByText(`live · ${NICKNAME}`)).toBeVisible();
+  });
+
+  /**
+   * THE FIRST VERSION OF THIS TEST MEASURED NOTHING, and the fix is the interesting part.
+   *
+   * It typed one character and asserted `toHaveCount(0)` immediately. That assertion passes
+   * the instant it runs if the node is not there YET -- so it was racing the 250ms debounce,
+   * not reading the guard. Proven: setting MIN_QUERY to 1, which makes one keystroke match
+   * two songs in the fixture, left it green.
+   *
+   * So it waits past the debounce first, and then -- the load-bearing half -- types a second
+   * character and requires the list to APPEAR. Without that clause a wait that was simply
+   * too short would look identical to a guard that works.
+   */
+  test('one keystroke opens nothing, so the list does not flash on every field tap', async ({
+    page,
+  }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await joinAsGuest(page, scheme);
+    await page.getByTestId('tab-music').click();
+
+    await typeInto(page, 'd');
+    // Longer than DEBOUNCE_MS. A fixed wait is the honest tool for asserting a NON-event.
+    await page.waitForTimeout(600);
+    await expect(page.getByTestId('request-suggestions')).toHaveCount(0);
+
+    // One more character, and the same wait is now plenty for it to arrive -- which is what
+    // makes the absence above a measurement rather than impatience.
+    await page.getByTestId('request-input').pressSequentially('a', { delay: 15 });
+    await expect(page.getByTestId('request-suggestions')).toBeVisible();
+  });
+});
