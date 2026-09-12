@@ -807,6 +807,18 @@ was green and the half a guest actually walks was dead.
   that nothing in `shoot-app.mjs` answers, and headless Chromium refuses
   `getUserMedia`. `guest-photos.spec.ts` asserts that exact data URI, which is
   what proves the value came from the capture path and not from a literal.
+- **A HOST WITH AN EMPTY ROOM IS SHOWN THE INVITATION, NOT A COMPOSER.** Measured on a real
+  party rather than imagined: S7Y9RX ran on 2026-09-11 with 40 seats provisioned, a build
+  deployed 90 minutes before doors and a live install page, and **zero people opened the app**
+  -- not zero joins, zero anonymous sign-ins, which happen before anything else a person can
+  do. Every row in that event is the host's own. `invitees` was 0 and had been since the event
+  was created two days earlier. **The capability was never missing**: `host-share` is one tap
+  from where a host lands and `shareMessage` writes a complete invitation with the link, three
+  numbered steps and the code. What was missing is that nothing ever said to use it -- the
+  largest control on screen was a send button addressed to an empty room. `empty-room-share`
+  draws only while `guestCount` and `invitedCount` are BOTH 0, and both clauses are
+  mutation-pinned; it calls the same `onShare` as the quiet link rather than being a second
+  implementation.
 - **THE SONG TYPE-AHEAD CALLS A THIRD PARTY, AND IT IS THE ONLY THING IN THE APP THAT DOES.**
   `src/lib/musicSearch.ts` hits the iTunes Search API -- no key, no account, nothing to leak.
   Everything else goes through supabase-js. **It sends no CORS headers**, so it works on a

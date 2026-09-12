@@ -195,6 +195,47 @@ export function BroadcastPanel() {
         </View>
       )}
 
+      {/* NOBODY IS HERE AND NOBODY WAS ASKED -- #70, and it is the state a host is in for
+          the whole gap between making an event and the first guest arriving.
+
+          MEASURED, NOT IMAGINED. S7Y9RX ran a real party on 2026-09-11 with 40 seats
+          provisioned, a build deployed 90 minutes before doors and a live install page.
+          Zero people opened the app -- not zero joins, zero anonymous sign-ins, which happen
+          before anything else a person can do. `invitees` was 0 and had been since the event
+          was created two days earlier.
+
+          THE CAPABILITY WAS NEVER MISSING. `Share invite` is one tap away, directly above
+          this, and `shareMessage` writes a complete invitation with the link, three numbered
+          steps and the code. What was missing is that nothing ever SAID to use it: a host
+          landed on a console whose largest control was a send button addressed to an empty
+          room, with the thing she actually needed rendered as a 15pt secondary text link.
+
+          So this is not a new feature. It is the same `onShare` the link above calls,
+          promoted to the primary action for exactly as long as it is the only useful one,
+          and it disappears the moment anybody is here or has been invited. */}
+      {event && inTheRoom === 0 && invitedList === 0 ? (
+        <View style={[s.emptyRoom, { borderColor: tokens.base300, backgroundColor: tokens.base200 }]}>
+          <Text style={[s.emptyRoomTitle, { color: tokens.baseContent }]}>
+            Nobody can see this yet
+          </Text>
+          <Text style={[s.emptyRoomBody, { color: alpha(tokens.baseContent, fade.body) }]}>
+            An announcement only reaches people who have joined. Send everyone the code and
+            they can be in before the first song.
+          </Text>
+          <Pressable
+            onPress={onShare}
+            accessibilityRole="button"
+            accessibilityLabel="Share the join code and link"
+            testID="empty-room-share"
+            style={[s.emptyRoomCta, { backgroundColor: tokens.primary }]}
+          >
+            <Text style={[s.emptyRoomCtaText, { color: tokens.primaryContent }]}>
+              Share the invitation
+            </Text>
+          </Pressable>
+        </View>
+      ) : null}
+
       <TextInput
         value={draft}
         onChangeText={setDraft}
@@ -419,6 +460,25 @@ export function BroadcastPanel() {
 
 const s = StyleSheet.create({
   inviteRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  emptyRoom: {
+    marginTop: 14,
+    padding: 16,
+    gap: 8,
+    borderWidth: border,
+    borderRadius: radius.field,
+  },
+  emptyRoomTitle: { fontSize: 16, fontWeight: weight.semibold },
+  emptyRoomBody: { fontSize: 14, lineHeight: 20 },
+  /* 48 tall, an explicit height rather than hitSlop -- it is the primary action on the
+     screen and `audit:targets` reads the number. */
+  emptyRoomCta: {
+    height: 48,
+    marginTop: 4,
+    borderRadius: radius.field,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyRoomCtaText: { fontSize: 16, fontWeight: weight.semibold },
   // ~15pt of text, under SC 2.5.8's 24x24 AA minimum, so all three carry hitSlop. They are
   // each other's nearest neighbour, hence the space-between rather than flush siblings:
   // RN's own docs note slop "never extends past the parent view bounds and the Z-index of
