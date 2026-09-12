@@ -11,9 +11,7 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.turtlewolfe.runit",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
-      },
-      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
         "LSApplicationQueriesSchemes": ["spotify"]
       },
       "associatedDomains": [
