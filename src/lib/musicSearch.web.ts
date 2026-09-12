@@ -45,16 +45,38 @@ const CATALOGUE: SongMatch[] = [
 ];
 
 /**
- * A DELIBERATELY CRUDE MATCH, and crude is the point: it folds with the product's own
- * `songKey` and asks for a prefix. That means "dont stop believ" finds the apostrophe'd title,
- * which is the whole behaviour under test, without this fixture growing a ranking algorithm
- * nobody asked for and nobody would trust.
+ * EVERY WORD HAS TO LAND SOMEWHERE IN THE TITLE OR THE ARTIST, in any order.
+ *
+ * THE FIRST VERSION COULD NOT DO ARTIST-FIRST AT ALL, and that made this fixture actively
+ * misleading. It folded the query with `songKey` and asked whether `title+artist` STARTED
+ * with it -- so "dont stop believ" matched and "journey" matched nothing, because the
+ * artist is at the END of that concatenation. The real endpoint has no such limit: measured,
+ * `journey dont stop believin` and `abba dancing queen` both return the right song first.
+ *
+ * A fixture that cannot do what the real thing does is worse than no fixture. Every journey
+ * would have gone green on a type-ahead that had quietly lost half its usefulness, and the
+ * `Artist – Title` ordering fix below it would have been untestable.
+ *
+ * Still deliberately crude -- no ranking, no fuzziness, no scoring. Prefix-per-token is
+ * enough to be honest about word order without this file growing an algorithm nobody asked
+ * for and nobody would trust.
  */
 export async function searchSongs(q: string, _signal?: AbortSignal): Promise<SongMatch[]> {
   const term = q.trim();
   if (term.length < MIN_QUERY) return [];
   if (process.env.EXPO_PUBLIC_FIDELITY !== '1') return [];
 
-  const needle = songKey(term, '').replace('|', '');
-  return CATALOGUE.filter((c) => songKey(c.title, c.artist).replace('|', '').startsWith(needle));
+  // `songKey`'s folding, applied per word rather than to the whole string, so punctuation
+  // still does not matter: "dont" reaches "Don't".
+  const words = (v: string) => songKey(v, '').replace('|', '') && v.trim().split(/\s+/)
+    .map((w) => songKey(w, '').replace('|', ''))
+    .filter(Boolean);
+
+  const needles = words(term) || [];
+  if (needles.length === 0) return [];
+
+  return CATALOGUE.filter((c) => {
+    const hay = [...(words(c.title) || []), ...(words(c.artist) || [])];
+    return needles.every((n) => hay.some((h) => h.startsWith(n)));
+  });
 }

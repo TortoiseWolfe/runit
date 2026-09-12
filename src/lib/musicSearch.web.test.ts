@@ -57,6 +57,43 @@ describe('searchSongs on web', () => {
     });
   });
 
+  /**
+   * ARTIST FIRST, WHICH THE FIRST VERSION OF THIS FIXTURE COULD NOT DO. It prefix-matched
+   * `title+artist` concatenated, so the artist sat at the end and "journey" matched nothing
+   * -- while the real endpoint returns the right song first for exactly that query,
+   * measured. A fixture that cannot do what the real thing does sends every journey green
+   * over a type-ahead that has lost half its use.
+   */
+  it('finds a song by its artist alone', async () => {
+    await withFidelity(true, async () => {
+      await expect(searchSongs('journey')).resolves.toEqual([
+        { title: "Don't Stop Believin'", artist: 'Journey' },
+      ]);
+    });
+  });
+
+  it('and by artist then title, in that order', async () => {
+    await withFidelity(true, async () => {
+      await expect(searchSongs('abba dancing')).resolves.toEqual([
+        { title: 'Dancing Queen', artist: 'ABBA' },
+      ]);
+    });
+  });
+
+  it('and still by title then artist, which must not regress', async () => {
+    await withFidelity(true, async () => {
+      await expect(searchSongs('dancing abba')).resolves.toEqual([
+        { title: 'Dancing Queen', artist: 'ABBA' },
+      ]);
+    });
+  });
+
+  it('requires every word to land, so two unrelated words match nothing', async () => {
+    await withFidelity(true, async () => {
+      await expect(searchSongs('journey dancing')).resolves.toEqual([]);
+    });
+  });
+
   it('stays silent below the minimum query', async () => {
     await withFidelity(true, async () => {
       await expect(searchSongs('d')).resolves.toEqual([]);

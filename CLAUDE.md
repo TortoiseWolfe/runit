@@ -856,6 +856,23 @@ was green and the half a guest actually walks was dead.
   itself, so a value import there is a cycle; the type is `import type` and erased.
   **#8 named MusicBrainz "the cheap win" and that is wrong for this job**, measured: queried
   for `dont stop believin` it ranks two cover bands above Journey, all scored 100.
+- **`orderedForRequest` LIVES IN `src/domain/songKey.ts`, NOT in `lib/musicSearch`**, and the
+  move was forced. `musicSearch` is platform-split, so on web `@/lib/musicSearch` resolves to
+  the `.web.ts` half, which did not export it -- the call was `undefined` at runtime and six
+  journeys went red. Re-exporting would mean the web half importing a VALUE from its own
+  sibling, which is the Metro self-resolution cycle `captureConstants.ts` warns about. It is
+  a statement about song IDENTITY anyway, which is what that module is.
+- **Typing `Artist – Title` used to file the song backwards.** `actions.ts` splits on ` – `
+  and assigns POSITIONALLY, so "Journey – Don't Stop Believin'" became a song called Journey
+  by an artist called Don't Stop Believin' -- a different `song_key`, so the votes split,
+  which is the exact defect the type-ahead exists to stop. `orderedForRequest` swaps only when
+  a suggestion confirms the reversal, in TWO PASSES rather than one loop: already-right wins
+  over any reversed reading whatever the ranking says, because a single loop made the answer
+  depend on list order. A song no catalogue has is returned untouched.
+- **The fixture in `musicSearch.web.ts` matches every word against title OR artist**, in any
+  order. It prefix-matched `title+artist` concatenated once, so "journey" found nothing while
+  the real endpoint returns the right song first for exactly that query -- measured. A fixture
+  that cannot do what the real thing does sends every journey green over a half-dead feature.
 - **A suggestion writes `Title – Artist` into the same field a guest could have typed**, with
   an EN DASH and spaces, because `actions.ts` splits on `/\s[–-]\s/` and "Jay-Z" must not be
   torn in half. Nothing downstream changed -- no new repository method, no column, no SQL --
