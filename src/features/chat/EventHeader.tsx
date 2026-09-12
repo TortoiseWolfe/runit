@@ -70,21 +70,30 @@ export function EventHeader({ eyebrow: eyebrowText }: { eyebrow: string }) {
         typo'd it on the join screen had no way to find that out, let alone fix it.
 
         It follows the existing conditional-pill pattern beside it rather than inventing
-        chrome: drawn only for a guest session, and only when there is a name, so a host
-        console and the moment before a join are both unchanged. Truncated to one line so
-        a long name cannot push the event's own name off the header.
+        chrome: drawn for a guest session, so a host console and the moment before a join
+        are both unchanged. Truncated to one line so a long name cannot push the event's
+        own name off the header.
+
+        IT USED TO REQUIRE A NON-EMPTY NAME, and that was the trap inside #66: `join_event`
+        let a guest in with a blank nickname, and the ONE control that could fix it was
+        hidden for exactly those people. The way out was invisible to everyone who needed
+        it. The door is shut now -- `join_event` raises 22023 on an empty name, and
+        production holds no nameless guest -- but a pill that disappears when the thing it
+        edits is empty is the wrong shape regardless, so it prompts instead.
       */}
-      {nickname !== '' && (
+      {session.kind === 'guest' && (
         <Pressable
           onPress={() => setRenaming(true)}
           accessibilityRole="button"
-          accessibilityLabel={`You are ${nickname}. Change your name.`}
+          accessibilityLabel={
+            nickname === '' ? 'Add your name so the room knows who you are.' : `You are ${nickname}. Change your name.`
+          }
           testID="name-pill"
           hitSlop={8}
           style={[s.pill, s.namePill, { backgroundColor: tokens.base200, borderColor: tokens.base300 }]}
         >
           <Text style={[s.pillText, { color: tokens.baseContent }]} numberOfLines={1}>
-            {nickname}
+            {nickname === '' ? 'Add your name' : nickname}
           </Text>
         </Pressable>
       )}

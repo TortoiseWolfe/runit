@@ -112,6 +112,11 @@ export function useJoinActions() {
           }
         }
 
+        // THE NAMELESS BRANCH IS NOW UNREACHABLE THROUGH THIS SCREEN and is kept anyway.
+        // `join_event` refuses an empty nickname since #66, so `Welcome. You're in.` cannot
+        // be produced by a guest joining -- but `claimHost` shares this toast and a host
+        // seat carries a display name rather than a nickname, so the branch is the honest
+        // answer for a caller that has no name to greet rather than dead copy.
         show(`Welcome${nickname.trim() ? `, ${nickname.trim()}` : ''}. You're in.`);
         router.replace('/chat');
         return true;

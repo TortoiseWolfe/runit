@@ -59,6 +59,8 @@ export class EntitlementError extends Error {
  */
 export type JoinReason =
   | 'unknown_code'
+  | 'needs_a_name'
+  | 'name_too_long'
   | 'event_full'
   | 'bad_host_key'
   | 'session_unavailable'
@@ -85,6 +87,17 @@ export type JoinReason =
 const JOIN_COPY: Record<JoinReason, string> = {
   // Pinned VERBATIM by tests/e2e/join.spec.ts. Not paraphrasable.
   unknown_code: "That code doesn't match an event.",
+  /*
+   * ITS OWN REASON, not folded into `unknown_code` (#66). The code was fine; the name was
+   * not, and a guest told "That code doesn't match an event" would retype the one thing
+   * that was already right. The whole point of this table is that the reason and the
+   * message cannot contradict each other.
+   */
+  needs_a_name: 'Add a name so the room knows who you are.',
+  // 40 is what the chat header renders without pushing the event name off its own screen,
+  // and `set_nickname` has always capped there -- so without the same cap on the way IN, a
+  // longer name could walk through the door and then be impossible to change.
+  name_too_long: 'That name is a bit long — 40 characters or fewer.',
   bad_host_key: "That host key isn't right for this event.",
   // Pinned by MemoryRepository.test.ts (/full/).
   event_full: 'This event is full.',

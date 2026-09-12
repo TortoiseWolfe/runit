@@ -721,6 +721,16 @@ that lives in a button handler is bypassed by the second caller.
   that window gives the wrong one: asking for 3:00 AM on a spring-forward morning, one
   pass returns an instant that reads back as 4:00. `format.test.ts` fails if the second
   pass is removed. And never `new Date(d.toLocaleString(...))` -- FIDELITY note M.
+- **A GUEST NEEDS A NAME, AND THE DATABASE IS WHERE THAT IS DECIDED (#66).** `guests.nickname`
+  is `text not null` and `''` SATISFIES THAT, so `join_event` seated a guest with a blank
+  space where their name goes -- denormalised onto every song request and photo they sent --
+  and the one control that could fix it, the name pill, was drawn only when the nickname was
+  NON-EMPTY, so it was missing for exactly those people. `join_event` raises 22023 on an empty
+  name and on one over 40, the same two rules and the same errcode as `set_nickname`, whose
+  comment had claimed since it was written that "join_event would have refused it too".
+  **`MemoryRepository` substituted `nickname.trim() || 'you'`**, which is why 304 journeys saw
+  a healthy name pill for a case that had none against Supabase -- the fixture was kinder than
+  the backend, the one thing that adapter exists not to be.
 - **A HOST HAS NO `guests` ROW.** `create_event` binds her seat and deliberately does not
   seat her as a guest -- a brand-new party reading "1 already here" before anyone arrives
   is worse than the gap. So anything reading `requireGuest()` on a path a host can reach

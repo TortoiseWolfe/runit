@@ -206,6 +206,65 @@ begin
   end;
 
   -- ==================================================================
+  -- A GUEST NEEDS A NAME (#66)
+  -- ==================================================================
+  --
+  -- `guests.nickname` is `text not null` and `''` SATISFIES THAT, so `join_event` inserted
+  -- `btrim(p_nickname)` and a guest walked in with a blank space where their name goes --
+  -- denormalised onto every song request and photo they sent for the rest of the night.
+  -- The one control that could fix it was drawn only when the nickname was non-empty, so
+  -- it was missing for exactly those people.
+  --
+  -- `set_nickname` has always refused this. Its comment claimed `join_event` "would have
+  -- refused it too", which was false until now. THESE ASSERTIONS ARE WHAT MAKES THE COMMENT
+  -- TRUE, and they are here rather than in a journey because a client guard is bypassed by
+  -- the second caller.
+  execute 'reset role';
+  perform set_config('request.jwt.claims', json_build_object('sub',nuid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  begin
+    perform public.join_event('TEST01', '   ');
+    out := out || format('FAIL a guest joined with a blank nickname');
+  exception when others then
+    out := out || format('%s join_event refuses an empty nickname (%s)',
+                         case when sqlstate = '22023' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  -- AND THE SAME CAP AS `set_nickname`, or a name too long for the header could walk in
+  -- through the door and then be impossible to change: the only route to editing it would
+  -- refuse the value already stored.
+  begin
+    perform public.join_event('TEST01', repeat('A', 41));
+    out := out || format('FAIL a guest joined with a 41-character nickname');
+  exception when others then
+    out := out || format('%s join_event caps a nickname at 40, as set_nickname does (%s)',
+                         case when sqlstate = '22023' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  -- AND A REAL NAME STILL GETS IN, which is the clause that stops the two above passing on
+  -- a function that refuses everything.
+  begin
+    perform public.join_event('TEST01', '  Wren  ');
+    out := out || format('PASS join_event still admits a real name');
+  exception when others then
+    out := out || format('FAIL a real name was refused: %s %s', sqlstate, sqlerrm);
+  end;
+  execute 'reset role';
+  select count(*) into n from public.guests g
+   where g.event_id = eid and g.auth_user_id = nuid and g.nickname = 'Wren';
+  out := out || format('%s ...and stored it trimmed (%s, want 1)',
+                       case when n = 1 then 'PASS' else 'FAIL' end, n);
+
+  -- PUT THE WORLD BACK. This block joined a seat and switched identity; everything below
+  -- was written standing as `guid` and counting the seats that existed before it ran. A
+  -- test that leaves state is a test that breaks the next one, which is how the #31 abort
+  -- went unnoticed for a week.
+  delete from public.guests g where g.event_id = eid and g.auth_user_id = nuid;
+  perform set_config('request.jwt.claims', json_build_object('sub',guid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+
+
+  -- ==================================================================
   -- THE UPLOADER DOES NOT GET A VOTE ON `status` (#50)
   -- ==================================================================
   -- Moderation was decided in the CLIENT, from its own entitlements, and nothing

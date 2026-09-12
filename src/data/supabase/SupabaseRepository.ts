@@ -1007,6 +1007,21 @@ export class SupabaseRepository implements RunitRepository {
         if (isPgError(error) && error.code === '54023') {
           throw new JoinError('event_full');
         }
+        /*
+         * 22023 is `join_event`'s own nickname refusal (#66), and it carries TWO rules --
+         * empty and over 40 -- so the message is chosen by the raised text rather than by
+         * the code alone. Postgres offers no finer errcode here and inventing one would
+         * put a private convention in a shared namespace.
+         *
+         * Both were previously unreachable in the same way `event_full` was before #22:
+         * the function checked nothing, so a nameless guest simply walked in.
+         */
+        if (isPgError(error) && error.code === '22023') {
+          throw new JoinError(
+            /nickname_too_long/.test(error.message ?? '') ? 'name_too_long' : 'needs_a_name',
+            { cause: error },
+          );
+        }
         // 28000 is the function's own `not authenticated`, raised when auth.uid()
         // is null. We established a session moments ago, so reaching this means
         // PostgREST saw a JWT with no `sub` -- the session died mid-call, or the
@@ -1155,7 +1170,22 @@ export class SupabaseRepository implements RunitRepository {
         // Not a guard against a caller's mistake: `RoleSwitch` is only drawn inside an
         // event, so a null here means the event went away underneath the session.
         if (!ev) throw new Error('There is no event to join as a guest.');
-        const nickname = current.kind === 'host' ? current.displayName : '';
+        /*
+         * SAME SHAPE AS THE GUARD ABOVE: not a check against a caller's mistake, a check
+         * that the world is what this method assumes. `RoleSwitch` is drawn only for
+         * someone holding a host seat, so a non-host reaching here means the session
+         * changed underneath it.
+         *
+         * IT USED TO FALL BACK TO `''`, which `join_event` accepted -- seating a founder
+         * with a blank name that every song request and photo she sent would carry. #66
+         * made that a 22023, so the fallback became a guaranteed failure with a Postgres
+         * error message instead of an explicable one. Saying so here is the honest version
+         * of the same outcome.
+         */
+        if (current.kind !== 'host') {
+          throw new Error('Only a host can take a guest seat at her own event.');
+        }
+        const nickname = current.displayName;
         const { data, error } = await this.db.rpc('join_event', {
           p_code: ev.code,
           p_nickname: nickname,
