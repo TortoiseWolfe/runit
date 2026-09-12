@@ -312,6 +312,7 @@ export class MemoryRepository implements RunitRepository {
   private sigFeed: Signal<Broadcast[]>;
   private sigSchedule: Signal<ScheduleItem[]>;
   private sigQueue: Signal<SongRequest[]>;
+  private sigMyRequest: Signal<SongRequest | null>;
   private sigIncoming: Signal<SongRequest[]>;
   private sigAccepted: Signal<SongRequest[]>;
   private sigNowPlaying: Signal<NowPlaying | null>;
@@ -390,6 +391,7 @@ export class MemoryRepository implements RunitRepository {
     this.sigFeed = new Signal<Broadcast[]>([]);
     this.sigSchedule = new Signal<ScheduleItem[]>([]);
     this.sigQueue = new Signal<SongRequest[]>([]);
+    this.sigMyRequest = new Signal<SongRequest | null>(null);
     this.sigIncoming = new Signal<SongRequest[]>([]);
     this.sigAccepted = new Signal<SongRequest[]>([]);
     this.sigNowPlaying = new Signal<NowPlaying | null>(seed.nowPlaying);
@@ -526,6 +528,13 @@ export class MemoryRepository implements RunitRepository {
 
     const live = visibleRequests.filter((r) => r.status !== 'played' && r.status !== 'declined');
     this.sigQueue.set(live.sort(byVotesDesc));
+    // OFF `visibleRequests`, ONE LINE ABOVE THE FILTER -- not off `live`. That is the whole
+    // fix: `live` is what hid a declined song from the person who asked for it.
+    this.sigMyRequest.set(
+      this.myGuestId === null
+        ? null
+        : (visibleRequests.find((r) => r.requestedByGuestId === this.myGuestId) ?? null),
+    );
     this.sigIncoming.set(visibleRequests.filter((r) => r.status === 'pending').sort(byVotesDesc));
     this.sigAccepted.set(visibleRequests.filter((r) => r.status === 'accepted').sort(byVotesDesc));
     this.sigMyVotes.set(new Set(this.votes));
@@ -1269,6 +1278,7 @@ export class MemoryRepository implements RunitRepository {
 
   music = {
     queue: undefined as unknown as Observable<SongRequest[]>,
+    mine: undefined as unknown as Observable<SongRequest | null>,
     incoming: undefined as unknown as Observable<SongRequest[]>,
     accepted: undefined as unknown as Observable<SongRequest[]>,
     nowPlaying: undefined as unknown as Observable<NowPlaying | null>,
@@ -1653,6 +1663,7 @@ export class MemoryRepository implements RunitRepository {
     this.chat.feed = this.sigFeed;
     this.schedule.items = this.sigSchedule;
     this.music.queue = this.sigQueue;
+    this.music.mine = this.sigMyRequest;
     this.music.incoming = this.sigIncoming;
     this.music.accepted = this.sigAccepted;
     this.music.nowPlaying = this.sigNowPlaying;

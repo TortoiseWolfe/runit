@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
-import { joinAsGuest, open, TOKENS, voteCount } from './helpers';
+import { joinAsGuest, open, switchToHost, TOKENS, voteCount } from './helpers';
 
 /**
  * The Music tab, from the guest side.
@@ -507,7 +507,11 @@ test.describe('the song actually starts', () => {
     await page.getByTestId('role-switch').click();
     await page.getByTestId('tab-music').click();
     await expect(page.getByText('Now playing')).toBeVisible();
-    await expect(page.getByText('Dancing Queen')).toBeVisible();
+    // SCOPED TO THE CARD. A bare getByText('Dancing Queen') matched one node when this was
+    // written and matches two now, both correctly: #70 · 5 of 5 made the guest's own strip
+    // survive the song being played, so it says "Your request · Dancing Queen · Played"
+    // beside the Now Playing card. That is the feature, not a duplicate.
+    await expect(page.getByTestId('now-playing')).toContainText('Dancing Queen');
   });
 });
 
@@ -653,5 +657,98 @@ test.describe('the song type-ahead', () => {
     // makes the absence above a measurement rather than impatience.
     await page.getByTestId('request-input').pressSequentially('a', { delay: 15 });
     await expect(page.getByTestId('request-suggestions')).toBeVisible();
+  });
+});
+
+/**
+ * A DECLINED SONG STILL SAYS SO -- #70 · 5 of 5.
+ *
+ * `MusicScreen`'s STATUS_TEXT has carried 'Not this time' and 'Played' since it was written,
+ * and neither could ever render. `useMyRequest` read `useQueue()`, and the queue is the one
+ * list those two statuses are filtered out of -- both adapters drop `played` and `declined`
+ * from it, correctly, because a room should not vote on songs that are over. So the moment a
+ * host declined a request, `findIndex` returned -1 and the guest's strip UNMOUNTED. The one
+ * person entitled to be told was the one the filter hid it from, and the screen carried a
+ * comment claiming this was already fixed.
+ *
+ * It reads `music.mine` now, off the unfiltered list one line above that filter.
+ *
+ * THESE SWITCH ROLES MID-TEST, because the two halves live on different sides: only a host
+ * can decline, and only the guest sees the strip. Nothing shorter can reach the state.
+ */
+test.describe('what happens to a song the DJ says no to', () => {
+  /** Ask for a song, then cross to the console and decline it. */
+  const askThenDecline = async (page: Page, scheme: 'dark' | 'light') => {
+    await joinAsGuest(page, scheme);
+    await page.getByTestId('tab-music').click();
+    await submitRequest(page, 'Blue Monday – New Order');
+    await expect(page.getByTestId('my-request')).toBeVisible();
+
+    await page.getByTestId('tab-chat').click();
+    await switchToHost(page);
+    await page.getByTestId('host-segment-dj').click();
+    // THIS SONG, by its accessible name, not `.first()`. The DJ queue is ranked by votes, so
+    // the first decline button belongs to the seeded 41-vote Dancing Queen -- declining that
+    // would leave the guest's own request untouched and the test asserting nothing.
+    await page.getByLabel('Decline Blue Monday').click();
+
+    await page.getByTestId('role-switch').click();
+    await page.getByTestId('tab-music').click();
+  };
+
+  test('the guest is told, instead of her request disappearing', async ({ page }, testInfo) => {
+    await askThenDecline(page, testInfo.project.name as 'dark' | 'light');
+
+    // The strip is still there at all -- which it was not.
+    await expect(page.getByTestId('my-request')).toBeVisible();
+    await expect(page.getByTestId('my-request-status')).toHaveText('Not this time');
+  });
+
+  /**
+   * AND IT STOPS CLAIMING A POSITION. A declined song has no rank, and "#3 in the queue"
+   * beside "Not this time" is two sentences arguing on one strip.
+   */
+  test('and it stops claiming a place in a queue it is no longer in', async ({
+    page,
+  }, testInfo) => {
+    await askThenDecline(page, testInfo.project.name as 'dark' | 'light');
+
+    await expect(page.getByTestId('my-request')).not.toContainText('in the queue');
+    // It names the song instead, so the strip still says WHICH request was refused.
+    await expect(page.getByTestId('my-request')).toContainText('Blue Monday');
+  });
+
+  /**
+   * AND THE QUEUE ITSELF IS UNCHANGED. The fix must not put declined songs back in front of
+   * the room -- `queue` still filters them, and only the guest's own strip sees past it.
+   */
+  test('while the room stops seeing it, which is what the queue filter is for', async ({
+    page,
+  }, testInfo) => {
+    await askThenDecline(page, testInfo.project.name as 'dark' | 'light');
+
+    // EXACTLY ONCE ON THE SCREEN, and it has to be the strip. Asserting against
+    // `music-queue` does not work and the first draft tried: that testID is the ScrollView
+    // wrapping the whole tab, so the guest's own strip is INSIDE it. Counting is what
+    // separates "the room cannot see it" from "nobody can" -- two would mean the queue kept
+    // it, zero would mean the fix never happened.
+    await expect(page.getByText('Blue Monday')).toHaveCount(1);
+    await expect(page.getByTestId('my-request')).toContainText('Blue Monday');
+    // And the ranked list is back to the six it seeds.
+    await expect(page.getByText('6 requests')).toBeVisible();
+  });
+
+  /**
+   * THE RANK STILL WORKS WHEN THE SONG IS STILL LIVE, which is the other half. A fix that
+   * dropped the rank entirely would pass the two tests above and lose the feature.
+   */
+  test('but a request still in the running keeps its rank', async ({ page }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await joinAsGuest(page, scheme);
+    await page.getByTestId('tab-music').click();
+    await submitRequest(page, 'Blue Monday – New Order');
+
+    await expect(page.getByTestId('my-request')).toContainText('in the queue');
+    await expect(page.getByTestId('my-request-status')).toHaveText('Waiting for DJ');
   });
 });

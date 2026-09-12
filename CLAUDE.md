@@ -837,6 +837,15 @@ was green and the half a guest actually walks was dead.
   draws only while `guestCount` and `invitedCount` are BOTH 0, and both clauses are
   mutation-pinned; it calls the same `onShare` as the quiet link rather than being a second
   implementation.
+- **`music.mine` IS A SEPARATE OBSERVABLE FROM `music.queue`, and it has to be.** `queue` drops
+  `played` and `declined` -- correctly, a room should not vote on songs that are over -- so it
+  is the one list that cannot answer "what happened to MY request". `useMyRequest` read it
+  anyway, so the moment a host declined, `findIndex` returned -1 and the guest's strip
+  unmounted: the one person entitled to be told was the one the filter hid it from.
+  `MusicScreen`'s STATUS_TEXT has carried 'Not this time' and 'Played' since it was written and
+  neither could ever render. `mine` comes off the UNFILTERED list in both adapters, one line
+  above that filter. **Rank is null once the song leaves the queue** rather than stale -- "#3
+  in the queue" beside "Not this time" is two sentences arguing on one strip. #70 · 5 of 5.
 - **THE SONG TYPE-AHEAD CALLS A THIRD PARTY, AND IT IS THE ONLY THING IN THE APP THAT DOES.**
   `src/lib/musicSearch.ts` hits the iTunes Search API -- no key, no account, nothing to leak.
   Everything else goes through supabase-js. **It sends no CORS headers**, so it works on a

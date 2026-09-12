@@ -236,6 +236,7 @@ export class SupabaseRepository implements RunitRepository {
   private readonly sigFeed = new Signal<Broadcast[]>([], shallowArrayEqual);
   private readonly sigSchedule = new Signal<ScheduleItem[]>([], shallowArrayEqual);
   private readonly sigQueue = new Signal<SongRequest[]>([], shallowArrayEqual);
+  private readonly sigMyRequest = new Signal<SongRequest | null>(null);
   private readonly sigIncoming = new Signal<SongRequest[]>([], shallowArrayEqual);
   private readonly sigAccepted = new Signal<SongRequest[]>([], shallowArrayEqual);
   private readonly sigNowPlaying = new Signal<NowPlaying | null>(null, (a, b) =>
@@ -307,6 +308,7 @@ export class SupabaseRepository implements RunitRepository {
     this.chat.feed = this.sigFeed;
     this.schedule.items = this.sigSchedule;
     this.music.queue = this.sigQueue;
+    this.music.mine = this.sigMyRequest;
     this.music.incoming = this.sigIncoming;
     this.music.accepted = this.sigAccepted;
     this.music.nowPlaying = this.sigNowPlaying;
@@ -414,6 +416,12 @@ export class SupabaseRepository implements RunitRepository {
       .filter((r) => r.requestedByGuestId === null || !blocked.has(r.requestedByGuestId));
     this.sigQueue.set(
       requests.filter((r) => r.status !== 'played' && r.status !== 'declined').sort(byVotesDesc),
+    );
+    // OFF `requests`, BEFORE the status filter -- the point of the whole change. A declined
+    // song has to keep reaching the one person it is about.
+    const me = this.myGuestId;
+    this.sigMyRequest.set(
+      me === null ? null : (requests.find((r) => r.requestedByGuestId === me) ?? null),
     );
     this.sigIncoming.set(requests.filter((r) => r.status === 'pending').sort(byVotesDesc));
     this.sigAccepted.set(requests.filter((r) => r.status === 'accepted').sort(byVotesDesc));
@@ -1995,6 +2003,7 @@ export class SupabaseRepository implements RunitRepository {
 
   music = {
     queue: undefined as unknown as Observable<SongRequest[]>,
+    mine: undefined as unknown as Observable<SongRequest | null>,
     incoming: undefined as unknown as Observable<SongRequest[]>,
     accepted: undefined as unknown as Observable<SongRequest[]>,
     nowPlaying: undefined as unknown as Observable<NowPlaying | null>,
