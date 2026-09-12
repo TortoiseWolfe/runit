@@ -2,7 +2,7 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 
 import {
-  INVITE_ORIGIN, appSchemeLink, codeFromScan, icsFilename, icsFor, joinLink, shareMessage,
+  INVITE_ORIGIN, appSchemeLink, codeFromScan, icsFilename, icsFor, joinLink, shareMessage, RETIRED_ORIGINS, acceptedOrigins,
 } from './invite';
 
 /**
@@ -294,6 +294,78 @@ describe('reading a scanned code back (#28)', () => {
     expect(codeFromScan('WIFI:S=Barn;T=WPA;P=hunter2;;')).toBeNull();
     expect(codeFromScan('')).toBeNull();
     expect(codeFromScan('   ')).toBeNull();
+  });
+
+  /**
+   * MOVING THE HOST USED TO BE A ONE-WAY DOOR, and this is what stops it being one.
+   *
+   * `codeFromScan` compared against the single current `INVITE_ORIGIN`, so the day that
+   * constant moved every card already printed, the committed poster and every invitation
+   * minted by `design/brand/invite-template.html` became unreadable -- presenting as a
+   * scanner that hangs rather than as an error.
+   *
+   * `RETIRED_ORIGINS` IS EMPTY TODAY, so the interesting case cannot be demonstrated by
+   * example and this block does not pretend otherwise. It proves the CHAIN instead, one
+   * link at a time: that `acceptedOrigins()` is built from both constants, and that
+   * `codeFromScan` accepts everything `acceptedOrigins()` returns. Together those imply the
+   * property; separately, each is checkable now. The loop below covers a real retired
+   * origin the day one is added, with no edit to this file.
+   */
+  it('accepts every origin it says it accepts', () => {
+    // A COVERAGE FLOOR, and it is the load-bearing half. Without it, emptying
+    // `acceptedOrigins()` would make the loop iterate zero times and pass having measured
+    // nothing -- the same doctrine as the static audits' minimum counts.
+    expect(acceptedOrigins().length).toBeGreaterThanOrEqual(1);
+    expect(acceptedOrigins()).toContain(INVITE_ORIGIN);
+
+    for (const origin of acceptedOrigins()) {
+      expect(codeFromScan(`${origin}/i/HOUSE7`)).toBe('HOUSE7');
+    }
+  });
+
+  /**
+   * THE FIRST VERSION OF THIS ASSERTION COULD NOT FAIL, and a mutation is what said so.
+   *
+   * It read `expect(acceptedOrigins()).toEqual([INVITE_ORIGIN, ...RETIRED_ORIGINS])`, which
+   * while the list is empty is `[INVITE_ORIGIN]` compared against `[INVITE_ORIGIN]`. Deleting
+   * the spread from `acceptedOrigins` -- i.e. breaking retirement completely -- left it
+   * green. A test written to protect the mechanism proved nothing about it.
+   *
+   * So both functions take the list as a parameter now, the way `icsFor` takes a clock, and
+   * these pass a SYNTHETIC retired origin. That exercises the two-element path today rather
+   * than waiting for a real retirement to find out whether it works.
+   */
+  const RETIRED = 'https://runit-app-old.example';
+
+  it('puts a retired origin in the accepted list, beside the current one', () => {
+    expect(acceptedOrigins([RETIRED])).toEqual([INVITE_ORIGIN, RETIRED]);
+  });
+
+  it('reads a card printed before the move, which is the whole point', () => {
+    // The case that does not exist yet and will one day be every card in a drawer.
+    expect(codeFromScan(`${RETIRED}/i/HOUSE7`, [INVITE_ORIGIN, RETIRED])).toBe('HOUSE7');
+    expect(codeFromScan(`${RETIRED}/i/house7/`, [INVITE_ORIGIN, RETIRED])).toBe('HOUSE7');
+  });
+
+  it('but does not accept it by DEFAULT, because it is not retired yet', () => {
+    // The seam must not widen the shipped behaviour. With no argument, only the real list
+    // applies -- so an origin nobody has retired is still somebody else's server.
+    expect(codeFromScan(`${RETIRED}/i/HOUSE7`)).toBeNull();
+    expect(acceptedOrigins()).not.toContain(RETIRED);
+  });
+
+  it('mints only the CURRENT host, whatever it accepts', () => {
+    // Widening what is ACCEPTED must never widen what is PRODUCED, or a retired host would
+    // start appearing on new cards and the retirement would never finish.
+    expect(new URL(joinLink('HOUSE7')).origin).toBe(INVITE_ORIGIN);
+  });
+
+  it('and a near-miss of our own name is still somebody else server', () => {
+    // `runit.pages.dev` was in INVITE_ORIGIN for one commit and belongs to a stranger whose
+    // site answers 200 on every path. An allowlist is exactly the mechanism that could
+    // readmit it by accident, so the case is pinned here rather than assumed.
+    expect(codeFromScan('https://runit.pages.dev/i/HOUSE7')).toBeNull();
+    expect(acceptedOrigins()).not.toContain('https://runit.pages.dev');
   });
 
   it('refuses a code that is not the shape of a code', () => {
