@@ -207,21 +207,42 @@ export function useMusicActions() {
   const guarded = useGuardedAction();
   return useMemo(
     () => ({
-      vote: (id: SongRequestId, on: boolean) => repo.music.setVote(id, on),
-      request: async (raw: string) => {
+      /**
+       * THROUGH `guarded`, WHICH IT WAS NOT, AND THE GAP WAS SILENT (#41).
+       *
+       * `repo.music.setVote` and `repo.music.request` both raise `EntitlementError` now that
+       * an expired event refuses new content. Unguarded, that was an unhandled rejection: the
+       * guest tapped, nothing happened, and nothing anywhere said why -- the exact failure
+       * the denial copy exists to prevent, and one a journey caught rather than a reading.
+       *
+       * It was invisible before this issue because neither of these paths could be refused:
+       * voting is free on every tier and a song request has no cap. A window is the first
+       * thing that can say no to either.
+       */
+      vote: (id: SongRequestId, on: boolean) => guarded(() => repo.music.setVote(id, on)),
+      /** Reports whether it landed, so the composer can keep a refused draft. */
+      request: async (raw: string): Promise<boolean> => {
         const text = raw.trim();
-        if (!text) return;
+        if (!text) return false;
         // Canvas: t.split(/\s[–-]\s/), artist defaulting to 'Unknown artist'.
         const [title, artist = ''] = text.split(/\s[–-]\s/);
-        const { merged } = await repo.music.request({
-          title: (title ?? text).trim(),
-          artist: artist.trim(),
+        let merged = false;
+        // NOT `guarded(...)` wrapping the whole body: the toast below is the SUCCESS
+        // sentence and must not fire on a refusal, so the guard covers the call and its
+        // boolean decides whether there is anything to report.
+        const ok = await guarded(async () => {
+          ({ merged } = await repo.music.request({
+            title: (title ?? text).trim(),
+            artist: artist.trim(),
+          }));
         });
+        if (!ok) return false;
         // TWO OUTCOMES, TWO SENTENCES (#44). A request that merged into a song already in
         // the queue adds no row, so "Request sent to the DJ" would describe something the
         // guest cannot find -- they would look for their song at the bottom and see
         // nothing. Saying the vote landed is both true and better news.
         show(merged ? 'Already in the queue — your vote is on it' : 'Request sent to the DJ');
+        return true;
       },
       accept: (id: SongRequestId) => guarded(() => repo.music.accept(id)),
       decline: (id: SongRequestId) => guarded(() => repo.music.decline(id)),

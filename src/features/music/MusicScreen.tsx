@@ -163,6 +163,24 @@ export function MusicScreen() {
   }, [draft, picked]);
 
   const submit = async () => {
+    /**
+     * NOTHING TO SEND AND NOTHING TO PRESERVE, which is a different outcome from a refusal
+     * and has to be handled before one can be confused for the other.
+     *
+     * `request` reports `false` for both "you typed only spaces" and "the event has ended",
+     * and the clear below now depends on that boolean -- so without this branch a
+     * whitespace-only press would leave the stray spaces sitting in the field. It also
+     * broke `guest-music.spec.ts`'s own premise, which uses the cleared field as proof the
+     * press was HANDLED: with nothing clearing, that test could no longer tell a handled
+     * empty press from one the app ignored.
+     */
+    if (!draft.trim()) {
+      setDraft('');
+      setMatches([]);
+      setPicked(false);
+      return;
+    }
+
     /*
      * THE HALVES, THE RIGHT WAY ROUND. `useMusicActions().request` splits on ` – ` and
      * assigns positionally, so "Journey – Don't Stop Believin'" would file a song called
@@ -180,7 +198,11 @@ export function MusicScreen() {
      */
     const halves = draft.trim().split(/\s[–-]\s/).length === 2;
     const known = matches.length > 0 || !halves ? matches : await searchSongs(draft);
-    await request(orderedForRequest(draft, known));
+    // CLEARS ONLY ON SUCCESS, the same rule the broadcast composer and the schedule
+    // composer already follow: a refusal that wipes what somebody typed punishes them for
+    // the app's own message, and the refusal a guest is most likely to meet -- an event
+    // that closed (#41) -- is exactly the one where retyping helps least.
+    if (!(await request(orderedForRequest(draft, known)))) return;
     setDraft('');
     setMatches([]);
     setPicked(false);

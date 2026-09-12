@@ -454,6 +454,60 @@ language sql stable security definer set search_path = public as $$
                   where h.event_id = p_event and h.auth_user_id = auth.uid())
 $$;
 
+-- IS THIS EVENT STILL TAKING NEW THINGS? -- #41.
+--
+-- The free tier has promised since it was written that an event "goes read-only" after a
+-- while, and NOTHING HAS EVER ENFORCED IT: a free event opened on Friday still took chat,
+-- songs and photos the following Wednesday. `eventTtlHours` had exactly one reader in the
+-- whole repo and it was a comment in a seed file.
+--
+-- **A WINDOW, NOT A SWEEP.** #40 deletes bytes on a timer; this deletes nothing and
+-- schedules nothing. It is a predicate the write policies already in this file consult, so
+-- an expired event REFUSES WRITES and stays completely readable -- the album is still there
+-- to save until the retention clock runs out, which is the entire point. An expiry that
+-- blanked the screen would be a worse product than no expiry at all.
+--
+-- **THE CLOCK RUNS FROM `starts_at`, NEVER `created_at`.** A host planning three weeks
+-- ahead would otherwise find her party already expired on the night. That is stated here
+-- because it is the kind of thing that gets "simplified" by somebody reaching for the
+-- column that is always non-null.
+--
+-- **NULL MEANS OPEN FOREVER**, the same convention every other cap in `tier_limits` uses.
+-- `0` would mean the opposite and read as entirely plausible.
+--
+-- **`language plpgsql`, AND THAT IS LOAD-BEARING RATHER THAN A STYLE CHOICE.** A
+-- `language sql` body is name-resolved by Postgres at CREATE time, and `public.tier_limits`
+-- is created ~800 lines BELOW this point. `photos_past_retention` made exactly that mistake
+-- and the result was that the migration could not be applied to an empty database at all --
+-- invisible for weeks, because production already had the table. plpgsql resolves at run
+-- time, so this can sit up here beside `is_host` where the policies can reach it.
+--
+-- SECURITY DEFINER for the same reason `is_host` is: it is called from inside policies, and
+-- `events` is itself policy-gated, so a non-definer version would be asking a question the
+-- caller may not be allowed to ask.
+create or replace function public.event_is_open(p_event uuid) returns boolean
+language plpgsql stable security definer set search_path = public as $$
+declare
+  v_starts timestamptz;
+  v_ttl    integer;
+begin
+  select e.starts_at, t.event_ttl_hours
+    into v_starts, v_ttl
+    from public.events e
+    join public.tier_limits t on t.tier = e.tier
+   where e.id = p_event;
+
+  -- An event nobody can find is not open. Returning true here would make a policy admit a
+  -- write against an event id that does not exist, which is a strange thing to be generous
+  -- about.
+  if v_starts is null then return false; end if;
+
+  -- Unlimited. Every paid tier, today.
+  if v_ttl is null then return true; end if;
+
+  return now() < v_starts + make_interval(hours => v_ttl);
+end $$;
+
 -- JOINING. SECURITY DEFINER because a guest must be able to create their own row
 -- and find an event by code WITHOUT being able to read the guests table or list
 -- events -- see the RLS section. Returns the guest id; idempotent, so a reinstall
@@ -837,6 +891,16 @@ begin
   if v_title = '' then
     raise exception 'empty_title' using errcode = '22023';
   end if;
+  -- THE WINDOW IS CHECKED HERE AS WELL AS IN THE POLICY, and that is not belt-and-braces
+  -- (#41). This function is SECURITY DEFINER, so it BYPASSES ROW-LEVEL SECURITY ENTIRELY --
+  -- `requests_insert`'s `event_is_open` clause never runs on this path, and `music.request`
+  -- goes through here rather than through an insert (#44). A predicate added only to the
+  -- policies would have left every song request landing on an expired event while the gate
+  -- read green. Same one-level-down shape as "a check in a button handler is bypassed by
+  -- the second caller".
+  if not public.event_is_open(p_event) then
+    raise exception 'event_closed' using errcode = '22023';
+  end if;
 
   select nickname into v_name from public.guests where id = v_guest;
 
@@ -1079,6 +1143,13 @@ begin
     raise exception 'not_a_host' using errcode = '42501';
   end if;
 
+  -- SECURITY DEFINER, so `schedule_write`'s window clause never runs here (#41), and this
+  -- writes a BROADCAST as well as moving the cursor -- the one thing an expired event most
+  -- obviously must not do is announce something to a room.
+  if not public.event_is_open(v_event) then
+    raise exception 'event_closed' using errcode = '22023';
+  end if;
+
   select s.position into v_cur_pos
     from public.schedule_items s
     join public.events e on e.now_schedule_item_id = s.id
@@ -1108,6 +1179,13 @@ begin
   if not public.is_host(p_event) then
     raise exception 'not_a_host' using errcode = '42501';
   end if;
+
+  -- DELIBERATELY NOT GATED ON `event_is_open`, unlike `request_song` and
+  -- `start_schedule_item` beside it (#41). The rule is that an expired event admits no new
+  -- CONTENT; this promotes a request that is already there and upserts the single
+  -- `now_playing` row. It is the same act as `requests_moderate`, which is ungated for the
+  -- same reason. Gating every definer function reflexively would have been easier to write
+  -- and would have made the rule unstatable.
 
   select id, title, artist into v_id, v_title, v_artist
     from public.song_requests
@@ -1199,8 +1277,34 @@ grant  select (id, event_id, display_name, role, role_label, created_at)
 
 create policy broadcasts_read on public.broadcasts for select
   using (public.my_guest_id(event_id) is not null or public.is_host(event_id));
+-- AN EXPIRED EVENT REFUSES NEW CONTENT AND NOTHING ELSE (#41).
+--
+-- `public.event_is_open()` is added to the `with check` of every policy that admits new
+-- CONTENT, and to NO policy that governs safety, moderation, tidying, or the route to
+-- reopening the event. That distinction is the whole design and it is worth stating once:
+--
+--   REFUSED after the window   a photo, a song request, a vote, an announcement, a
+--                              run-of-show row, a folder -- the things that make an event
+--                              bigger.
+--   STILL ALLOWED, FOREVER     reading everything; reporting content and resolving a
+--                              report; hiding a photo; blocking somebody; marking an
+--                              announcement seen; deleting a row you already have; and
+--                              `events_host_update`, which is how a host changes tier and
+--                              therefore how paying REOPENS the event.
+--
+-- The safety half is not a courtesy. The album stays visible for another three weeks under
+-- #40's retention clock, so somebody has to be able to report what they can still see, and
+-- a host has to be able to take it down -- the same obligation #65 used to ungate `hide`,
+-- and it does not expire because a party did.
+--
+-- `with check` RATHER THAN `using`, DELIBERATELY. `using` says which rows you may TOUCH and
+-- `with check` says what you may WRITE. Gating `using` on a `for all` policy would also
+-- block DELETE, so a host could not tidy a run-of-show row after the event -- punishing
+-- housekeeping to enforce a paywall. This way an expired event takes nothing new and still
+-- lets go of what it has.
+
 create policy broadcasts_write on public.broadcasts for insert
-  with check (public.is_host(event_id));
+  with check (public.is_host(event_id) and public.event_is_open(event_id));
 
 -- #26. A host could pin and never un-pin: `broadcasts` carried a SELECT policy and an
 -- INSERT policy and nothing else, so a notice that stopped being true two hours in sat
@@ -1258,13 +1362,15 @@ create policy reads_own on public.broadcast_reads for all
 create policy schedule_read on public.schedule_items for select
   using (public.my_guest_id(event_id) is not null or public.is_host(event_id));
 create policy schedule_write on public.schedule_items for all
-  using (public.is_host(event_id)) with check (public.is_host(event_id));
+  using (public.is_host(event_id))
+  with check (public.is_host(event_id) and public.event_is_open(event_id));
 
 create policy requests_read on public.song_requests for select
   using (public.my_guest_id(event_id) is not null or public.is_host(event_id));
 -- A guest may add a request, but only in their own name.
 create policy requests_insert on public.song_requests for insert
-  with check (requested_by_guest_id = public.my_guest_id(event_id));
+  with check (requested_by_guest_id = public.my_guest_id(event_id)
+              and public.event_is_open(event_id));
 -- Only a host may accept, decline or mark played.
 create policy requests_moderate on public.song_requests for update
   using (public.is_host(event_id)) with check (public.is_host(event_id));
@@ -1277,7 +1383,9 @@ create policy votes_read on public.song_votes for select
 create policy votes_write on public.song_votes for all
   using (guest_id = public.my_guest_id(
            (select event_id from public.song_requests where id = request_id)))
-  with check (guest_id = public.my_guest_id(
+  with check (public.event_is_open(
+           (select event_id from public.song_requests where id = request_id))
+          and guest_id = public.my_guest_id(
            (select event_id from public.song_requests where id = request_id)));
 
 create policy now_playing_read on public.now_playing for select
@@ -1299,9 +1407,10 @@ create policy folders_read on public.folders for select
 -- identifiable people, invisible and permanent. No UI ever did this; it needed only the
 -- client library, and claim_host hands a real person that capability.
 create policy folders_insert on public.folders for insert
-  with check (public.is_host(event_id));
+  with check (public.is_host(event_id) and public.event_is_open(event_id));
 create policy folders_update on public.folders for update
-  using (public.is_host(event_id)) with check (public.is_host(event_id));
+  using (public.is_host(event_id))
+  with check (public.is_host(event_id) and public.event_is_open(event_id));
 
 -- DELETE is granted to NOBODY, matching how `photos` already works: no DELETE policy for
 -- anyone, and `hide` is an audit trail rather than a removal. `photo_count` is
@@ -1325,7 +1434,8 @@ create policy photos_read on public.photos for select
     or public.is_host(event_id)
   );
 create policy photos_insert on public.photos for insert
-  with check (uploaded_by_guest_id = public.my_guest_id(event_id));
+  with check (uploaded_by_guest_id = public.my_guest_id(event_id)
+              and public.event_is_open(event_id));
 create policy photos_moderate on public.photos for update
   using (public.is_host(event_id)) with check (public.is_host(event_id));
 
@@ -1409,6 +1519,10 @@ revoke execute on function public.fold_photo_count() from public, anon, authenti
 
 revoke execute on function public.my_guest_id(uuid)                  from public, anon;
 revoke execute on function public.is_host(uuid)                      from public, anon;
+-- #41. `authenticated` KEEPS it: the write policies call it, and a policy's function call
+-- runs as the CALLER, so revoking it from authenticated would fail every gated write with
+-- a permission error instead of a closed-event one.
+revoke execute on function public.event_is_open(uuid)                from public, anon;
 revoke execute on function public.join_event(text, text)             from public, anon;
 revoke execute on function public.play_next(uuid)                    from public, anon;
 revoke execute on function public.start_schedule_item(uuid, boolean) from public, anon;
@@ -1976,7 +2090,19 @@ create table public.tier_limits (
   -- built in SQL at all -- `storage.protect_delete()` refuses every direct delete on
   -- storage.objects, for the owner as much as a guest, which Lane E asserts. It has to go
   -- through the Storage API with a service role, and that is its own piece of work.
-  album_retention_days integer
+  album_retention_days integer,
+  -- How long after `starts_at` the event keeps ACCEPTING things, in hours (#41). NULL is
+  -- forever, the same convention every other cap here uses.
+  --
+  -- IT WAS 48 IN `tiers.ts` AND ENFORCED NOWHERE, and the number changed when it became
+  -- real. Two days sounds generous and is not: guests upload their photos days later, and a
+  -- Friday party closing on Sunday evening cuts off exactly the people slowest to get round
+  -- to it. 168 covers the week that actually follows a party. It is a thinner reason to pay
+  -- than 48 was -- accepted deliberately, because #30 is building the paid escape hatch and
+  -- a boundary that punishes ordinary use is worth less than one nobody resents.
+  --
+  -- READ BY `public.event_is_open()`, which is what makes this a gate rather than a claim.
+  event_ttl_hours integer
 );
 
 -- PHOTO MODERATION USED TO BE A COLUMN HERE (#50) AND IT IS NOT ANY MORE. #50's finding
@@ -1996,17 +2122,18 @@ create policy tier_limits_read on public.tier_limits for select using (true);
 revoke insert, update, delete on public.tier_limits from authenticated, anon;
 
 insert into public.tier_limits
-  (tier, max_guests, max_hosts, max_photos, max_folders, host_roles, push_notifications, album_retention_days)
-values ('house_party',   10,    1,  100,    1, false, false,   30),
-       ('party',         50,    2, 1000,    3, false, false,   90),
-       ('event',        300,    5, null,   10, true,  true,   365),
-       ('venue',       3000, null, null, null, true,  true,  null)
+  (tier, max_guests, max_hosts, max_photos, max_folders, host_roles, push_notifications, album_retention_days, event_ttl_hours)
+values ('house_party',   10,    1,  100,    1, false, false,   30,  168),
+       ('party',         50,    2, 1000,    3, false, false,   90, null),
+       ('event',        300,    5, null,   10, true,  true,   365, null),
+       ('venue',       3000, null, null, null, true,  true,  null, null)
 on conflict (tier) do update set
   max_guests  = excluded.max_guests,  max_hosts   = excluded.max_hosts,
   max_photos  = excluded.max_photos,  max_folders = excluded.max_folders,
   host_roles  = excluded.host_roles,
   push_notifications   = excluded.push_notifications,
-  album_retention_days = excluded.album_retention_days;
+  album_retention_days = excluded.album_retention_days,
+  event_ttl_hours      = excluded.event_ttl_hours;
 
 -- THE EVENT decides, and the database asks it. `before insert` only: UPDATE on `photos` is
 -- already host-only by `photos_moderate` above, so a guest has no second door to reopen

@@ -29,7 +29,19 @@ import { wallClockToInstant } from '@/lib/format';
 import type { Seed } from '../MemoryRepository';
 import { previewOf } from './preview';
 
-const DAY = '2026-09-11';
+/**
+ * TONIGHT, NOT A FIXED DATE -- and it had to move when #41 landed.
+ *
+ * This was `'2026-09-11'`, which was fine while nothing expired. `event_ttl_hours` is 168
+ * on `house_party`, which is this seed's tier, so a hardcoded date is a fuse: on
+ * 2026-09-19 the fixture would have started refusing every write and the journeys that
+ * boot it would have failed for a reason nothing in them mentions.
+ *
+ * `weddingSeed` already carries the lesson in as many words -- "a fixed future date
+ * SELF-HEALS", and the same trap runs the other way for a fixed past one. Today is also
+ * what the fixture MEANS: a host made this twenty minutes ago and people are arriving.
+ */
+const DAY = new Date().toISOString().slice(0, 10);
 const ZONE = 'America/New_York';
 
 /** Wall clock AT THE VENUE, never UTC wearing its clothes. FIDELITY note M. */

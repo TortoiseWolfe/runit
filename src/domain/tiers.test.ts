@@ -45,7 +45,7 @@ function seededLimits(): Record<string, Record<string, number | boolean | null>>
 
   const rows: Record<string, Record<string, number | boolean | null>> = {};
   const re =
-    /\('(\w+)',\s*([\d]+|null),\s*([\d]+|null),\s*([\d]+|null),\s*([\d]+|null),\s*(true|false),\s*(true|false),\s*([\d]+|null)\)/g;
+    /\('(\w+)',\s*([\d]+|null),\s*([\d]+|null),\s*([\d]+|null),\s*([\d]+|null),\s*(true|false),\s*(true|false),\s*([\d]+|null),\s*([\d]+|null)\)/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(block)) !== null) {
     rows[m[1]!] = {
@@ -60,6 +60,11 @@ function seededLimits(): Record<string, Record<string, number | boolean | null>>
       // and uses null for unlimited, so the two would never compare equal on the venue
       // tier -- caught by this test on its first run.
       albumRetentionDays: m[8] === 'null' ? null : Number(m[8]),
+      // Same rule as the line above and for the same reason: `eventTtlHours` is
+      // `number | null` in TypeScript, where null means "never expires". Running it through
+      // `fromSql` would turn SQL null into Infinity and the two would never compare equal on
+      // any paid tier.
+      eventTtlHours: m[9] === 'null' ? null : Number(m[9]),
     };
   }
   return rows;
@@ -106,6 +111,29 @@ describe('tier_limits in Postgres matches src/domain/tiers.ts', () => {
     expect(TIERS.house_party.limits.albumRetentionDays).toBe(30);
   });
 
+  /**
+   * #41. The last `TierLimits` member with no `tier_limits` counterpart, so it was outside
+   * this guard exactly as `albumRetentionDays` was before #23 -- and it was worse off than
+   * that one, because it had no reader ANYWHERE. `src/domain/tiers.ts` claimed free events
+   * went read-only after 48 hours and a free event opened on Friday still took photos the
+   * following Wednesday.
+   */
+  it.each(TIER_ORDER)('%s closes after the same window on both sides', (tier) => {
+    expect(SEEDED[tier]!.eventTtlHours).toBe(TIERS[tier].limits.eventTtlHours);
+  });
+
+  it('gives the free tier a week, and every paid tier no expiry at all', () => {
+    // The number moved from 48 when it stopped being decoration: two days cuts off the
+    // guests who upload days later. Pinned on both sides, because the whole point of this
+    // file is that a number a customer is sold has to be the number Postgres enforces.
+    expect(TIERS.house_party.limits.eventTtlHours).toBe(168);
+    expect(SEEDED.house_party!.eventTtlHours).toBe(168);
+    for (const tier of TIER_ORDER.filter((t) => t !== 'house_party')) {
+      expect(TIERS[tier].limits.eventTtlHours).toBeNull();
+      expect(SEEDED[tier]!.eventTtlHours).toBeNull();
+    }
+  });
+
   it.each(TIER_ORDER)('%s grants push on both sides or neither', (tier) => {
     expect(SEEDED[tier]!.pushNotifications).toBe(TIERS[tier].features.pushNotifications);
   });
@@ -122,8 +150,8 @@ describe('tier_limits in Postgres matches src/domain/tiers.ts', () => {
    * they will be a feature nothing enforces -- the exact #21 shape -- so both are checked.
    *
    * THE ROW COUNT IS CHECKED FIRST, and that assertion is the load-bearing one. `SEEDED`
-   * is parsed by a regex with nine capture groups against the real INSERT; a tenth seeded
-   * column stops it matching entirely, and every `it.each` above would then read
+   * is parsed by a regex with ten capture groups against the real INSERT; an eleventh
+   * seeded column stops it matching entirely, and every `it.each` above would then read
    * `SEEDED[tier]!.x` off `undefined`... which throws, so those are safe -- but this
    * absence test would pass having measured nothing at all. Same doctrine as the coverage
    * floors in lanes A and A2.

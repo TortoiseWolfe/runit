@@ -1,16 +1,16 @@
 {
   "capturedFrom": "the LIVE project qwusbxallkbzfladvgfx, via the Supabase MCP",
   "capturedAt": "2026-09-12",
-  "verifiedAgainst": "Re-captured after #68: `broadcasts_host_delete` (policies 36->37) and the real foreign key on `events.now_schedule_item_id`. VERIFIED BY READING PRODUCTION BACK and comparing all six groups to a local build of the committed migration -- every one matches, so this records a fact rather than a wish. THE FOREIGN KEY IS INVISIBLE TO THIS FILE, and that is the thing to know: constraints are not one of the six groups, and a FK creates no index, so `events_now_schedule_item_fk` moved NOTHING here. Only the policy did. That is the same blind spot as function BODIES (functions hash as `proname(identity_arguments)`), and it is why lane E asserts the set-null behaviour rather than the constraint's existence -- a gate that cannot see a thing cannot guard it.",
+  "verifiedAgainst": "Re-captured after #41 gave `eventTtlHours` a reader. `tier_limits.event_ttl_hours` (columns 129->130), `public.event_is_open()` (functions 37->38), and the window added to the `with check` of seven content-write policies (policies hash only -- the count stays 37). VERIFIED BY READING PRODUCTION BACK and comparing all six groups to a local build of the committed migration; every one matches. THE tier_limits HASH MOVED FOR A SECOND REASON: `schema-fingerprint.sql` now includes `event_ttl_hours` in the seed digest. It did not on the first capture after the deploy, and that hash came back UNCHANGED while a brand-new number sat in the table -- production could have been edited to any window with all six groups green. The seed is hashed here precisely because these numbers are what a customer is sold, so a column left out of it is the same blind spot this file has for constraints, minus the excuse.",
   "howToRefresh": "pnpm schema:fingerprint --write, and only after re-checking production. See docs/lane-e.md and issue #49.",
   "schema": {
     "columns": {
-      "n": 129,
-      "fingerprint": "ee4d1a2f83475f07d93a67df3ef368e7"
+      "n": 130,
+      "fingerprint": "6c1e37fef9361b901be7bf7cfedf5e02"
     },
     "functions": {
-      "n": 37,
-      "fingerprint": "0e885f1b229d3e5e5dbd24c238f570de"
+      "n": 38,
+      "fingerprint": "027f2ac25dfd96ab9b5b755434743e4f"
     },
     "indexes": {
       "n": 35,
@@ -18,11 +18,11 @@
     },
     "policies": {
       "n": 37,
-      "fingerprint": "2561a2c0e5f0697d5e3f7f00981017ac"
+      "fingerprint": "abc9802a01fe0e7fd9aa213438a663fe"
     },
     "tier_limits": {
       "n": 4,
-      "fingerprint": "b0c377271fd89cfc37c68c001f121ea3"
+      "fingerprint": "8bd890fb12fd2c60d91b6e19bd9bc517"
     },
     "triggers": {
       "n": 19,
