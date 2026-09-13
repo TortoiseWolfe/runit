@@ -103,6 +103,8 @@ pnpm audit:styles               # Lane A: the RN colour-parser gate
 pnpm audit:targets              # Lane A2: touch targets, WCAG 2.2 SC 2.5.8 (AA)
 pnpm audit:keyboard             # Lane A3: keyboard strategy + return-key contract
 pnpm audit:rpc                  # do .rpc() argument names exist on the function they are sent to
+pnpm supabase <args>            # the Supabase CLI at the ONE version this repo declares
+pnpm audit:cli-pin              # nothing hardcodes a CLI version behind supabase/.cli-version
 pnpm audit:auth                 # the four live auth switches the product cannot run without
 pnpm audit:mail                 # the sending domain's DKIM/SPF, and the neighbour's inbound mail
 pnpm dns:plan                   # what our DNS intent would change. Writes NOTHING
@@ -211,6 +213,29 @@ database, or the reverse, under a completely green board. That is why lane E ass
 set-null BEHAVIOUR (delete the running row, read the cursor back) instead of asserting the
 constraint exists -- a gate that cannot see a thing cannot guard it, and the honest response
 is to check the thing somewhere that can.
+
+**ONE SUPABASE CLI VERSION, DECLARED BY `supabase/.cli-version`.** The same rule `.nvmrc`
+enforces for Node, applied to the other tool that can write to production -- and it was being
+broken: `policies.yml` hardcoded `supabase@2.116.0` in four places while `npx supabase` on a
+developer machine resolved to **2.117.0**, and nothing said a word. That is the `.nvmrc`
+failure one tool over.
+
+**IT MATTERED MORE THAN A VERSION NUMBER USUALLY DOES**, because the two differ in CAPABILITY:
+`supabase config diff` -- the command an auth-config drift gate needs -- **does not exist
+before 2.117.0**. A plan written against the local CLI would have been undeliverable in CI,
+and the only symptom would have been a command not found.
+
+**A FILE, NOT A devDependency**, which is Supabase's own documented install. pnpm 10 blocks
+post-install scripts for packages not in `onlyBuiltDependencies`, and this repo relies on that
+(see the Playwright note above), so a `supabase` devDependency installs a wrapper whose binary
+never downloads -- and opting it in pulls ~40MB into a checks container that never runs the
+CLI. Use `pnpm supabase <args>`; it reads the file.
+
+**`pnpm audit:cli-pin` is static and credential-free** and runs in the normal sequence. It does
+NOT execute the CLI -- that would cost a download on every checks run to learn what a file
+already says. It asserts the declared version is exact (a range is not a pin), that nothing
+hardcodes a different one, and carries a coverage floor so that "nothing consumes the file any
+more" fails rather than passing silently.
 
 **THE LIVE AUTH SWITCHES, CHECKED FOR FREE** (`pnpm audit:auth`). `GET /auth/v1/settings` is
 PUBLIC and READ-ONLY: it needs the publishable key, creates no rows, and reports
