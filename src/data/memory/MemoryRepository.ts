@@ -301,6 +301,18 @@ export class MemoryRepository implements RunitRepository {
    * that leaves the email field editable between the two steps will reach.
    */
   private pendingEmail: string | null = null;
+
+  /**
+   * Which mode `requestEmailCode` answered, so `submitEmailCode` can refuse a code
+   * presented under the OTHER one.
+   *
+   * THIS IS NOT BOOKKEEPING, IT IS THE BACKEND'S BEHAVIOUR. `verifyOtp` takes
+   * `type: 'email_change'` for an attach and `'email'` for a sign-in, and presenting a
+   * CORRECT code under the wrong type is rejected. Without this the fixture accepted any
+   * mode, and a mutation that hardcoded `'sign_in'` -- the exact call that mints a new uid
+   * and orphans a host's event -- left all sixteen journeys green.
+   */
+  private pendingMode: EmailCodeMode | null = null;
   /**
    * How bytes get somewhere durable.
    *
@@ -728,7 +740,8 @@ export class MemoryRepository implements RunitRepository {
       // the door -- which is the direction that matters (#66).
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(address)) throw new JoinError('needs_an_email');
       this.pendingEmail = address;
-      return this.sigSession.get().kind === 'anonymous' ? 'attach' : 'sign_in';
+      this.pendingMode = this.sigSession.get().kind === 'anonymous' ? 'attach' : 'sign_in';
+      return this.pendingMode;
     },
 
     submitEmailCode: async ({ email, code, mode }: {
@@ -741,13 +754,17 @@ export class MemoryRepository implements RunitRepository {
       // would refuse it.
       if (email.trim() !== this.pendingEmail) throw new JoinError('bad_email_code');
       if (code.trim() !== FIXTURE_EMAIL_CODE) throw new JoinError('bad_email_code');
+      // The wrong mode rejects a correct code, exactly as `verifyOtp` does with the wrong
+      // `type`. `bad_email_code` rather than a new reason, because that IS what the person
+      // sees: the backend cannot tell her the caller sent the wrong request shape.
+      if (mode !== this.pendingMode) throw new JoinError('bad_email_code');
       this.pendingEmail = null;
+      this.pendingMode = null;
 
       // 'attach' keeps whoever you were -- that is the entire point of the mode, and a
       // fixture that promoted an anonymous visitor to a host here would invent a seat the
       // backend never grants. `create_event` is what makes a host; signing in only proves
       // which identity you are.
-      void mode;
       this.recompute();
     },
 

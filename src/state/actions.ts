@@ -10,7 +10,8 @@ import { useRouter } from 'expo-router';
 import { denialMessage } from '@/domain/denials';
 import {
   EntitlementError, JoinError, ScheduleError,
-  type CreatedEvent, type EventDetails, type InvitedHost, type NewEvent, type NewHost,
+  type CreatedEvent, type EmailCodeMode, type EventDetails, type InvitedHost,
+  type NewEvent, type NewHost,
   type UploadOutcome,
 } from '@/data/repository';
 import { capturePhoto } from '@/lib/capture';
@@ -353,6 +354,51 @@ export function useCreateActions() {
         } catch (e) {
           show(e instanceof Error ? e.message : 'Could not create that event.');
           return null;
+        }
+      },
+    }),
+    [repo, show],
+  );
+}
+
+/**
+ * Host sign-in (#18). Two calls, both toasting their own failure.
+ *
+ * SAME CONTRACT AS `useCreateActions`: a falsy return means "it did not work and the person
+ * has already been told". Screens in this repo do not catch -- `JoinScreen` does not, and an
+ * inline error label beneath the field would be a second place wording lives, competing with
+ * `JOIN_COPY`, which exists precisely so a reason and its sentence cannot disagree.
+ *
+ * `requestCode` RETURNS THE MODE, which the screen must hold until the code is typed.
+ * `verifyOtp` needs a different `type` for an attach than for a sign-in and sending the wrong
+ * one rejects a CORRECT code -- see `session.requestEmailCode` for why this is carried rather
+ * than re-derived.
+ */
+export function useSignInActions() {
+  const repo = useRepository();
+  const { show } = useToast();
+  return useMemo(
+    () => ({
+      requestCode: async (email: string): Promise<EmailCodeMode | null> => {
+        try {
+          return await repo.session.requestEmailCode(email);
+        } catch (e) {
+          show(e instanceof Error ? e.message : 'Could not send a code.');
+          return null;
+        }
+      },
+      /** True on success. The screen navigates; this does not, matching `createEvent`. */
+      submitCode: async (input: {
+        email: string;
+        code: string;
+        mode: EmailCodeMode;
+      }): Promise<boolean> => {
+        try {
+          await repo.session.submitEmailCode(input);
+          return true;
+        } catch (e) {
+          show(e instanceof Error ? e.message : 'Could not sign you in.');
+          return false;
         }
       },
     }),

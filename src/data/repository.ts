@@ -65,6 +65,7 @@ export type JoinReason =
   | 'bad_host_key'
   | 'bad_email_code'
   | 'needs_an_email'
+  | 'code_too_soon'
   | 'session_unavailable'
   | 'offline'
   | 'rate_limited';
@@ -110,6 +111,22 @@ const JOIN_COPY: Record<JoinReason, string> = {
    * fat-fingered a digit sends them to request a second code they did not need.
    */
   bad_email_code: "That code isn't right. Codes last 10 minutes — ask for a new one.",
+  /*
+   * ITS OWN REASON RATHER THAN `rate_limited`, and the difference is who is in the room.
+   * `authJoinReason` maps every 429 to `rate_limited`, whose sentence is "Too many people
+   * joining at once" -- true at a door with forty guests on one venue wifi, and nonsense
+   * shown to ONE host who tapped Resend forty seconds early. She would go looking for a
+   * crowd problem that does not exist.
+   *
+   * This is the exact contradiction this table was built to make impossible, so the fix is
+   * a reason and not a reworded sentence: `rate_limited` stays correct for joining.
+   *
+   * NO NUMBER IS INTERPOLATED. GoTrue names the seconds remaining, and putting them here
+   * would mean a call site composing the message -- the property that stops the two
+   * adapters drifting on wording. The screen counts down instead, which is where a live
+   * number belongs; this is the backstop for when it is reached anyway.
+   */
+  code_too_soon: 'A new code can be sent once a minute. Hang on a moment.',
   /*
    * The sign-in twin of `needs_a_name`, and the same rule: never blame the wrong field.
    * An empty address must not surface as a network or provider failure.

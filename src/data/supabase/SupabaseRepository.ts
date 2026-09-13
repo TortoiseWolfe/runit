@@ -123,6 +123,23 @@ const authJoinReason = (e: unknown): JoinReason =>
   : isAuthFailure(e) && (e.code === 'over_request_rate_limit' || e.status === 429) ? 'rate_limited'
   : 'session_unavailable';
 
+/**
+ * Which JoinError a SIGN-IN failure deserves, which is not the same question as a JOIN
+ * failure's (#18).
+ *
+ * `authJoinReason` maps every 429 to `rate_limited` -- "Too many people joining at once" --
+ * and that is right at a door and wrong here. The only 429 a host signing in can realistically
+ * provoke is `over_email_send_rate_limit`, the PER-ADDRESS `smtp_max_frequency` throttle
+ * declared as `max_frequency = "60s"`: one person, one address, sixty seconds. Telling her
+ * the party is busy sends her looking for a problem that does not exist.
+ *
+ * Everything else defers, so provider-disabled, captcha and offline keep the wording they
+ * already have rather than this growing a second copy of that table.
+ */
+const emailCodeReason = (e: unknown): JoinReason =>
+  isAuthFailure(e) && e.code === 'over_email_send_rate_limit' ? 'code_too_soon'
+  : authJoinReason(e);
+
 const byVotesDesc = (a: SongRequest, b: SongRequest) =>
   b.voteCount - a.voteCount || a.createdAt.localeCompare(b.createdAt);
 const byNewestFirst = (a: { createdAt: string }, b: { createdAt: string }) =>
@@ -1201,7 +1218,7 @@ export class SupabaseRepository implements RunitRepository {
         const taken =
           (error as { code?: string }).code === 'email_exists' ||
           /already (been )?registered|already exists/i.test(error.message);
-        if (!taken) throw new JoinError(authJoinReason(error), { cause: error });
+        if (!taken) throw new JoinError(emailCodeReason(error), { cause: error });
       }
 
       const { error } = await this.db.auth.signInWithOtp({
@@ -1211,7 +1228,7 @@ export class SupabaseRepository implements RunitRepository {
         // create one would make sign-in work only for people who had already signed in.
         options: { shouldCreateUser: true },
       });
-      if (error) throw new JoinError(authJoinReason(error), { cause: error });
+      if (error) throw new JoinError(emailCodeReason(error), { cause: error });
       return 'sign_in';
     },
 

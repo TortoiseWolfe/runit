@@ -463,6 +463,28 @@ export function JoinScreen() {
                 Running an event? Make one →
               </Text>
             </Pressable>
+
+            {/* THE WAY BACK FOR A HOST ON A DIFFERENT PHONE (#18), and it is a LINK for
+                the same reason stated three comments up -- with more force, not less.
+                The fine print above is a product promise about accounts. A create link
+                under it is survivable; an EMAIL FIELD under it would make that promise
+                read as false to every guest who ever looks at this screen, which is
+                nearly everyone who opens the app.
+
+                So the whole of sign-in lives one tap away and nothing about it appears
+                on the join path. `signin.spec.ts` fails if an email field ever shows up
+                here -- that assertion is the only thing keeping the promise. */}
+            <Pressable
+              onPress={() => router.push("/signin")}
+              accessibilityRole="button"
+              accessibilityLabel="Sign in to an event you already host"
+              hitSlop={10}
+              testID="join-signin"
+            >
+              <Text style={[s.createLink, { color: alpha(tokens.baseContent, fade.soft) }]}>
+                Already running one? Sign in →
+              </Text>
+            </Pressable>
           </View>
 
           <Pressable
