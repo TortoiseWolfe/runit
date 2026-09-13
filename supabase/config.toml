@@ -435,3 +435,84 @@ enabled = true
 # declarative_schema_path = "./schemas"
 # JSON string passed through to pg-delta SQL formatting.
 # format_options = "{\"keywordCase\":\"upper\",\"indent\":2,\"maxWidth\":80,\"commaStyle\":\"trailing\"}"
+
+# ==========================================================================
+# PRODUCTION, DECLARED SEPARATELY FROM LOCAL -- #18
+# ==========================================================================
+#
+# EVERYTHING ABOVE THIS LINE IS LOCAL-FIRST and some of it is actively WRONG for production:
+# `site_url` is `http://127.0.0.1:3000`, `[api] port` is a loopback port, and
+# `enable_confirmations` is off. That is correct for `supabase start` and catastrophic if
+# pushed.
+#
+# The CLI's own help says so, unprompted, and names this exact hazard:
+#
+#   "a non-interactive run (no TTY, --yes, or piped stdin with no answer) defaults to
+#    PROCEEDING, so a value your file declares only because `supabase init`'s own template
+#    wrote it (e.g. a disabled storage.analytics/auth.oauth_server toggle, or A LOCAL
+#    DEVELOPMENT SITE_URL) can silently overwrite a real, intentionally-customized hosted
+#    setting. Scripts and agents driving this command non-interactively should run
+#    `supabase config diff` first and review it, rather than relying on the prompt."
+#
+# A `[remotes.*]` block is the mechanism that answers it: values here apply to ONE project,
+# by ref, and the defaults above stay local. Verify with
+# `pnpm supabase config diff --project-ref qwusbxallkbzfladvgfx --exit-code` (exits 2 on any
+# difference). NEVER `config push --yes`.
+[remotes.production]
+project_id = "qwusbxallkbzfladvgfx"
+
+[remotes.production.auth]
+# What an OTP email renders as its link, and what the redirect allow-list checks. The single
+# most important value in this block: local's `127.0.0.1:3000` would mail every host a
+# sign-in link to their own laptop.
+site_url = "https://runit-app.pages.dev"
+
+# ON, AND IT IS THE PRODUCT. A guest joins with a code and a nickname and no account;
+# `signInAnonymously()` is the only sign-in path in the codebase. Off, every join fails and
+# the app reports a WRONG EVENT CODE, which is how a TestFlight build shipped that could not
+# admit a single guest. `pnpm audit:auth` checks this against the live project on every run.
+enable_anonymous_sign_ins = true
+
+# A HOST'S FIRST SIGN-IN IS A SIGNUP. Disabling this looks like it only affects new accounts;
+# it kills the first code for every host who has never signed in, while every other setting
+# reads correct. It sits at `[auth]` rather than `[auth.email]` because the Management API
+# field it maps to -- `disable_signup`, inverted -- is global, not per-provider.
+enable_signup = true
+
+[remotes.production.auth.email]
+# SIX DIGITS, TEN MINUTES. Supabase's default expiry is 3600 -- an hour-valid sign-in code is
+# a long window for something that arrives in seconds and is used immediately.
+otp_length = 6
+otp_expiry = 600
+
+# ONE CODE PER MINUTE PER ADDRESS. This is the knob that throttles OTP requests; the
+# `rate_limit` block below is a per-IP sign-in throttle on a five-minute window and is NOT
+# the same thing. Tuning that one while believing you tuned this one is the mistake this
+# comment exists to prevent.
+max_frequency = "60s"
+
+[remotes.production.auth.email.smtp]
+# Resend, on the subdomain whose DKIM/SPF `tools/dns-intent.mjs` declares and
+# `pnpm audit:mail` verifies. Host, port and user are fixed by Resend -- `user` is the
+# literal string "resend" for every customer, not an account name.
+enabled = true
+host = "smtp.resend.com"
+port = 465
+user = "resend"
+admin_email = "no-reply@runit.scripthammer.com"
+sender_name = "RunIt"
+# THE ONLY SECRET HERE, AND IT IS NAMED RATHER THAN STORED. `env()` is the syntax this file
+# already uses in six places. The value belongs in Supabase's auth config and nowhere else --
+# not in this repo, not in a transcript, not in `~/.claude`, which archives file edits outside
+# gitleaks and where a 2026-09-07 sweep found live keys. Treat "rotated" and "gone" as
+# different claims.
+pass = "env(SUPABASE_AUTH_SMTP_PASS)"
+
+[remotes.production.auth.rate_limit]
+# The free tier's own cap is 2/hour PROJECT-WIDE, which is the reason custom SMTP exists at
+# all. With Resend carrying the mail this is ours to set.
+email_sent = 60
+# Anonymous sign-ins per hour per IP. Every guest at a party shares the venue's wifi and
+# therefore one IP, so this is a ROOM SIZE, not a spam threshold -- the free tier sells 10
+# guests and the paid tiers up to 3,000.
+anonymous_users = 100

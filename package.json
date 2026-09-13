@@ -18,6 +18,8 @@
     "dns:apply": "node tools/dns-apply.mjs --apply",
     "supabase": "npx --yes supabase@$(cat supabase/.cli-version)",
     "audit:cli-pin": "node tools/audit-cli-pin.mjs",
+    "audit:auth-config:selftest": "node tools/check-auth-config.mjs --selftest",
+    "audit:auth-config": "node tools/check-auth-config.mjs",
     "audit:auth": "node tools/check-auth-settings.mjs",
     "audit:mail": "node tools/check-mail-policy.mjs",
     "audit:rpc": "node tools/audit-rpc-names.mjs",

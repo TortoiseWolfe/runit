@@ -168,6 +168,20 @@ lane "mail policy -- our sending domain is not live yet" \
 step "supabase CLI pin  (one version, obeyed by everything)"
 node tools/audit-cli-pin.mjs
 
+# Declared-vs-live for everything the public settings endpoint cannot see: SMTP, OTP length
+# and expiry, signup toggles and rate limits. Read-only by construction -- there is no apply
+# here, because writing auth config is the one action that can turn the product off for every
+# user at once. Skips without a token, and skips while the block has never been applied.
+# The diff LOGIC, on synthetic inputs, with no network and no credential. It exists because
+# while the config has never been applied the live run always takes the pending branch, so
+# the comparison is unreachable -- mutations against it survived until this existed.
+step "auth config selftest  (the diff logic, on synthetic inputs)"
+node tools/check-auth-config.mjs --selftest
+
+step "auth config drift  ([remotes.production] vs the live project)"
+lane "auth config drift -- no SUPABASE_ACCESS_TOKEN, or never applied" \
+  node tools/check-auth-config.mjs
+
 step "auth settings  (anonymous sign-in and friends, on the live project)"
 lane "live auth settings -- no project URL or publishable key" \
   node tools/check-auth-settings.mjs
