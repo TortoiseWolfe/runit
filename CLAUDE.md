@@ -108,6 +108,8 @@ pnpm audit:cli-pin              # nothing hardcodes a CLI version behind supabas
 pnpm audit:auth                 # the four live auth switches the product cannot run without
 pnpm audit:auth-config          # [remotes.production] vs the live project's auth config
 pnpm audit:mail                 # the sending domain's DKIM/SPF, and the neighbour's inbound mail
+pnpm send:otp --to=<addr>       # #18: a REAL sign-in code. --twice is the assertion that closes it
+pnpm smtp:pass --verify-to=..   # write the SMTP credential, and prove it by sending
 pnpm dns:plan                   # what our DNS intent would change. Writes NOTHING
 pnpm dns:apply                  # write it
 pnpm export:web && pnpm shots   # Lane B: screenshots at 402x874 + colour gate
@@ -389,6 +391,29 @@ still an assertion -- no mail had been sent, so nothing had observed the alignme
 on. The cost of being wrong at reject is the first sign-in code refused outright rather than
 junked. Publishing our own `_dmarc` at all is the point: without it the subdomain inherits the
 neighbour's policy and could not be enforced independently of it.
+
+**EVERY MAIL GATE HERE IS GREEN OVER A MAILER THAT CANNOT SEND** -- measured 2026-09-13, and
+it is the sharpest example in this repo of a gate that reports green having measured the wrong
+thing. `audit:mail` is green: four DNS records, DKIM on the sending domain, SPF and the MX on
+the bounce label, our own `_dmarc`, the neighbour intact. `audit:auth-config` is green on
+thirteen declared fields, and all six SMTP fields read back correctly -- `smtp.resend.com`,
+port 465, user `resend`, sender `no-reply@runit.scripthammer.com`, a password set. And the
+first real send answered **500 `unexpected_failure`**, with the cause visible only in GoTrue's
+own log: `535 "Authentication credentials invalid"` from smtp.resend.com.
+
+**NOT ONE OF THOSE CHECKS COULD HAVE SEEN IT, and the reason generalises.** DKIM, SPF and
+DMARC are PUBLIC RECORDS -- they describe what a receiver should believe about mail that
+arrives, and are equally true of a domain that has never sent any. The config endpoint returns
+`smtp_pass` as a 64-character hash by a construction Supabase does not document, so presence is
+checkable and correctness is not. Between them they prove the envelope and say nothing about
+the credential. **The only check that can is a send**, which is why `pnpm send:otp` exists and
+why `pnpm smtp:pass` refuses to report a write as done until a message has been accepted.
+
+**A 200 FROM THE SEND IS STILL NOT A DELIVERY.** GoTrue answers the moment it hands the message
+to SMTP. Acceptance, arrival and `dkim=pass d=runit.scripthammer.com` are three claims, and
+only the first is reachable from here -- the other two need a person with an inbox. Both tools
+print that on every run rather than letting a green line imply it. Same doctrine as lane H
+printing that push is uncovered.
 
 **THE ESTATE'S CONVENTION IS ONE PRODUCT, ONE APEX DOMAIN, and this departs from it
 deliberately.** `ACCOUNTS.md` records *"a project belongs to the account matching its
