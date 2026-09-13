@@ -253,18 +253,37 @@ not to widen the token to suit the tool.** A token scoped to one project's confi
 credential; a subcommand needing account-wide rights for a project-scoped read is what is
 wrong. The checker reads the endpoint directly.
 
-**IT ONLY READS, AND NOT BY CHOICE IN THE END.** `--apply` is written, guarded and unusable:
-Supabase's fine-grained "Auth Config" permission, set to Read-write, enumerates ten endpoints
-and **`PATCH /v1/projects/{ref}/config/auth` is not one of them** -- only `GET`, plus writes on
-third-party-auth and SSO providers. Measured with a freshly minted Read-write token: an empty
-PATCH still answers 403. The only credential that could write is a LEGACY full-access token,
-which reads and writes every project on the account -- far too much to hold for five fields
-nobody edits twice a year, and the opposite of the scoping the rest of this work is about.
+**`--apply` HAS RUN, AND WHICH CREDENTIAL IT NEEDS IS THE WHOLE STORY.** Supabase's
+fine-grained "Auth Config" permission, set to Read-write, enumerates ten endpoints and
+**`PATCH /v1/projects/{ref}/config/auth` is not one of them** -- only `GET`, plus writes on
+third-party-auth and SSO providers. Measured twice, including with a freshly minted Read-write
+token: an empty PATCH answers 403 with *"your account does not have the necessary
+privileges"*. Only a LEGACY full-access token can write auth config.
 
-So auth settings are changed by a person in the dashboard and this tool's job is to NOTICE
-WHEN THEY DRIFT. The guards on `--apply` stand for the day the API permits it: refuses under
-CI (`compose.yaml` sets `CI: "1"`, so it is free), sends only declared fields rather than a
-whole-config write, omits `smtp_pass` entirely rather than blanking it, and reads back
+**That was recorded here for a day as "so a person changes it in the dashboard", and that was
+wrong** -- not about the API, about the conclusion. A legacy token was dismissed as too much
+privilege WITHOUT ONE EVER BEING TRIED, while the estate already held several. The measurement
+that settled it is four lines long: GET and an empty PATCH against this project's config with
+each token on the machine. Two answer 200/200 and two answer 403/403 -- the split is the
+ACCOUNT, not the scope, because `ACCOUNTS.md` puts this project's org under
+`spoketowork@gmail.com` and those are that account's tokens.
+
+So on 2026-09-13 `--apply` wrote the four fields that had drifted -- `site_url`,
+`mailer_otp_length`, `mailer_otp_exp`, `rate_limit_anonymous_users` -- and read them back.
+`pnpm audit:auth-config` is green against the repo's own fine-grained token, which still only
+needs `GET`.
+
+**THE WRITE CREDENTIAL IS PASSED FOR ONE INVOCATION AND IS NOT IN THIS REPO.** `envLocal()`
+prefers `process.env` over `.env.local` (`tools/lib/env.mjs`), so an account-wide token can be
+put in front of one command and leave nothing behind. Putting it in `.env.local` would park a
+credential that reads and writes EVERY project on the account inside a repo that needs `GET`
+on one -- and `~/.claude` archives every file edit outside gitleaks, so a secret that never
+touches a file is the only one that cannot end up there. The fine-grained token stays the
+declared one.
+
+The guards on `--apply` earned their keep on the first real run and stand: refuses under CI
+(`compose.yaml` sets `CI: "1"`, so it is free), sends only declared fields rather than a
+whole-config write, omits `smtp_pass` entirely rather than blanking it, and re-reads
 afterwards because a 200 is not a value.
 
 **NEVER APPLIED IS A DIFFERENT STATE FROM DRIFTED**, keyed on `smtp_host` -- Supabase has no
