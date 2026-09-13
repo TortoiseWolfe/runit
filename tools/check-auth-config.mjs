@@ -22,7 +22,17 @@
  * credential; a subcommand that needs account-wide rights to do a project-scoped read is the
  * thing that is wrong. So this reads the endpoint directly.
  *
- * IT ONLY READS. There is no apply here, deliberately. Writing auth config is the one action
+ * `--apply` EXISTS AND CANNOT BE USED, which is worth knowing before you try. Supabase's
+ * fine-grained tokens have an "Auth Config" permission whose read-write setting lists ten
+ * endpoints -- and `PATCH /v1/projects/{ref}/config/auth` IS NOT AMONG THEM. Only `GET` is,
+ * plus writes on third-party-auth and SSO providers. Measured with a fresh Read-write token:
+ * an empty `PATCH` still answers 403. Scoped tokens can read this config and cannot write it.
+ * The only credential that could is a Legacy full-access token, which can read and write
+ * every project on the account -- far too much to hold for five fields nobody edits twice a
+ * year. So the settings below are changed by a person, and this tool's job is to notice when
+ * they drift.
+ *
+ * IT ONLY READS IN PRACTICE. There is no usable apply, Writing auth config is the one action
  * that can turn the product off for every user at once -- `external_anonymous_users_enabled`
  * alone is 100% of guests -- and the CLI's own help warns that a non-interactive push
  * "defaults to proceeding". Applying stays a human act.
