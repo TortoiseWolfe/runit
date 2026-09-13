@@ -409,6 +409,32 @@ checkable and correctness is not. Between them they prove the envelope and say n
 the credential. **The only check that can is a send**, which is why `pnpm send:otp` exists and
 why `pnpm smtp:pass` refuses to report a write as done until a message has been accepted.
 
+**`PATCH /config/auth` REPLACES THE SMTP BLOCK, IT DOES NOT MERGE INTO IT** -- and getting
+that wrong turned custom SMTP off while every send still answered 200. A PATCH carrying
+`{ smtp_pass }` alone nulled `smtp_host`, `smtp_port`, `smtp_user`, `smtp_admin_email` and
+`smtp_sender_name` in one write. Supabase then fell back to its BUILT-IN mailer, so the next
+two sends succeeded -- spending the built-in 2/hour allowance, from an address the entire
+sending domain exists to replace. `rate_limit_email_sent` dropping 30 -> 2 on its own is the
+tell; nothing else says a word.
+
+**THE REPO ALREADY KNEW THIS TRAP UNDER ANOTHER VENDOR'S NAME.** `dns-apply.mjs` carries it:
+*"a Cloudflare rule PATCH REPLACES the rule (replay every field)"*. So `pnpm smtp:pass` sends
+all six fields, reading the five non-secret ones from `[remotes.production.auth.email.smtp]`
+so it cannot disagree with `audit:auth-config`, and reads them back afterwards -- which is the
+check that would have caught it. It is also the ONE place `--apply`'s rule, *send only the
+fields that drifted*, is actively wrong: right for independent scalars, unsafe for a composite
+block, where unsent siblings are not left alone but erased.
+
+**THE SENDING DOMAIN IS NOT VERIFIED AT THE PROVIDER, and that is invisible to every gate
+here.** With custom SMTP correctly restored, a send reports `550 "The runit.scripthammer.com
+domain is not verified"`. The four DNS records are live and `audit:mail` is green on all of
+them -- publishing the records and the provider having CHECKED them are different facts, and
+only the second lets mail leave. A key restricted to the wrong domain reports the same refusal
+in different words (*"not authorized to send emails from ..."*), so read the verbatim SMTP
+error out of `auth_logs` rather than inferring from the 500. **No gate here can close this
+gap**: the provider's API is blocked by `block-outbound.sh`, deliberately, so verification is
+a human act at a dashboard and is recorded as one.
+
 **A 200 FROM THE SEND IS STILL NOT A DELIVERY.** GoTrue answers the moment it hands the message
 to SMTP. Acceptance, arrival and `dkim=pass d=runit.scripthammer.com` are three claims, and
 only the first is reachable from here -- the other two need a person with an inbox. Both tools
