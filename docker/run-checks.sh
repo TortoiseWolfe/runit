@@ -162,6 +162,12 @@ lane "mail policy -- our sending domain is not live yet" \
 # mints nothing -- which is why this can be in the hot loop while `smoke:live` cannot.
 # Anonymous sign-in was off once while a build shipped, and the only lane that could see it
 # was the expensive one. This is the cheap one.
+# One Supabase CLI version, declared by the repo. Static, no download, no credential --
+# it reads files rather than running the CLI, because executing it to learn a version a
+# file already states would cost a fetch on every checks run.
+step "supabase CLI pin  (one version, obeyed by everything)"
+node tools/audit-cli-pin.mjs
+
 step "auth settings  (anonymous sign-in and friends, on the live project)"
 lane "live auth settings -- no project URL or publishable key" \
   node tools/check-auth-settings.mjs

@@ -57,6 +57,14 @@ jobs:
           corepack enable
           pnpm install --frozen-lockfile
 
+      # ONE DECLARED CLI VERSION, read from the repo rather than repeated here.
+      # It was hardcoded in four places in this file while a developer machine ran a
+      # different version, which is the `.nvmrc` failure one tool over -- and the two
+      # differed in CAPABILITY, not just number: `config diff` does not exist before
+      # 2.117.0. `pnpm audit:cli-pin` fails if anything hardcodes a version again.
+      - name: Pin the Supabase CLI
+        run: echo "SUPABASE_CLI=supabase@$(cat supabase/.cli-version)" >> "$GITHUB_ENV"
+
       # The static half, which needs nothing at all: a DECLARE block naming a variable twice
       # is 42601 at COMPILE time, so the file would not run one assertion. It is cheap and it
       # runs first, so the expensive half is not spent discovering something free would catch.
@@ -67,7 +75,7 @@ jobs:
       # db, auth and storage are what own the schemas the migration references.
       - name: Start a local Supabase
         run: |
-          npx --yes supabase@2.116.0 start \
+          npx --yes "$SUPABASE_CLI" start \
             -x imgproxy,kong,mailpit,postgrest,postgres-meta,studio,edge-runtime,logflare,vector,supavisor,realtime
 
       # `db reset` RATHER THAN psql, and the reason is #48's own consequence. The rename
@@ -82,7 +90,7 @@ jobs:
       # gave. It also rebuilds the DATABASE rather than dropping a schema, so Supabase's
       # default privileges survive and the client grants are real.
       - name: Rebuild the database from the committed migration
-        run: npx --yes supabase@2.116.0 db reset
+        run: npx --yes "$SUPABASE_CLI" db reset
 
       # THE PORT IS NOT HARDCODED, and it was, and that broke this job. `supabase/config.toml`
       # moved runit's local stack to 5442x so it can run beside another project's on this
@@ -93,7 +101,7 @@ jobs:
         run: |
           # 2>/dev/null because the CLI writes advisories and a "Stopped services" line to
           # stderr — harmless in a terminal, fatal to a JSON parse if it ever lands on stdout.
-          url=$(npx --yes supabase@2.116.0 status -o json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin)["DB_URL"])')
+          url=$(npx --yes "$SUPABASE_CLI" status -o json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin)["DB_URL"])')
           test -n "$url" || { echo "supabase status reported no DB_URL"; exit 1; }
           echo "SUPABASE_DB_URL=$url" >> "$GITHUB_ENV"
           echo "resolved: ${url/postgres:postgres@/postgres:***@}"
@@ -113,4 +121,4 @@ jobs:
           db=$(docker ps --filter name=supabase_db --format '{{.Names}}' | head -1)
           docker exec "$db" psql -U postgres -c "\dt public.*" || true
           docker exec "$db" psql -U postgres -c "select count(*) from pg_policies where schemaname in ('public','storage')" || true
-          npx --yes supabase@2.116.0 status || true
+          npx --yes "$SUPABASE_CLI" status || true
