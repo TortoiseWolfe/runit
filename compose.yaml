@@ -32,6 +32,9 @@ services:
       # `audit:auth` read the live project's auth switches; empty, it skips loudly.
       EXPO_PUBLIC_SUPABASE_URL: "${EXPO_PUBLIC_SUPABASE_URL:-}"
       EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "${EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY:-}"
+      # A SECRET, unlike the two above -- it reads project configuration. Empty in CI until
+      # somebody adds it, and the lane then skips loudly rather than failing closed.
+      SUPABASE_ACCESS_TOKEN: "${SUPABASE_ACCESS_TOKEN:-}"
     command: ["./docker/run-checks.sh"]
 
   # One-off shell for poking at a failure inside the same image.

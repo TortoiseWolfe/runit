@@ -106,6 +106,7 @@ pnpm audit:rpc                  # do .rpc() argument names exist on the function
 pnpm supabase <args>            # the Supabase CLI at the ONE version this repo declares
 pnpm audit:cli-pin              # nothing hardcodes a CLI version behind supabase/.cli-version
 pnpm audit:auth                 # the four live auth switches the product cannot run without
+pnpm audit:auth-config          # [remotes.production] vs the live project's auth config
 pnpm audit:mail                 # the sending domain's DKIM/SPF, and the neighbour's inbound mail
 pnpm dns:plan                   # what our DNS intent would change. Writes NOTHING
 pnpm dns:apply                  # write it
@@ -236,6 +237,43 @@ NOT execute the CLI -- that would cost a download on every checks run to learn w
 already says. It asserts the declared version is exact (a range is not a pin), that nothing
 hardcodes a different one, and carries a coverage floor so that "nothing consumes the file any
 more" fails rather than passing silently.
+
+**AUTH CONFIG IS DECLARED IN `[remotes.production]`** (`supabase/config.toml`, verified by
+`pnpm audit:auth-config`). The database has been declared-and-verified for a while; auth
+config was not -- SMTP, OTP length and expiry, signup toggles and rate limits all lived in a
+dashboard with nothing recording the intent. A `[remotes.*]` block applies to ONE project by
+ref, which is what keeps the local-first defaults above it -- a `127.0.0.1` site_url, a
+loopback API port -- from ever being confused for production's.
+
+**`supabase config diff` WAS THE PLAN AND DOES NOT WORK HERE.** It takes a legacy read path
+demanding account-wide privileges and fails `LegacyConfigDiffReadStatusError` against a
+fine-grained token that reads this project's auth config perfectly well --
+`GET /v1/projects/{ref}/config/auth` returns 200 with the same credential. **The response was
+not to widen the token to suit the tool.** A token scoped to one project's config is the right
+credential; a subcommand needing account-wide rights for a project-scoped read is what is
+wrong. The checker reads the endpoint directly.
+
+**IT ONLY READS.** No apply, deliberately: writing auth config is the one action that can turn
+the product off for every user at once, and the CLI's own help warns a non-interactive push
+"defaults to proceeding".
+
+**NEVER APPLIED IS A DIFFERENT STATE FROM DRIFTED**, keyed on `smtp_host` -- Supabase has no
+default for it, so a value can only be there because somebody applied one. Before that every
+difference is a PLAN and the lane skips; after it, every difference is a REGRESSION and fails.
+
+**`--selftest` EXISTS BECAUSE THE DRIFT LOGIC WAS OTHERWISE UNREACHABLE.** While the block has
+never been applied every live run takes the pending branch, so mutations against the
+comparison SURVIVED -- dropping the `disable_signup` inversion and declaring anonymous
+sign-in off both left it green. Nine synthetic cases now run on every checks pass, with no
+network and no credential, and all four of those mutations die against them.
+
+**TWO MAPPINGS ARE TRAPS.** `enable_signup` is INVERTED into `disable_signup`; and
+`max_frequency = "60s"` becomes `smtp_max_frequency: 60` -- which is the per-address OTP
+throttle, NOT `rate_limit_otp`, a per-IP sign-in throttle on a five-minute window wearing a
+similar name. Tuning the second while believing you tuned the first is the mistake.
+
+**TOML comes via `python3 -c` and tomllib**, not a new package: Node ships no TOML parser,
+`policies.yml` already shells to python3, and the checks container has 3.12.
 
 **THE LIVE AUTH SWITCHES, CHECKED FOR FREE** (`pnpm audit:auth`). `GET /auth/v1/settings` is
 PUBLIC and READ-ONLY: it needs the publishable key, creates no rows, and reports
