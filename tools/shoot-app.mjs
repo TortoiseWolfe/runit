@@ -345,6 +345,20 @@ for (scheme of ['dark', 'light']) {
     await shot(name);
   }
 
+  // 00 Sign in -- #18, and reached by its quiet link for the same reason the create walk
+  // is: navigating straight to /signin would shoot the screen while proving nothing about
+  // whether anyone can GET to it. The code phase is shot rather than the address phase,
+  // because the address phase is one field and a button and the interesting layout -- two
+  // fields, a CTA, a countdown line and two links -- only exists after a code is sent.
+  await page.goto(`${base}/join`, { waitUntil: 'networkidle' });
+  await page.waitForSelector('[data-testid="join-submit"]', { timeout: 30_000 });
+  await page.click('[data-testid="join-signin"]');
+  await page.waitForSelector('[data-testid="host-signin"]', { timeout: 30_000 });
+  await page.fill('[data-testid="signin-email"]', 'ruth@example.com');
+  await page.click('[data-testid="signin-send"]');
+  await page.waitForSelector('[data-testid="signin-code"]', { timeout: 30_000 });
+  await shot('00-host-signin');
+
   // 00 Create -- the supply side. Reached by the quiet link on the join screen rather
   // than by URL, so this also proves that link is there and lands somewhere.
   await page.goto(`${base}/join`, { waitUntil: 'networkidle' });
@@ -568,6 +582,10 @@ const RENDER_PAIRS = {
   '03-host-event': {
     render: null,
     why: 'the canvas host control has three segments; Event is the fourth, added here',
+  },
+  '00-host-signin': {
+    render: null,
+    why: 'the canvas predates host accounts entirely -- it draws no sign-in, so there is no source to render',
   },
   '00-create-event': {
     render: null,

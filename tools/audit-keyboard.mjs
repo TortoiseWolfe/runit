@@ -49,8 +49,8 @@ const SRC = join(ROOT, 'src');
  */
 // Raised 5 -> 10 by the host event-details form, then -> 16 by create-an-event. Set at the exact current count, the
 // way it was originally: a floor left below reality has stopped being a floor.
-const TEXTINPUT_FLOOR = 17;
-const SCROLLVIEW_FLOOR = 6;
+const TEXTINPUT_FLOOR = 21;
+const SCROLLVIEW_FLOOR = 8;
 
 /**
  * A JSX ELEMENT opener, not a type argument.

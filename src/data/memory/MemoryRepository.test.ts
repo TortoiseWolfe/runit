@@ -1270,3 +1270,23 @@ describe('host sign-in by emailed code (#18)', () => {
     // and pass whatever sign-in did.
   });
 });
+
+describe('the sign-in mode is not decoration (#18)', () => {
+  /**
+   * THE MUTATION THAT SURVIVED. Sixteen journeys stayed green while the screen hardcoded
+   * `'sign_in'` -- the call that mints a new `auth.uid()` and leaves a host's event
+   * reachable only by its recovery key. Nothing observed the mode, so nothing could.
+   *
+   * `verifyOtp` really does reject a correct code under the wrong `type`, so the fixture
+   * refusing it is not invention; it is the fixture stopping being kinder than the backend.
+   */
+  it('refuses a correct code presented under the other mode', async () => {
+    const r = make();
+    const mode = await r.session.requestEmailCode('ada@example.com');
+    expect(mode).toBe('attach');
+    const wrong = 'sign_in' as typeof mode;
+    await expect(
+      r.session.submitEmailCode({ email: 'ada@example.com', code: FIXTURE_EMAIL_CODE, mode: wrong }),
+    ).rejects.toThrow(JoinError);
+  });
+});

@@ -61,7 +61,7 @@ const SRC = join(ROOT, 'src');
 /** Minimum number of colour literals we expect to audit. A gate whose selector
  *  stops matching passes having measured nothing -- so falling below the floor
  *  is itself a failure. Raise this as the app grows. */
-const COVERAGE_FLOOR = 40;
+const COVERAGE_FLOOR = 59;
 
 const COLOR_LITERAL =
   /(['"`])(#[0-9a-fA-F]{3,8}|(?:rgba?|hsla?|hwb|oklch|oklab|lab|lch|color)\([^)'"`]*\))\1/g;
