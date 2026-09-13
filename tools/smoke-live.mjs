@@ -37,30 +37,27 @@
  * It never rotates a key, closes an event, moderates a photo or writes to a seeded row.
  * `docs/smoke-live.md` has the cleanup SQL.
  *
+ * IT RUNS ON IMPORT. There is no main guard: every statement below is top level, so
+ * `import('./tools/smoke-live.mjs')` -- the obvious way to check the file parses -- EXECUTES
+ * IT, against production. That is how event `ZZANV9` came to exist on 2026-09-12. The residue
+ * is what the doc already describes (one event, one host seat, one anonymous auth user) and it
+ * had no photos, so nothing was stranded in the bucket. Use `node --check` to check syntax.
+ *
  * IT SKIPS LOUDLY, exactly as lane E does and for the same reason: the credentials are in
  * `.env.local`, CI has no secret store, and a gate that fails closed without them gets
  * switched off within a week.
  */
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { chromium } from '@playwright/test';
 
+// `envLocal` moved to lib/ the moment a second tool needed it -- check-auth-settings.mjs.
+import { envLocal } from './lib/env.mjs';
 import { serveDir } from './lib/serve.mjs';
 import { capture, laneDir, writeReport } from './lib/artifacts.mjs';
 
 const ROOT = resolve(import.meta.dirname, '..');
 const DIST = join(ROOT, 'dist-live');
-
-/** `.env.local` is where this repo already keeps the project URL and publishable key. */
-function envLocal(key) {
-  if (process.env[key]) return process.env[key];
-  try {
-    const t = readFileSync(join(ROOT, '.env.local'), 'utf8');
-    return (t.match(new RegExp(`^${key}=(.*)$`, 'm'))?.[1] ?? '').trim();
-  } catch {
-    return '';
-  }
-}
 
 const url = envLocal('EXPO_PUBLIC_SUPABASE_URL');
 const key = envLocal('EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY');

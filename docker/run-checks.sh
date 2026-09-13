@@ -158,6 +158,14 @@ step "mail policy  (the sending domain, and the neighbour it must not break)"
 lane "mail policy -- our sending domain is not live yet" \
   node tools/check-mail-policy.mjs
 
+# The four auth switches the product cannot run without, read from a PUBLIC endpoint that
+# mints nothing -- which is why this can be in the hot loop while `smoke:live` cannot.
+# Anonymous sign-in was off once while a build shipped, and the only lane that could see it
+# was the expensive one. This is the cheap one.
+step "auth settings  (anonymous sign-in and friends, on the live project)"
+lane "live auth settings -- no project URL or publishable key" \
+  node tools/check-auth-settings.mjs
+
 step "end-to-end journeys  (Playwright, 402x874, dark + light)"
 pnpm exec playwright test
 

@@ -103,6 +103,7 @@ pnpm audit:styles               # Lane A: the RN colour-parser gate
 pnpm audit:targets              # Lane A2: touch targets, WCAG 2.2 SC 2.5.8 (AA)
 pnpm audit:keyboard             # Lane A3: keyboard strategy + return-key contract
 pnpm audit:rpc                  # do .rpc() argument names exist on the function they are sent to
+pnpm audit:auth                 # the four live auth switches the product cannot run without
 pnpm audit:mail                 # the sending domain's DKIM/SPF, and the neighbour's inbound mail
 pnpm dns:plan                   # what our DNS intent would change. Writes NOTHING
 pnpm dns:apply                  # write it
@@ -210,6 +211,27 @@ database, or the reverse, under a completely green board. That is why lane E ass
 set-null BEHAVIOUR (delete the running row, read the cursor back) instead of asserting the
 constraint exists -- a gate that cannot see a thing cannot guard it, and the honest response
 is to check the thing somewhere that can.
+
+**THE LIVE AUTH SWITCHES, CHECKED FOR FREE** (`pnpm audit:auth`). `GET /auth/v1/settings` is
+PUBLIC and READ-ONLY: it needs the publishable key, creates no rows, and reports
+`external.anonymous_users`, `external.email`, `disable_signup` and `mailer_autoconfirm`. That
+combination is why this runs on every checks pass while `smoke:live` cannot -- it mints
+nothing.
+
+**IT EXISTS BECAUSE ONE OF THOSE WAS OFF AND A BUILD SHIPPED ON IT.** Anonymous sign-in is the
+product; off, every join fails and the app reports a WRONG EVENT CODE, so nobody re-checks a
+provider toggle. Only lane H could see it -- and lane H writes to production and is
+deliberately not in `run-checks.sh`, so the one thing that could catch it ran least often.
+`disable_signup` is here for the same class of reason: a host's FIRST sign-in is a signup, so
+disabling signups kills every new host while every other setting reads correct.
+
+**IT IS A SUBSET AND SAYS SO.** SMTP, OTP expiry, rate limits and the captcha secret are not on
+this endpoint and need a Management API token. This is the free half of auth-config
+verification, not the whole of it.
+
+**`tools/smoke-live.mjs` RUNS ON IMPORT.** No main guard, all top-level: `import()` executes
+it against production. Use `node --check` to test that it parses. Learned by creating event
+`ZZANV9` while trying to verify a refactor compiled.
 
 **DNS IS DECLARED, NOT CLICKED** (`tools/dns-intent.mjs`, `pnpm dns:plan` / `dns:apply`).
 Four records for `runit.scripthammer.com` -- Resend's DKIM, the bounce MX and SPF on a
