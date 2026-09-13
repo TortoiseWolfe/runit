@@ -281,6 +281,89 @@ if (drift.length && !everApplied) {
   process.exit(0);
 }
 
+/**
+ * `--apply` -- WRITE THE DECLARED FIELDS, AND NOTHING ELSE.
+ *
+ * The first version of this file had no apply at all, on the reasoning that writing auth
+ * config is the one action that can turn the product off for every user at once. That
+ * reasoning is sound and it was applied too broadly: it is true of
+ * `external_anonymous_users_enabled` and `security_captcha_enabled`, and false of every field
+ * this repo actually declares. Nothing here can lock anybody out -- the set is a site URL, an
+ * OTP length and expiry, and two rate limits, and the last two only ever RAISE capacity.
+ *
+ * So the guards are narrow and specific rather than a blanket refusal:
+ *
+ *   - REFUSES UNDER `CI`. `compose.yaml` sets `CI: "1"`, so this costs nothing and means the
+ *     one environment nobody is watching can never write. Applying stays a deliberate act at
+ *     a keyboard.
+ *   - SENDS ONLY DECLARED FIELDS. A whole-config PATCH would carry every local-first default
+ *     in `config.toml` with it -- which is exactly the silent overwrite the CLI's own help
+ *     warns about, naming a local development site_url as its example.
+ *   - NEVER SENDS THE SECRET. `smtp_pass` is declared as `env(...)`; if the variable is not
+ *     set it is omitted entirely rather than written blank. The sibling's rule: a feature
+ *     whose secret is missing is withheld entirely rather than half-applied.
+ *   - RE-READS AFTERWARDS. "The API returned 200" and "the value changed" are different
+ *     claims, and only the second one matters.
+ */
+if (process.argv.includes('--apply')) {
+  if (!drift.length) {
+    console.log(green('nothing to apply: the live config already matches'));
+    process.exit(0);
+  }
+  if (process.env.CI) {
+    console.error(red('REFUSED: --apply under CI.'));
+    console.error('  Writing auth config is a deliberate act at a keyboard, not a build step.');
+    process.exit(1);
+  }
+
+  const body = {};
+  for (const d of drift) {
+    if (d.field === SECRET.api) {
+      // Declared as env(...). Withheld entirely rather than half-applied.
+      console.log(yellow(`  skipping ${d.field}: its value is injected, not declared here`));
+      continue;
+    }
+    body[d.field] = d.want;
+  }
+  if (Object.keys(body).length === 0) {
+    console.log(yellow('nothing writable in this drift'));
+    process.exit(0);
+  }
+
+  console.log(`applying ${Object.keys(body).length} field(s) to ${ref}:`);
+  for (const [k, v] of Object.entries(body)) console.log(`  ${k} -> ${JSON.stringify(v)}`);
+
+  const res = await fetch(`https://api.supabase.com/v1/projects/${ref}/config/auth`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!res.ok) {
+    console.error(red(`FAIL: PATCH returned ${res.status}`));
+    console.error(`  ${(await res.text()).slice(0, 300)}`);
+    process.exit(1);
+  }
+
+  // READ IT BACK. A 200 is not a value.
+  const after = await (
+    await fetch(`https://api.supabase.com/v1/projects/${ref}/config/auth`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(20_000),
+    })
+  ).json();
+  const stubborn = Object.entries(body).filter(([k, v]) => after[k] !== v);
+  if (stubborn.length) {
+    console.error(red(`FAIL: ${stubborn.length} field(s) did not move despite a 200.`));
+    for (const [k, v] of stubborn) {
+      console.error(`  ${k}: wanted ${JSON.stringify(v)}, still ${JSON.stringify(after[k])}`);
+    }
+    process.exit(1);
+  }
+  console.log(green(`ok: ${Object.keys(body).length} field(s) applied and read back`));
+  process.exit(0);
+}
+
 if (drift.length) {
   console.error(red(`FAIL: ${drift.length} field(s) differ from supabase/config.toml.`));
   for (const d of drift) {

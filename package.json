@@ -19,6 +19,7 @@
     "supabase": "npx --yes supabase@$(cat supabase/.cli-version)",
     "audit:cli-pin": "node tools/audit-cli-pin.mjs",
     "audit:auth-config:selftest": "node tools/check-auth-config.mjs --selftest",
+    "auth-config:apply": "node tools/check-auth-config.mjs --apply",
     "audit:auth-config": "node tools/check-auth-config.mjs",
     "audit:auth": "node tools/check-auth-settings.mjs",
     "audit:mail": "node tools/check-mail-policy.mjs",
