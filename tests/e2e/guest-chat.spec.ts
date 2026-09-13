@@ -301,16 +301,29 @@ test.describe('the event line on the chat tab', () => {
     const scheme = testInfo.project.name as 'dark' | 'light';
     await joinAsGuest(page, scheme);
 
-    // `weddingSeed` anchors to YESTERDAY, so the correct day moves with the calendar and
-    // no literal can be written here. What can be asserted is that the app agrees with the
+    // `weddingSeed` anchors to YESTERDAY, so the correct day moves with the calendar and no
+    // literal can be written here. What can be asserted is that the app agrees with the
     // clock: the rendered weekday/month/day is the one `starts_at` falls on in the VENUE's
     // zone. A line built from `doorsLabel` alone, or dated in the browser's zone, fails.
+    //
+    // IT MUST DERIVE THE DAY THE WAY THE SEED DOES, AND THE FIRST VERSION DID NOT.
+    // `wedding.ts` takes a DATE STRING -- `new Date(Date.now() - 24h).toISOString()` sliced
+    // to ten characters, which is UTC's yesterday -- and feeds it to `wallClockToInstant` as
+    // a wall clock at the venue. This test instead formatted that INSTANT in New York, which
+    // is a different question and gives a different answer for the four hours a day that UTC
+    // and New York are on different dates. It passed for twenty hours and failed for four:
+    // caught at 00:04 UTC, which was 20:04 the previous day in New York.
+    //
+    // So: take the same UTC date string, pin it to NOON UTC -- far enough from either
+    // midnight that no zone in the Americas or Europe disagrees about which calendar day it
+    // is -- and format THAT. Same trick as the `?fresh=1` test below.
+    const seedDay = new Date(Date.now() - 24 * 60 * 60_000).toISOString().slice(0, 10);
     const expected = new Intl.DateTimeFormat('en-US', {
       weekday: 'short',
       month: 'short',
       day: 'numeric',
       timeZone: 'America/New_York',
-    }).format(new Date(Date.now() - 24 * 60 * 60_000));
+    }).format(new Date(`${seedDay}T12:00:00Z`));
 
     await expect(page.getByTestId('chat-when-where')).toHaveText(
       new RegExp(`^${expected} · `),
