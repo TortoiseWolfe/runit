@@ -510,8 +510,10 @@ pass = "env(SUPABASE_AUTH_SMTP_PASS)"
 
 [remotes.production.auth.rate_limit]
 # The free tier's own cap is 2/hour PROJECT-WIDE, which is the reason custom SMTP exists at
-# all. With Resend carrying the mail this is ours to set.
-email_sent = 60
+# all. Supabase raises it to 30 automatically when custom SMTP is enabled, and 30 sign-in
+# codes an hour is ample for host sign-in -- so this DECLARES WHAT IS ALREADY TRUE rather
+# than asking for a number nobody needs. Raise it the day somebody is actually turned away.
+email_sent = 30
 # Anonymous sign-ins per hour per IP. Every guest at a party shares the venue's wifi and
 # therefore one IP, so this is a ROOM SIZE, not a spam threshold -- the free tier sells 10
 # guests and the paid tiers up to 3,000.
