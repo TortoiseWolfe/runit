@@ -76,12 +76,37 @@ async function send(label) {
 
 console.log(`sending a sign-in code to ${to} via ${new URL(url).host}`);
 
-const first = await send('send 1');
+let first = await send('send 1');
+
+/**
+ * ONE RETRY, AND ONLY FOR THE THROTTLE THE TOOL ITSELF TRIPS. `smtp:pass --verify-to=` sends
+ * a message to prove the credential, so running this straight afterwards always lands inside
+ * the 60s per-address window -- a failure that says nothing about the mailer and that the
+ * operator can only fix by holding a stopwatch. GoTrue names the remaining seconds, so wait
+ * exactly that and go again. It is NOT a general retry: a second 429, or any other status,
+ * still fails. Retrying a real rate limit would just launder it into a slower one.
+ */
+if (first.status === 429) {
+  const wait = Number(/after (\d+) seconds/.exec(first.body)?.[1]);
+  if (Number.isFinite(wait) && wait > 0 && wait <= 60) {
+    console.log(`  per-address throttle: waiting ${wait + 3}s and sending once more`);
+    await sleep((wait + 3) * 1000);
+    first = await send('send 1 (retry)');
+  }
+}
+
 if (!first.ok) {
   console.error(red(`FAIL: the first send was refused (${first.status}).`));
   if (first.status === 429) {
-    console.error('  429 on the FIRST send is a rate limit, not the per-address throttle.');
-    console.error('  Check rate_limit_email_sent, and whether a previous run just sent one.');
+    // `over_email_send_rate_limit` with "after N seconds" IS smtp_max_frequency (declared
+    // `max_frequency = "60s"`), counted per ADDRESS. The first draft of this branch said the
+    // opposite -- that a 429 here could not be the throttle -- and printed that over a
+    // message naming 51 seconds. A diagnostic that contradicts the error beside it is worse
+    // than none, because it sends the reader to check rate_limit_email_sent for nothing.
+    const wait = /after (\d+) seconds/.exec(first.body)?.[1];
+    console.error(`  This is the per-address throttle, not a project cap${wait ? `: wait ${wait}s` : ''}.`);
+    console.error('  Something sent to this address inside the last 60 seconds -- very likely');
+    console.error('  `pnpm smtp:pass --verify-to=`, which sends one to prove the credential.');
   }
   process.exit(1);
 }

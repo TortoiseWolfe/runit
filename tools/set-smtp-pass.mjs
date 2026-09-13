@@ -6,11 +6,34 @@
  * half-applied. This is the other half: the one command that writes it, kept separate because
  * it is the only auth-config write that carries a credential.
  *
- * IT REFUSES TO READ THE KEY FROM A FILE, and that is the whole design. `envLocal()` is not
- * used here: `RESEND_API_KEY` must come from `process.env` and nowhere else. A Resend key is a
- * bearer token for sending as this domain; `~/.claude` archives every file edit outside
- * gitleaks, and a 2026-09-07 sweep found live Resend, Cloudflare and Supabase values in it. A
- * secret that never touches a file is the only one that cannot end up there.
+ * `RESEND_API_KEY` COMES FROM `.env.local` LIKE EVERY OTHER CREDENTIAL HERE. The first
+ * version refused to read it from a file at all, reasoning that `~/.claude` archives every
+ * file edit outside gitleaks. That reasoning does not survive contact: the key has to be
+ * SOMEWHERE to be used twice, and writing it to `.env.local` is itself a file edit, so
+ * refusing to READ the file bought nothing once the file existed. It only made the owner
+ * retype a secret every time, which is how secrets end up in shell history instead.
+ *
+ * The rule that DOES hold is the Supabase one, and it is a different rule: an account-wide
+ * token stays out of the file because this repo has no standing need for one -- it needs GET,
+ * and the legacy token is passed for a single invocation. `RESEND_API_KEY` has a standing
+ * need, is scoped to sending as one domain, and sits beside the publishable key and the
+ * fine-grained token that are already there. `.env.local` is gitignored; rotation is the
+ * control, and `ACCOUNTS.md` carries the date.
+ *
+ * IT SENDS THE WHOLE SMTP BLOCK, NEVER JUST THE PASSWORD, AND THAT COST AN OUTAGE.
+ * The first version PATCHed `{ smtp_pass }` alone. `PATCH /v1/projects/{ref}/config/auth`
+ * does not MERGE into the SMTP block -- it REPLACES it, so that write nulled `smtp_host`,
+ * `smtp_port`, `smtp_user`, `smtp_admin_email` and `smtp_sender_name` in one go and silently
+ * turned custom SMTP off. Supabase then fell back to its BUILT-IN mailer, and the two sends
+ * that answered 200 straight afterwards were the built-in 2/hour allowance being spent --
+ * which read exactly like success, from an address the whole sending domain exists to replace.
+ * `rate_limit_email_sent` dropped 30 -> 2 by itself, which is the tell.
+ *
+ * THE REPO ALREADY KNEW THIS TRAP UNDER ANOTHER VENDOR'S NAME. `dns-apply.mjs` carries it:
+ * "a Cloudflare rule PATCH REPLACES the rule (replay every field)". Same shape here. And it
+ * is the one place `check-auth-config.mjs --apply`'s rule -- send only the fields that
+ * drifted -- is actively wrong: that is right for independent scalars and unsafe for a
+ * composite block, where the unsent siblings are not left alone, they are erased.
  *
  * A 200 IS NOT A WORKING MAILER, and here that is not a slogan -- it is the exact defect this
  * file was written for. On 2026-09-13 the project had all six SMTP fields set correctly, DNS
@@ -24,6 +47,8 @@
  * the API returns a 64-character hash by a construction it does not document, so a non-match
  * proves nothing about the key.
  */
+import { execFileSync } from 'node:child_process';
+import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { envLocal } from './lib/env.mjs';
 
@@ -33,8 +58,7 @@ const yellow = (s) => `\x1b[33m${s}\x1b[0m`;
 
 const REF = 'qwusbxallkbzfladvgfx';
 
-// process.env ONLY. Not envLocal -- see the header.
-const key = process.env.RESEND_API_KEY;
+const key = envLocal('RESEND_API_KEY');
 const token = envLocal('SUPABASE_ACCESS_TOKEN');
 const toArg = process.argv.find((a) => a.startsWith('--verify-to='));
 const to = toArg?.slice('--verify-to='.length).trim();
@@ -44,9 +68,8 @@ if (process.env.CI) {
   process.exit(1);
 }
 if (!key) {
-  console.error(red('REFUSED: RESEND_API_KEY is not in the environment.'));
-  console.error('  Deliberately NOT read from .env.local. Pass it for one command:');
-  console.error('    RESEND_API_KEY=re_... pnpm smtp:pass --verify-to=you@example.com');
+  console.error(red('REFUSED: no RESEND_API_KEY in the environment or .env.local.'));
+  console.error('  It is the Resend API key; the SMTP username is the literal "resend".');
   process.exit(1);
 }
 if (!key.startsWith('re_')) {
@@ -64,22 +87,77 @@ if (!token) {
   process.exit(1);
 }
 
+// The declared block is the source of truth for the five non-secret fields, so this tool and
+// `audit:auth-config` can never disagree about them -- and replaying them is MANDATORY, not
+// tidiness. See the header.
+const declared = JSON.parse(
+  execFileSync(
+    'python3',
+    ['-c', 'import tomllib,sys,json;json.dump(tomllib.load(open(sys.argv[1],"rb")),sys.stdout)',
+     join(import.meta.dirname, '..', 'supabase', 'config.toml')],
+    { encoding: 'utf8' },
+  ),
+).remotes?.production?.auth?.email?.smtp;
+
+if (!declared?.host) {
+  console.error(red('REFUSED: [remotes.production.auth.email.smtp] declares no host.'));
+  process.exit(1);
+}
+
+const body = {
+  smtp_host: declared.host,
+  smtp_port: String(declared.port),
+  smtp_user: declared.user,
+  smtp_admin_email: declared.admin_email,
+  smtp_sender_name: declared.sender_name,
+  smtp_pass: key,
+};
+console.log(`writing the whole SMTP block (${Object.keys(body).length} fields) to ${REF}:`);
+for (const k of Object.keys(body)) {
+  console.log(`  ${k} -> ${k === 'smtp_pass' ? '<withheld>' : JSON.stringify(body[k])}`);
+}
+
 const res = await fetch(`https://api.supabase.com/v1/projects/${REF}/config/auth`, {
   method: 'PATCH',
   headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-  body: JSON.stringify({ smtp_pass: key }),
+  body: JSON.stringify(body),
   signal: AbortSignal.timeout(20_000),
 });
 if (!res.ok) {
   console.error(red(`FAIL: PATCH returned ${res.status}`));
   console.error(`  ${(await res.text()).slice(0, 300)}`);
   if (res.status === 403) {
-    console.error('  Fine-grained tokens cannot write auth config. A LEGACY token can --');
-    console.error('  see the auth-config section of CLAUDE.md.');
+    console.error('  Fine-grained tokens cannot write auth config; a LEGACY one can. This');
+    console.error('  repo deliberately does not store an account-wide token, so pass one:');
+    console.error('');
+    console.error("    SUPABASE_ACCESS_TOKEN=\"$(command grep -m1 '^SUPABASE_ACCESS_TOKEN=' \\");
+    console.error('      ~/repos/SpokeToWork/.env | cut -d= -f2- | tr -d \'"\\\'\' | tr -d \'[:space:]\')" \\');
+    console.error('      pnpm smtp:pass --verify-to=you@example.com');
   }
   process.exit(1);
 }
-console.log(green('smtp_pass written'));
+console.log(green('SMTP block written'));
+
+// THE READ-BACK THAT WOULD HAVE CAUGHT THE OUTAGE. The password cannot be verified (the API
+// returns an undocumented hash), but its five siblings can -- and it was those going null
+// that turned the mailer off while every send still answered 200.
+const after = await (
+  await fetch(`https://api.supabase.com/v1/projects/${REF}/config/auth`, {
+    headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(20_000),
+  })
+).json();
+const lost = Object.keys(body).filter((k) => k !== 'smtp_pass' && after[k] !== body[k]);
+if (lost.length) {
+  console.error(red(`FAIL: ${lost.length} SMTP field(s) did not survive the write.`));
+  for (const k of lost) console.error(`  ${k}: wanted ${JSON.stringify(body[k])}, got ${JSON.stringify(after[k])}`);
+  process.exit(1);
+}
+if (!after.smtp_pass) {
+  console.error(red('FAIL: smtp_pass reads back empty -- custom SMTP is OFF.'));
+  process.exit(1);
+}
+console.log(green('  all five non-secret fields read back, and smtp_pass is set'));
 
 // GoTrue reloads on a config change rather than restarting; the auth log prints
 // "reloading api with new configuration" a second or two later. Sending before that would
