@@ -23,6 +23,8 @@
     "audit:auth-config": "node tools/check-auth-config.mjs",
     "audit:auth": "node tools/check-auth-settings.mjs",
     "audit:mail": "node tools/check-mail-policy.mjs",
+    "send:otp": "node tools/send-otp.mjs",
+    "smtp:pass": "node tools/set-smtp-pass.mjs",
     "audit:rpc": "node tools/audit-rpc-names.mjs",
     "checks": "./docker/run-checks.sh",
     "checks:docker": "docker compose run --rm checks",
