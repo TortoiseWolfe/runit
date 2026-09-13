@@ -253,9 +253,19 @@ not to widen the token to suit the tool.** A token scoped to one project's confi
 credential; a subcommand needing account-wide rights for a project-scoped read is what is
 wrong. The checker reads the endpoint directly.
 
-**IT ONLY READS.** No apply, deliberately: writing auth config is the one action that can turn
-the product off for every user at once, and the CLI's own help warns a non-interactive push
-"defaults to proceeding".
+**IT ONLY READS, AND NOT BY CHOICE IN THE END.** `--apply` is written, guarded and unusable:
+Supabase's fine-grained "Auth Config" permission, set to Read-write, enumerates ten endpoints
+and **`PATCH /v1/projects/{ref}/config/auth` is not one of them** -- only `GET`, plus writes on
+third-party-auth and SSO providers. Measured with a freshly minted Read-write token: an empty
+PATCH still answers 403. The only credential that could write is a LEGACY full-access token,
+which reads and writes every project on the account -- far too much to hold for five fields
+nobody edits twice a year, and the opposite of the scoping the rest of this work is about.
+
+So auth settings are changed by a person in the dashboard and this tool's job is to NOTICE
+WHEN THEY DRIFT. The guards on `--apply` stand for the day the API permits it: refuses under
+CI (`compose.yaml` sets `CI: "1"`, so it is free), sends only declared fields rather than a
+whole-config write, omits `smtp_pass` entirely rather than blanking it, and reads back
+afterwards because a 200 is not a value.
 
 **NEVER APPLIED IS A DIFFERENT STATE FROM DRIFTED**, keyed on `smtp_host` -- Supabase has no
 default for it, so a value can only be there because somebody applied one. Before that every
