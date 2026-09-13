@@ -55,6 +55,16 @@ jobs:
         run: docker compose run --rm checks
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          # `vars`, NOT `secrets`, and that is the honest classification: both are
+          # `EXPO_PUBLIC_` and are therefore compiled into every shipped bundle. Filing a
+          # public value as a secret teaches everyone that the secret store holds things
+          # that do not matter.
+          #
+          # Without them `audit:auth` skipped in CI and ran only on one laptop -- which is
+          # the wrong place for the check that would have caught anonymous sign-in being
+          # switched off in a dashboard.
+          EXPO_PUBLIC_SUPABASE_URL: ${{ vars.EXPO_PUBLIC_SUPABASE_URL }}
+          EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
 
       # The screenshot harness is the slowest gate and the one whose output is
       # worth looking at when it fails.
