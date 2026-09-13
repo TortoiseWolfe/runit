@@ -63,6 +63,8 @@ export type JoinReason =
   | 'name_too_long'
   | 'event_full'
   | 'bad_host_key'
+  | 'bad_email_code'
+  | 'needs_an_email'
   | 'session_unavailable'
   | 'offline'
   | 'rate_limited';
@@ -99,6 +101,20 @@ const JOIN_COPY: Record<JoinReason, string> = {
   // longer name could walk through the door and then be impossible to change.
   name_too_long: 'That name is a bit long — 40 characters or fewer.',
   bad_host_key: "That host key isn't right for this event.",
+  /*
+   * ONE REASON FOR WRONG AND FOR EXPIRED, deliberately. Codes live ten minutes
+   * (`mailer_otp_exp = 600`), and the remedy for a mistyped code and a stale one is the
+   * same single action -- ask for another. Splitting them would put the burden of telling
+   * which happened on somebody who cannot know, and the sentence has to carry the remedy
+   * either way. It does NOT say "expired", because saying that to someone who simply
+   * fat-fingered a digit sends them to request a second code they did not need.
+   */
+  bad_email_code: "That code isn't right. Codes last 10 minutes — ask for a new one.",
+  /*
+   * The sign-in twin of `needs_a_name`, and the same rule: never blame the wrong field.
+   * An empty address must not surface as a network or provider failure.
+   */
+  needs_an_email: 'Add the email address you want your sign-in code sent to.',
   // Pinned by MemoryRepository.test.ts (/full/).
   event_full: 'This event is full.',
   // Promises no retry: for a disabled provider a retry never works.
@@ -287,6 +303,16 @@ export class ScheduleError extends Error {
  */
 export type UploadOutcome = 'pending' | 'approved' | 'failed';
 
+/**
+ * Which half of host sign-in a request started -- see `session.requestEmailCode`.
+ *
+ * Not a boolean: `attach` and `sign_in` are not two settings of one thing, they are two
+ * different Supabase calls with two different `verifyOtp` types, and a boolean named
+ * `isNewUser` would invite reading it as a fact about the PERSON rather than about which
+ * request is in flight.
+ */
+export type EmailCodeMode = 'attach' | 'sign_in';
+
 export interface RunitRepository {
   session: {
     current: Observable<Session>;
@@ -308,6 +334,39 @@ export interface RunitRepository {
      * two things they mistyped.
      */
     claimHost(input: { code: string; key: string }): Promise<void>;
+    /**
+     * Step one of host sign-in (#18): ask for a 6-digit code by email.
+     *
+     * TWO FLOWS LIVE BEHIND ONE SCREEN, and choosing wrong DESTROYS AN EVENT. A host's
+     * identity is an anonymous `auth.users` row: `create_event` binds her seat to whatever
+     * `auth.uid()` she was holding, and `is_host` matches on it forever after.
+     *
+     *   'attach'  -- she is holding that identity right now. The email must be added TO it
+     *                (`updateUser`), which keeps `auth.uid()` and therefore keeps her seat.
+     *   'sign_in' -- she is on a different phone, or cleared the app. There is nothing local
+     *                worth keeping, so she signs in TO the identity that holds her seats.
+     *
+     * Calling `signInWithOtp` in the first case is the destructive mistake: it succeeds, it
+     * mints a DIFFERENT uid, and the event she just created becomes unreachable by anything
+     * except its recovery key. The adapter decides which, because it is the only layer that
+     * can see whether the current user is anonymous -- and it falls back to 'sign_in' when
+     * the address already belongs to an account, which `updateUser` refuses.
+     *
+     * The mode is RETURNED rather than remembered, because `verifyOtp` needs a different
+     * `type` for each and hidden state between two calls on one screen is how the wrong one
+     * gets sent. `submitEmailCode` takes it back.
+     */
+    requestEmailCode(email: string): Promise<EmailCodeMode>;
+    /**
+     * Step two: present the code. Rejects with `JoinError('bad_email_code')` for a wrong or
+     * expired one -- the codes live 10 minutes (`mailer_otp_exp`), and a stale code and a
+     * mistyped one are the same remedy, so they are not distinguished.
+     */
+    submitEmailCode(input: {
+      email: string;
+      code: string;
+      mode: EmailCodeMode;
+    }): Promise<void>;
     /** The other direction, without re-running the join validation. */
     becomeGuest(): Promise<void>;
     /**

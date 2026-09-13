@@ -20,7 +20,8 @@ import type {
 import { subjectKey } from '../types';
 import {
   EntitlementError, JoinError, ScheduleError, type UploadOutcome,
-  type ConnectionState, type EventDetails, type EventPreview, type NewEvent, type NewHost,
+  type ConnectionState, type EmailCodeMode, type EventDetails, type EventPreview,
+  type NewEvent, type NewHost,
   type Observable, type RunitRepository, type Unsubscribe,
   HostedEvent,
 } from '../repository';
@@ -205,6 +206,19 @@ function highestSeedSeq(seed: Seed): number {
  */
 export const DEMO_HOST_KEY = 'DEMO-HOST-KEY0';
 
+/**
+ * The sign-in code this fixture accepts (#18).
+ *
+ * EXPORTED RATHER THAN INLINE, and the sibling above is why: `DEMO_HOST_KEY` is exported
+ * so no test re-types it and quietly drifts from what the adapter checks. Same rule.
+ *
+ * Six digits because that is what `mailer_otp_length` declares, so a screen built against
+ * this fixture cannot end up with a field sized for a different code than production
+ * sends -- the exact class of mismatch that made `otp_length = 8` invisible until a real
+ * message went out.
+ */
+export const FIXTURE_EMAIL_CODE = '424242';
+
 const byVotesDesc = (a: SongRequest, b: SongRequest) =>
   b.voteCount - a.voteCount || a.createdAt.localeCompare(b.createdAt);
 
@@ -280,6 +294,13 @@ export class MemoryRepository implements RunitRepository {
   /** Injectable so tests are deterministic. */
   private now: () => string;
   private hostKey: string;
+
+  /**
+   * The address `requestEmailCode` last sent a code to, so `submitEmailCode` can refuse a
+   * code presented against a DIFFERENT address -- which GoTrue does, and which a screen
+   * that leaves the email field editable between the two steps will reach.
+   */
+  private pendingEmail: string | null = null;
   /**
    * How bytes get somewhere durable.
    *
@@ -669,6 +690,65 @@ export class MemoryRepository implements RunitRepository {
       this.sigSession.set({
         kind: 'host', hostId: h.id, displayName: h.displayName, role: h.role, roleLabel: h.roleLabel,
       });
+    },
+
+    /**
+     * HOST SIGN-IN IN THE FIXTURE (#18) -- and this one has to be as HARSH as GoTrue, not
+     * as kind as a fixture wants to be.
+     *
+     * `join_event` seating a guest whose nickname was an empty string is the standing
+     * warning here: `MemoryRepository` substituted `nickname.trim() || 'you'`, 304 journeys
+     * rendered a healthy name pill for a case that had none against Supabase, and the
+     * fixture was kinder than the backend -- the one thing this adapter exists not to be.
+     * So an empty address raises the same reason the real one does, and a code that is not
+     * the fixture's raises `bad_email_code` rather than waving anyone through.
+     *
+     * THE MODE IS DECIDED THE SAME WAY: is the current identity anonymous. Here that is
+     * `sigSession.get().kind === 'anonymous'` rather than a GoTrue field, which is the
+     * honest local equivalent -- and it means the two adapters agree about WHEN an attach
+     * happens, which is the part a screen can observe.
+     *
+     * WHAT IT CANNOT MODEL, stated rather than faked: that `updateUser` preserves
+     * `auth.uid()` while `signInWithOtp` mints a new one. There are no uids here and no
+     * `hosts` rows keyed on one, so the destructive mistake this whole design exists to
+     * prevent is INVISIBLE in every journey that boots this adapter. Only lane H can see
+     * it. Said out loud for the same reason `invitation.spec.ts` says Memory cannot model
+     * the join that follows a preview.
+     */
+    requestEmailCode: async (email: string): Promise<EmailCodeMode> => {
+      const address = email.trim();
+      // ONE CHECK, NOT TWO. An `if (!address)` guard above this is DEAD: '' fails the shape
+      // check too, so no input reaches one without the other and a mutation deleting it
+      // left every test green -- which is how it was found. The Supabase half keeps its
+      // emptiness guard because it has no shape check to subsume it.
+      //
+      // Not a validator, either: GoTrue is the authority on what an address is, and a
+      // stricter regex here would refuse addresses the backend accepts. This catches only
+      // the shape that is certainly not one, so the fixture cannot be MORE permissive than
+      // the door -- which is the direction that matters (#66).
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(address)) throw new JoinError('needs_an_email');
+      this.pendingEmail = address;
+      return this.sigSession.get().kind === 'anonymous' ? 'attach' : 'sign_in';
+    },
+
+    submitEmailCode: async ({ email, code, mode }: {
+      email: string;
+      code: string;
+      mode: EmailCodeMode;
+    }) => {
+      // The address has to match the one the code was asked for, because a screen that
+      // lets the field be edited between the two steps is a real shape and the backend
+      // would refuse it.
+      if (email.trim() !== this.pendingEmail) throw new JoinError('bad_email_code');
+      if (code.trim() !== FIXTURE_EMAIL_CODE) throw new JoinError('bad_email_code');
+      this.pendingEmail = null;
+
+      // 'attach' keeps whoever you were -- that is the entire point of the mode, and a
+      // fixture that promoted an anonymous visitor to a host here would invent a seat the
+      // backend never grants. `create_event` is what makes a host; signing in only proves
+      // which identity you are.
+      void mode;
+      this.recompute();
     },
 
     /**

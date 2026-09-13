@@ -1,4 +1,4 @@
-import { MemoryRepository } from './MemoryRepository';
+import { FIXTURE_EMAIL_CODE, MemoryRepository } from './MemoryRepository';
 import { weddingSeed } from './fixtures/wedding';
 import { housePartySeed } from './fixtures/houseParty';
 import { flakyTransfer } from './fixtures/flakyTransfer';
@@ -1191,5 +1191,82 @@ describe('a host turns photo approval on for her own party', () => {
     await r.photos.approve(r.photos.pending.get()[0]!.id);
     expect(r.photos.approved.get()).toHaveLength(1);
     expect(r.photos.pending.get()).toHaveLength(0);
+  });
+});
+
+describe('host sign-in by emailed code (#18)', () => {
+  /**
+   * THE MODE IS THE ONLY THING WORTH ASSERTING HERE, because it is the only part of this
+   * design that a screen can observe and the only part that can be wrong in a way that
+   * destroys something. Against Supabase, 'attach' calls `updateUser` and KEEPS
+   * `auth.uid()`; 'sign_in' calls `signInWithOtp` and mints a new one. A host who is
+   * still holding the anonymous identity her event is bound to, sent down the second
+   * path, keeps her event in the database and loses every route to it but the recovery
+   * key -- with no error raised anywhere.
+   */
+  it('an anonymous identity ATTACHES the address rather than signing in fresh', async () => {
+    const r = make();
+    expect(r.session.current.get()).toEqual({ kind: 'anonymous' });
+    await expect(r.session.requestEmailCode('ada@example.com')).resolves.toBe('attach');
+  });
+
+  it('an identity that is already somebody SIGNS IN', async () => {
+    const r = make();
+    await r.session.joinAsGuest({ code: 'SR1017', nickname: 'Ada' });
+    await expect(r.session.requestEmailCode('ada@example.com')).resolves.toBe('sign_in');
+  });
+
+  it('refuses an empty address by its own reason, never as a network failure', async () => {
+    const r = make();
+    // `needs_an_email`, not `session_unavailable` -- the sign-in twin of #66's rule that a
+    // bad name must not surface as "that code doesn't match an event".
+    await expect(r.session.requestEmailCode('   ')).rejects.toThrow(JoinError);
+    await expect(r.session.requestEmailCode('   ')).rejects.toThrow(/email address/i);
+  });
+
+  it('refuses a wrong code, and says the codes expire', async () => {
+    const r = make();
+    const mode = await r.session.requestEmailCode('ada@example.com');
+    await expect(
+      r.session.submitEmailCode({ email: 'ada@example.com', code: '000000', mode }),
+    ).rejects.toThrow(/10 minutes/);
+  });
+
+  /**
+   * The field stays editable between the two steps, so this is reachable by typing rather
+   * than by a bug -- and GoTrue refuses it, so the fixture must too. A fixture kinder than
+   * the backend is the failure this adapter exists to avoid.
+   */
+  it('refuses a correct code presented against a different address', async () => {
+    const r = make();
+    const mode = await r.session.requestEmailCode('ada@example.com');
+    await expect(
+      r.session.submitEmailCode({ email: 'grace@example.com', code: FIXTURE_EMAIL_CODE, mode }),
+    ).rejects.toThrow(JoinError);
+  });
+
+  it('accepts the fixture code', async () => {
+    const r = make();
+    const mode = await r.session.requestEmailCode('ada@example.com');
+    await expect(
+      r.session.submitEmailCode({ email: 'ada@example.com', code: FIXTURE_EMAIL_CODE, mode }),
+    ).resolves.toBeUndefined();
+  });
+
+  /**
+   * SIGNING IN IS NOT A WAY TO BECOME A HOST, and the fixture must not imply otherwise.
+   * `create_event` is what mints a host seat; proving which identity you are does not.
+   * Were this to promote the session, every journey would render a host console for
+   * somebody the backend would refuse.
+   */
+  it('does not hand out a host seat', async () => {
+    const r = make();
+    const mode = await r.session.requestEmailCode('ada@example.com');
+    await r.session.submitEmailCode({ email: 'ada@example.com', code: FIXTURE_EMAIL_CODE, mode });
+    expect(r.session.current.get()).toEqual({ kind: 'anonymous' });
+    // NOT `holdsHostSeat`, which this fixture starts TRUE on purpose so the seeded world
+    // can reach the console -- its own docblock says it answers "could you claim a seat",
+    // not "did you arrive as staff". Asserting it here would pin the fixture's scaffolding
+    // and pass whatever sign-in did.
   });
 });
