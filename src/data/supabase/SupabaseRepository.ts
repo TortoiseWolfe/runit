@@ -15,6 +15,7 @@ import { SignedUrls } from './SignedUrls';
 import { UploadOverlay } from './UploadOverlay';
 import {
   EntitlementError, JoinError, ScheduleError, type ConnectionState,
+  type EmailCodeMode,
   type EventDetails, type EventPreview, type JoinReason, type NewEvent, type NewHost,
   type Observable, type RunitRepository, type UploadOutcome,
   HostedEvent,
@@ -1162,6 +1163,98 @@ export class SupabaseRepository implements RunitRepository {
      * The discarded `my_guest_id` round trip that used to sit here is gone. It fetched a
      * value into `void nickname` -- a request per tap that nothing read.
      */
+    /**
+     * HOST SIGN-IN, STEP ONE (#18).
+     *
+     * WHICH CALL GOES OUT IS THE WHOLE DECISION, and the wrong one is silently destructive.
+     * `create_event` binds the host seat to whatever `auth.uid()` was holding the phone, and
+     * `is_host` matches on it forever. So for a host who is STILL HOLDING that identity, the
+     * email has to be added TO it -- `updateUser` keeps the uid. `signInWithOtp` would also
+     * succeed, also deliver a code, and mint a DIFFERENT uid: her event would survive in the
+     * database and be reachable by nothing but its recovery key. Nothing would report an
+     * error at any point.
+     *
+     * `is_anonymous` IS THE TEST, not "has she got an event on screen". It is a field on the
+     * user GoTrue issues, so it answers the only question that matters -- can this identity
+     * still be upgraded, or is it already somebody's account.
+     *
+     * THE FALLBACK IS NOT A TIDY-UP. An anonymous host whose address already belongs to an
+     * account -- a second phone, a reinstall, an event made months ago -- gets
+     * `email_exists` from `updateUser`, and the right answer is to sign her IN to the
+     * account she already has. Without this she is told her own address is unusable.
+     */
+    requestEmailCode: async (email: string): Promise<EmailCodeMode> => {
+      const address = email.trim();
+      if (!address) throw new JoinError('needs_an_email');
+
+      // An anonymous session may not exist yet -- a host on a fresh install opens this
+      // screen before touching anything else. Minting one costs an auth.users row we would
+      // then abandon on the sign_in path, so this deliberately does NOT call ensureSession.
+      const { data } = await this.db.auth.getUser();
+      const anonymous = data.user?.is_anonymous === true;
+
+      if (anonymous) {
+        const { error } = await this.db.auth.updateUser({ email: address });
+        if (!error) return 'attach';
+        // GoTrue reports this as `email_exists`; older versions only in the message. Both
+        // are checked because getting it wrong here strands a returning host.
+        const taken =
+          (error as { code?: string }).code === 'email_exists' ||
+          /already (been )?registered|already exists/i.test(error.message);
+        if (!taken) throw new JoinError(authJoinReason(error), { cause: error });
+      }
+
+      const { error } = await this.db.auth.signInWithOtp({
+        email: address,
+        // A HOST WHO HAS NEVER SIGNED IN MUST STILL GET A CODE. Her seat may exist under an
+        // anonymous uid with no email on it, so there is no account to find -- refusing to
+        // create one would make sign-in work only for people who had already signed in.
+        options: { shouldCreateUser: true },
+      });
+      if (error) throw new JoinError(authJoinReason(error), { cause: error });
+      return 'sign_in';
+    },
+
+    /**
+     * HOST SIGN-IN, STEP TWO. The `type` differs per mode and is why the mode is carried
+     * rather than re-derived: by the time the code is typed, `updateUser` has already made
+     * the pending change, and asking `is_anonymous` again would now answer for a user
+     * mid-upgrade.
+     */
+    submitEmailCode: async ({
+      email,
+      code,
+      mode,
+    }: {
+      email: string;
+      code: string;
+      mode: EmailCodeMode;
+    }) => {
+      const { error } = await this.db.auth.verifyOtp({
+        email: email.trim(),
+        token: code.trim(),
+        // 'email_change' is what `updateUser({ email })` issues; 'email' is what
+        // `signInWithOtp` issues. Sending the wrong one fails a CORRECT code.
+        type: mode === 'attach' ? 'email_change' : 'email',
+      });
+      if (error) {
+        // A wrong code, an expired code and a replayed code all arrive as 403 here. They
+        // share one remedy, so they share one reason -- see JOIN_COPY.
+        const status = (error as { status?: number }).status;
+        if (status === 403 || status === 401 || /token|otp|expired|invalid/i.test(error.message)) {
+          throw new JoinError('bad_email_code', { cause: error });
+        }
+        throw new JoinError(authJoinReason(error), { cause: error });
+      }
+
+      // THE SIGN-IN CHANGED WHO WE ARE, so every open channel is subscribed as the old
+      // identity and every cached id belongs to it. On the attach path the uid is
+      // unchanged and this is a no-op refresh; on the sign_in path it is mandatory --
+      // `my_events()` filters on `auth.uid()`, and without this she would sign in and see
+      // the previous identity's empty list.
+      await this.event.loadMine();
+    },
+
     becomeGuest: async () => {
       const current = this.sigSession.get();
 
