@@ -1,7 +1,7 @@
 {
-  "capturedFrom": "the LIVE project qwusbxallkbzfladvgfx, via the Supabase MCP",
-  "capturedAt": "2026-09-12",
-  "verifiedAgainst": "Re-captured after #41 gave `eventTtlHours` a reader. `tier_limits.event_ttl_hours` (columns 129->130), `public.event_is_open()` (functions 37->38), and the window added to the `with check` of seven content-write policies (policies hash only -- the count stays 37). VERIFIED BY READING PRODUCTION BACK and comparing all six groups to a local build of the committed migration; every one matches. THE tier_limits HASH MOVED FOR A SECOND REASON: `schema-fingerprint.sql` now includes `event_ttl_hours` in the seed digest. It did not on the first capture after the deploy, and that hash came back UNCHANGED while a brand-new number sat in the table -- production could have been edited to any window with all six groups green. The seed is hashed here precisely because these numbers are what a customer is sold, so a column left out of it is the same blind spot this file has for constraints, minus the excuse.",
+  "capturedFrom": "a LOCAL build of supabase/migrations/, verified group-for-group against the LIVE project qwusbxallkbzfladvgfx",
+  "capturedAt": "2026-09-20",
+  "verifiedAgainst": "Re-captured after #19 added `public.sole_host_events(uuid)` and `public.my_deletion_impact()` (functions 38->40). ONLY the functions group moved, which is the honest shape of this change: two read-only SQL functions, no column, no policy, no index, no trigger and no seed. PRODUCTION WAS RE-CHECKED RATHER THAN ASSUMED -- the two functions were applied to qwusbxallkbzfladvgfx first, then `schema-fingerprint.sql` was run against BOTH SIDES and all six groups compared: columns 130, functions 40, indexes 35, policies 37, tier_limits 4, triggers 19, every hash identical. A baseline refreshed without that comparison records a wish rather than a fact, which is why the tool says so on every failure. AND THE GRANTS WERE READ BACK, because the fingerprint cannot see one: `has_function_privilege` reports `my_deletion_impact` executable by authenticated and not by anon, and `sole_host_events` by neither -- it takes a uid as a parameter, so a client that could call it would hold an enumeration oracle. Lane E asserts that revoke; this records the deployed state matching it.",
   "howToRefresh": "pnpm schema:fingerprint --write, and only after re-checking production. See docs/lane-e.md and issue #49.",
   "schema": {
     "columns": {
@@ -9,8 +9,8 @@
       "fingerprint": "6c1e37fef9361b901be7bf7cfedf5e02"
     },
     "functions": {
-      "n": 38,
-      "fingerprint": "027f2ac25dfd96ab9b5b755434743e4f"
+      "n": 40,
+      "fingerprint": "7b96abf23fc44d7c55efa767380df12e"
     },
     "indexes": {
       "n": 35,
