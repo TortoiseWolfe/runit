@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
-import { joinAsGuest, open, switchToHost, TOKENS, voteCount } from './helpers';
+import { TOKENS, UPCOMING, joinAsGuest, open, switchToHost, voteCount } from './helpers';
 
 /**
  * The Music tab, from the guest side.
@@ -462,7 +462,7 @@ test.describe('the song actually starts', () => {
     await open(page, scheme, '/create', 'create-event');
     await page.getByTestId('create-host-name').fill('Ruth');
     await page.getByTestId('create-name').fill("Ruth's 40th");
-    await page.getByTestId('create-date').fill('2027-01-09');
+    await page.getByTestId('create-date').fill(UPCOMING);
     await page.getByTestId('create-time').fill('19:00');
     await page.getByTestId('create-submit').click();
     await page.getByTestId('created-continue').click();
