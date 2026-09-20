@@ -347,13 +347,14 @@ test.describe('Photos tab · shared album', () => {
  * renders the same claim CONDITIONALLY. Only the empty state asserted it unconditionally --
  * and the empty state is the one a new party shows.
  *
- * WHAT THIS LANE CANNOT REACH, said rather than implied: the moderated-AND-empty case. No
- * client can set a tier (#30), so a journey cannot produce an event where moderation is on
- * and the album is empty. The negative is what shipped broken and the negative is what is
- * pinned here; the conditional itself is covered by `album-moderated` in the grid.
+ * THE CASE THIS LANE ONCE COULD NOT REACH IS NOW THE DEFAULT. This said "no client can set
+ * a tier (#30), so a journey cannot produce an event where moderation is on and the album is
+ * empty" -- true when approval was a tier feature, and then twice overtaken: #30's comment
+ * moved it onto the event, and on 2026-09-20 the column default flipped to on. A fresh event
+ * IS the moderated-and-empty case, so both directions are pinned here now.
  */
 test.describe('what the empty album promises (#67)', () => {
-  test('does not promise approval on a tier that approves nothing', async ({ page }, info) => {
+  test('promises approval on an event that approves, and says so before the first photo', async ({ page }, info) => {
     const scheme = info.project.name as 'dark' | 'light';
 
     await open(page, scheme, '/create', 'create-event');
@@ -366,12 +367,35 @@ test.describe('what the empty album promises (#67)', () => {
     await page.getByTestId('role-switch').click();
     await page.getByTestId('tab-photos').click();
 
-    // The empty state, on the only tier any event can have.
+    // THIS TEST INVERTED ON 2026-09-20 AND THAT IS IT DOING ITS JOB. It used to assert the
+    // blurb does NOT mention approval, and its own docblock named the condition: "the
+    // assertion that would go red if the default ever changed without the copy following".
+    // The default changed and the copy follows, because the blurb reads the event's flag.
     await expect(page.getByTestId('album-blurb')).toBeVisible();
-    await expect(page.getByTestId('album-blurb')).not.toContainText(/approve/i);
+    await expect(page.getByTestId('album-blurb')).toContainText(/approve/i);
+  });
 
-    // And it still says something true and useful, rather than saying nothing -- a blank
-    // reassurance is not an improvement on a false one.
+  test('and stops promising it the moment the host takes the gate down', async ({ page }, info) => {
+    const scheme = info.project.name as 'dark' | 'light';
+
+    await open(page, scheme, '/create', 'create-event');
+    await page.getByTestId('create-host-name').fill('Ruth');
+    await page.getByTestId('create-name').fill("Ruth's 40th");
+    await page.getByTestId('create-date').fill(UPCOMING);
+    await page.getByTestId('create-time').fill('19:00');
+    await page.getByTestId('create-submit').click();
+    await page.getByTestId('created-continue').click();
+
+    await page.getByTestId('host-segment-event').click();
+    await page.getByTestId('moderation-toggle').click();
+    await expect(page.getByTestId('moderation-toggle')).toContainText(/off/i);
+
+    await page.getByTestId('role-switch').click();
+    await page.getByTestId('tab-photos').click();
+
+    // The original #67 claim, kept and re-pointed: an album that promises a host who is
+    // not coming is the bug. It just takes a tap to reach now.
+    await expect(page.getByTestId('album-blurb')).not.toContainText(/approve/i);
     await expect(page.getByTestId('album-blurb')).toContainText(/straight|right away|immediately/i);
   });
 
@@ -390,11 +414,12 @@ test.describe('what the empty album promises (#67)', () => {
 
     await page.getByTestId('shutter').click();
 
-    // THE CONTRADICTION, pinned: the photo is in the album at once, so any promise of
-    // approval on the screen before it was false. This is the assertion that would go red
-    // if the tier default ever changed without the copy following.
-    await expect(page.locator('[data-testid^="tile-"]')).toHaveCount(1);
-    await expect(page.getByTestId('album-moderated')).toHaveCount(0);
+    // THE CONTRADICTION, STILL PINNED, NOW THE OTHER WAY UP. The screen promised approval,
+    // so the photo must NOT be in the album -- a promise of a gate over a photo that went
+    // straight through is the same lie in mirror image. The empty-album branch is still
+    // what renders, because her own pending photo is not an approved one (#70).
+    await expect(page.locator('[data-testid^="tile-"]')).toHaveCount(0);
+    await expect(page.getByTestId('album-blurb')).toContainText(/approve/i);
   });
 });
 

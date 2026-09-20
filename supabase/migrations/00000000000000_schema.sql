@@ -67,9 +67,27 @@ create table public.events (
   -- reasoning that taking reported content down is a review obligation rather than a
   -- feature. Stopping it being shown is the same obligation, earlier.
   --
-  -- DEFAULT FALSE, because a party of eight that has to approve itself is friction
-  -- nobody asked for. The host turns it on; `events_host_update` grants the column.
-  photo_moderation     boolean not null default false,
+  -- DEFAULT TRUE SINCE 2026-09-20, AND IT WAS FALSE FOR A GOOD REASON THAT LOST.
+  --
+  -- The argument for off is real and is written above: a party of eight that has to
+  -- approve itself is friction nobody asked for. Two things outweighed it.
+  --
+  -- SAFETY IS THE BETTER DEFAULT WHEN THE CONTENT IS OTHER PEOPLE'S PHOTOGRAPHS. An
+  -- album is the one surface here where a stranger's mistake is instantly in front of
+  -- everyone in the room, and the host is the person who answers for it. Off-by-default
+  -- puts the burden on her to predict she needed the gate; on-by-default costs her one
+  -- tap to remove it, and she is holding the phone either way.
+  --
+  -- AND THE APP STORE LISTING PROMISES IT: "Guests add photos; the host approves them
+  -- before they appear". That sentence was false on every event this app could create,
+  -- and the choice was to soften the copy or to make it true. Making it true is the
+  -- standing rule here -- a claim and the code disagreeing is fixed in the code.
+  --
+  -- EXISTING EVENTS ARE UNTOUCHED. `alter column ... set default` does not rewrite rows,
+  -- and flipping moderation under a party that is already running would be exactly the
+  -- surprise this feature exists to prevent. The host still turns it off in one tap;
+  -- `events_host_update` grants the column.
+  photo_moderation     boolean not null default true,
   -- Maintained by trigger from `guests`, like every other count here. Stored
   -- rather than derived because the "{n} here" pill is read on every render.
   guest_count          integer not null default 0,

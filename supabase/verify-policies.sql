@@ -1222,6 +1222,31 @@ begin
   execute 'set local role authenticated';
   select * into ce2 from public.create_event('Capped', now() + interval '1 day', 'UTC', 'The flat', '', 'Ruth');
 
+  -- APPROVAL IS ON FOR A NEW EVENT, and the tier is still the free one. Those two facts
+  -- belong in one assertion: whether photos wait is a SAFETY decision about the event and
+  -- not something a host buys (#30, #65), so a tier creeping back into the answer is the
+  -- regression worth catching. The default flipped on 2026-09-20 because an album is the
+  -- one surface where a stranger's mistake is instantly in front of the whole room -- and
+  -- because the App Store listing promises it in as many words.
+  select e.photo_moderation, e.tier into pin, lbl
+    from public.events e where e.id = ce2.event_id;
+  out := out || format('%s a new event starts with approval ON (%s, want true) on tier %s',
+                       case when pin = true and lbl = 'house_party' then 'PASS' else 'FAIL' end,
+                       pin, lbl);
+
+  -- AND THE HOST CAN STILL TAKE IT OFF IN ONE WRITE, which is what makes on-by-default a
+  -- default rather than a policy. `events_host_update` grants the column; a gate she
+  -- could not lower would be the friction the old default existed to avoid, made
+  -- permanent.
+  perform set_config('request.jwt.claims', json_build_object('sub',cuid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  update public.events set photo_moderation = false where id = ce2.event_id;
+  get diagnostics n = row_count;
+  out := out || format('%s and the host can turn it off herself (%s rows, want 1)',
+                       case when n = 1 then 'PASS' else 'FAIL' end, n);
+  execute 'reset role';
+  update public.events set photo_moderation = true where id = ce2.event_id;
+
   -- PINNING IS FREE (#70), AND THIS BLOCK USED TO ASSERT THE OPPOSITE.
   --
   -- It read: "a house_party pin is DEGRADED, not refused" -- `fold_pin_to_plan` silently set

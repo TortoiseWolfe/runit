@@ -1129,6 +1129,18 @@ that lives in a button handler is bypassed by the second caller.
   will throw: `loadFetchOnce` did, and only creating an event exposed it. `loadBlocks` is
   the pattern to copy -- a null guest id is a real state with an empty answer, not a
   fallback.
+- **PHOTO APPROVAL IS ON BY DEFAULT SINCE 2026-09-20, AND THE OLD DEFAULT HAD A GOOD
+  ARGUMENT.** `events.photo_moderation` shipped `default false` on the reasoning below: a
+  party of eight that has to approve itself is friction nobody asked for. Two things
+  outweighed it. An album is the one surface where a stranger's mistake is instantly in front
+  of the whole room and the host is who answers for it -- off-by-default asks her to PREDICT
+  she needed the gate, on-by-default costs her one tap to remove it. And the App Store listing
+  promises *"the host approves them before they appear"*, which was false on every event this
+  app could create; a claim and the code disagreeing is fixed in the code. **Existing events
+  are untouched** -- `set default` does not rewrite rows, and production still reads 8 off / 6
+  on. **The schema fingerprint cannot see this**: it hashes `table.column type null=…` and not
+  the default, so it stayed green without moving. Verification is reading `column_default`
+  back from both databases, which is the same blind spot #76's return-type change hit.
 - **PHOTO APPROVAL IS NOT A TIER FEATURE, and asking "which tier gets it" is the mistake.**
   It was `tier_limits.photo_moderation`, read by `set_photo_status`. `create_event` mints
   `house_party`, where that was false — so on every event this app can actually create, a

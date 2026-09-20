@@ -176,7 +176,16 @@ test.describe('Guideline 1.2 · taking it down (#65)', () => {
     await page.getByTestId('create-submit').click();
     await page.getByTestId('created-continue').click();
 
-    // As a guest of her own party, put a photo in the album. On house_party it is
+    // THE CONDITION THIS BUG NEEDS IS AN EMPTY APPROVALS QUEUE, which since 2026-09-20 is
+    // no longer what a fresh event gives you -- approval arrives on. So the host turns it
+    // off, which is a thing hosts do and is exactly the state where a reported photo has
+    // no queue to be pulled from. The bug is unchanged; the route to it is one tap longer.
+    await page.getByTestId('host-segment-event').click();
+    await page.getByTestId('moderation-toggle').click();
+    await expect(page.getByTestId('moderation-toggle')).toContainText(/off/i);
+    await page.getByTestId('host-segment-broadcast').click();
+
+    // As a guest of her own party, put a photo in the album. With the gate down it is
     // auto-approved, which is the whole problem: it never enters the approvals queue.
     await page.getByTestId('role-switch').click();
     await page.getByTestId('tab-photos').click();
@@ -261,12 +270,21 @@ test.describe("approval is the host's choice, on any tier", () => {
     await expect(page.getByTestId('host-broadcast')).toBeVisible();
   }
 
-  test('it is off by default, because a small party should not have to approve itself', async ({
+  /**
+   * ON BY DEFAULT SINCE 2026-09-20, AND THE REASON IS THE TEST. This read "off by default,
+   * because a small party should not have to approve itself" -- a real argument that lost
+   * to two better ones. An album is the one surface where a stranger's mistake is instantly
+   * in front of the whole room, and the host is who answers for it; and the App Store
+   * listing promises "the host approves them before they appear", which was false on every
+   * event this app could create. The friction argument survives as the NEXT test: she takes
+   * the gate down in one tap.
+   */
+  test('it is ON by default, because the room sees a photo before the host can', async ({
     page,
   }, info) => {
     await newEvent(page, info.project.name as 'dark' | 'light');
     await page.getByTestId('host-segment-event').click();
-    await expect(page.getByTestId('moderation-toggle')).toContainText(/off/i);
+    await expect(page.getByTestId('moderation-toggle')).toContainText(/on/i);
   });
 
   test('a free-tier host can turn it on, and a guest photo then waits for her', async ({
@@ -275,6 +293,11 @@ test.describe("approval is the host's choice, on any tier", () => {
     await newEvent(page, info.project.name as 'dark' | 'light');
 
     await page.getByTestId('host-segment-event').click();
+    // OFF AND ON AGAIN, so this exercises the SWITCH rather than the default. Asserting
+    // straight from a fresh event would now pass on a toggle wired to nothing -- which is
+    // the exact failure the "ON FIRST, AND ASSERTED" note below was written about.
+    await page.getByTestId('moderation-toggle').click();
+    await expect(page.getByTestId('moderation-toggle')).toContainText(/off/i);
     await page.getByTestId('moderation-toggle').click();
     await expect(page.getByTestId('moderation-toggle')).toContainText(/on/i);
 
@@ -308,11 +331,11 @@ test.describe("approval is the host's choice, on any tier", () => {
   test('turning it back off lets the next photo straight through', async ({ page }, info) => {
     await newEvent(page, info.project.name as 'dark' | 'light');
     await page.getByTestId('host-segment-event').click();
-    await page.getByTestId('moderation-toggle').click();
-    // ON FIRST, AND ASSERTED, because without this the test passes on a DEAD TOGGLE:
-    // it starts off and ends off, so "tap twice, read Off" is satisfied by a control
-    // wired to nothing. Measured -- stubbing `onPress` to `() => {}` left this journey
-    // green until this line existed.
+    // ON FIRST, AND ASSERTED, because without this the test could pass on a DEAD TOGGLE.
+    // It used to need two taps to get here; the default arrives on now, so the assertion
+    // before the tap is doing the same job the second tap used to. Measured when it was
+    // written -- stubbing `onPress` to `() => {}` left this journey green until the
+    // before-and-after pair existed.
     await expect(page.getByTestId('moderation-toggle')).toContainText(/on/i);
     await page.getByTestId('moderation-toggle').click();
     await expect(page.getByTestId('moderation-toggle')).toContainText(/off/i);
