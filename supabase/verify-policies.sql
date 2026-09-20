@@ -50,6 +50,9 @@ declare
   cuid uuid := 'aaaaaaaa-0000-0000-0000-000000000001';
   nuid uuid := 'aaaaaaaa-0000-0000-0000-000000000002';
   ce record; kold text; knew text;
+  -- #76: the code of an event she holds no seat at yet, read as a fixture rather than
+  -- as a client -- `events_read` correctly shows her nothing there until she joins.
+  gcode text;
   -- invite_host fixtures: the DJ who gets a seat but never an account.
   muid uuid := 'aaaaaaaa-0000-0000-0000-000000000003';
   iv record;
@@ -955,7 +958,56 @@ begin
   out := out || format('%s and NOT an event this identity holds no seat at (%s, want 0)',
                        case when n = 0 then 'PASS' else 'FAIL' end, n);
 
+  -- #76. THE LIST IS EVERY PARTY YOU ARE IN, NOT ONLY THE ONES YOU RUN, and the seat says
+  -- which. Host seats only made leaving a ONE-WAY DOOR: a guest who left to make her own
+  -- event could not find the one she left, because her `guests` row is not a `hosts` row --
+  -- intact, and unreachable by anything but the six-character code.
+  select me.seat into lbl from public.my_events() me where me.event_id = ce.event_id;
+  out := out || format('%s the seat she holds at her own event reads host (%s)',
+                       case when lbl = 'host' then 'PASS' else 'FAIL' end, coalesce(lbl,'null'));
+
   execute 'reset role';
+
+  -- A GUEST SEAT AT SOMEBODY ELSE'S PARTY IS IN THE LIST TOO. `eid` is the seeded event
+  -- this identity holds no seat at above; joining it is what puts it there, which is the
+  -- whole of #76.
+  -- READ THE CODE OUTSIDE THE ROLE. Standing in `authenticated` she holds no seat at `eid`,
+  -- so `events_read` correctly returns her nothing and the code comes back NULL -- which
+  -- `join_event` then refuses as `unknown_code`, aborting the whole block. That is the
+  -- policy working, and it is a fixture read rather than a claim about what a client sees:
+  -- a real guest types the code off a place card, they do not select it.
+  select e.code into gcode from public.events e where e.id = eid;
+
+  perform set_config('request.jwt.claims', json_build_object('sub',cuid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  perform public.join_event(gcode, 'Ruth the guest');
+  select count(*) into n from public.my_events() me where me.event_id = eid;
+  out := out || format('%s a party she JOINED is in her list now (%s, want 1)',
+                       case when n = 1 then 'PASS' else 'FAIL' end, n);
+  select me.seat into lbl from public.my_events() me where me.event_id = eid;
+  out := out || format('%s and it reads guest, not host (%s)',
+                       case when lbl = 'guest' then 'PASS' else 'FAIL' end, coalesce(lbl,'null'));
+  -- NULL rather than an invented title: a guest holds no permission grade and no printed
+  -- label, and a row claiming one would be `hosts` data that came from nowhere.
+  select count(*) into n from public.my_events() me
+   where me.event_id = eid and me.role is null and me.role_label is null;
+  out := out || format('%s with no role or label invented for it (%s, want 1)',
+                       case when n = 1 then 'PASS' else 'FAIL' end, n);
+
+  -- AND SHE APPEARS ONCE AT HER OWN EVENT EVEN HOLDING BOTH SEATS (#37). A founder who
+  -- took a guest seat to look at her own feed holds a `hosts` row AND a `guests` row;
+  -- listing her twice would show two rows with one name, one of them offering less than
+  -- she has.
+  perform public.join_event(ce.code, 'Ruth again');
+  select count(*) into n from public.my_events() me where me.event_id = ce.event_id;
+  out := out || format('%s holding BOTH seats at one event lists it once (%s, want 1)',
+                       case when n = 1 then 'PASS' else 'FAIL' end, n);
+  select me.seat into lbl from public.my_events() me where me.event_id = ce.event_id;
+  out := out || format('%s and the surviving row is the HOST one (%s)',
+                       case when lbl = 'host' then 'PASS' else 'FAIL' end, coalesce(lbl,'null'));
+
+  execute 'reset role';
+  delete from public.guests where auth_user_id = cuid;
 
   -- Somebody else's session sees their own list, not hers. The same assertion from the
   -- other side, because "returns nothing extra" and "returns the right thing per caller"

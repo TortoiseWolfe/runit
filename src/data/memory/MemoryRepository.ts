@@ -49,6 +49,29 @@ export interface Seed {
    */
   event: RunitEvent | null;
   /**
+   * DOES THIS IDENTITY HOLD A HOST SEAT? Default true, and the default is the scaffolding.
+   *
+   * This adapter has always answered TRUE unconditionally so the harness could reach the
+   * host artboards through `RoleSwitch` -- the fixtures are a host and a guest in one
+   * process. The cost only became visible with #76: **no journey could render a PLAIN
+   * GUEST**, so the control that offers a guest her own party was unreachable in the one
+   * lane that can screenshot a screen, and deleting it left every test green.
+   *
+   * Same shape as `event: null` and `?empty=1` before it: the failure is never "the control
+   * is broken", it is "the harness cannot reach the world where the control matters".
+   */
+  holdsHostSeat?: boolean;
+  /**
+   * OTHER PARTIES THIS PERSON IS A GUEST AT -- #76.
+   *
+   * A guest seat is not staff, so it cannot go in `hosted`; and being a guest at TWO
+   * parties is a real state this work is what creates. It is also the only way lane B can
+   * see a guest row at all: `closeEvent` here keeps `event.current` set (the join screen
+   * still draws the invitation afterwards), and the join screen's list passes
+   * `hideCurrent`, so the party you just left is the one row that cannot be shown.
+   */
+  joined?: HostedEvent[];
+  /**
    * What `event.lookUp(code)` can find WITHOUT a join.
    *
    * A third world, and the suite could not previously reach it. Against Supabase
@@ -350,6 +373,8 @@ export class MemoryRepository implements RunitRepository {
   private sigEvent: Signal<RunitEvent | null>;
   private sigMyEvents: Signal<HostedEvent[]>;
   private hostedList: HostedEvent[];
+  /** Parties this identity has JOINED. Survives `closeEvent`; cleared by `leave` (#76). */
+  private joinedList: HostedEvent[] = [];
   private sigPreview: Signal<EventPreview | null>;
   private sigFeed: Signal<Broadcast[]>;
   private sigSchedule: Signal<ScheduleItem[]>;
@@ -418,7 +443,7 @@ export class MemoryRepository implements RunitRepository {
     this.seq = highestSeedSeq(seed);
 
     this.sigSession = new Signal<Session>({ kind: 'anonymous' });
-    this.sigHoldsHostSeat = new Signal<boolean>(true);
+    this.sigHoldsHostSeat = new Signal<boolean>(seed.holdsHostSeat ?? true);
     this.sigAccount = new Signal<string | null>(null);
     this.inviteeList = [...(seed.invitees ?? [])];
     this.listRows = [];
@@ -427,7 +452,17 @@ export class MemoryRepository implements RunitRepository {
     this.sigGuestLists = new Signal<GuestList[]>([]);
     this.sigEvent = new Signal<RunitEvent | null>(this.ev);
     this.hostedList = seed.hosted ? [...seed.hosted] : [];
-    this.sigMyEvents = new Signal<HostedEvent[]>(this.hostedList);
+    /*
+     * A SEEDED WORLD CAN START ALREADY IN A PARTY, and #76's first draft missed it twice.
+     * The seat was remembered only by `joinAsGuest`, so a fixture that boots already joined
+     * -- which every furnished seed here does -- had a guest seat the list could not see,
+     * and leaving lost the party exactly as it did before this work. Then the call went in
+     * ABOVE `hostedList`, which is assigned below, and every such world died at mount on
+     * `undefined.some`. It has to run after both lists exist.
+     */
+    this.joinedList = seed.joined ? [...seed.joined] : [];
+    this.rememberGuestSeat();
+    this.sigMyEvents = new Signal<HostedEvent[]>(this.myEventsNow());
     // Starts null, like the adapter it stands in for. A preview is something a code
     // produced, never something the world arrived holding.
     this.sigPreview = new Signal<EventPreview | null>(null);
@@ -540,6 +575,12 @@ export class MemoryRepository implements RunitRepository {
     // a tier or a usage count the write methods have already moved past.
     this.sigEntitlements.set(this.computeEntitlements());
     this.sigEvent.set(this.ev ? { ...this.ev } : null);
+    /*
+     * THE EVENTS LIST IS FOLDED HERE TOO (#76), for the reason the guest-list counts are:
+     * two places holding one answer is how they come to disagree. Joining a party puts it
+     * in the list, leaving takes it out, and neither needs to remember to say so.
+     */
+    this.sigMyEvents.set(this.myEventsNow());
     this.sigInvitees.set(this.inviteeList);
     // The member count is FOLDED here rather than stored, the same way `photoCount` is on a
     // folder: two places holding one number is how they come to disagree.
@@ -682,6 +723,8 @@ export class MemoryRepository implements RunitRepository {
         guestId: this.myGuestId,
         nickname: nickname.trim(),
       });
+      // #76: the party is hers to come back to now, and stays in her list after she leaves.
+      this.rememberGuestSeat();
       this.recompute();
     },
     becomeHost: async (hostId: string) => {
@@ -886,6 +929,10 @@ export class MemoryRepository implements RunitRepository {
       this.ev = null;
       this.sigEvent.set(null);
       this.hostedList = [];
+      // The identity that held these seats is gone, so the parties it could walk back
+      // into go with it. `closeEvent` deliberately does NOT do this -- it keeps the seat,
+      // which is what makes walking back in a tap rather than a code (#76).
+      this.joinedList = [];
       this.sigMyEvents.set([]);
       this.myGuestId = null;
       this.sigAccount.set(null);
@@ -1131,7 +1178,7 @@ export class MemoryRepository implements RunitRepository {
     loadMine: async () => {
       // No RPC to call and no identity to be signed out of, so this is a re-publish
       // rather than a fetch. It exists so the screens read both adapters identically.
-      this.sigMyEvents.set([...this.hostedList]);
+      this.sigMyEvents.set(this.myEventsNow());
     },
 
     /**
@@ -1143,10 +1190,15 @@ export class MemoryRepository implements RunitRepository {
      * second evening.
      */
     open: async (eventId: string) => {
-      const target = this.hostedList.find((e) => e.id === eventId);
+      // EITHER KIND OF SEAT (#76). This searched `hostedList` alone, which was correct while
+      // the list held host seats only -- and became the reason a guest tapping her own party
+      // got a thrown error instead of the door she was pointed at.
+      const target =
+        this.hostedList.find((e) => e.id === eventId) ??
+        this.joinedList.find((e) => e.id === eventId);
       // Refused rather than obeyed, exactly as in SupabaseRepository: the list is a
       // convenience and the seat is the authority.
-      if (!target) throw new Error('You do not hold a host seat at that event.');
+      if (!target) throw new Error('You hold no seat at that event.');
 
       this.ev = {
         id: target.id,
@@ -1178,10 +1230,29 @@ export class MemoryRepository implements RunitRepository {
       // disagreeing with the backend: exactly what this adapter exists not to do.
       this.sigNowPlaying.set(null);
       this.folderList = [];
-      this.hostList = [
-        { id: this.id('hst'), displayName: 'Host', role: target.role as HostRole, roleLabel: target.roleLabel },
-      ];
-      this.sigHoldsHostSeat.set(true);
+      // A GUEST ROW OPENS AS A GUEST (#76). `openEvent` used to be reachable only from a
+      // list of host seats, so it could assume staff; the list carries parties this person
+      // merely joined now, and walking back into one as its host would hand somebody the
+      // console of a party they are a guest at.
+      this.hostList =
+        target.seat === 'host'
+          ? [{
+              id: this.id('hst'),
+              displayName: 'Host',
+              role: (target.role ?? 'host') as HostRole,
+              roleLabel: target.roleLabel ?? 'Host',
+            }]
+          : [];
+      this.sigHoldsHostSeat.set(target.seat === 'host');
+      if (target.seat === 'guest') {
+        // Back into a party she is a guest at: a guest seat and a guest view, which is
+        // what she had when she left it.
+        this.myGuestId = this.id('gst');
+        this.seatIsStaff = false;
+        this.sigSession.set({ kind: 'guest', guestId: this.myGuestId, nickname: 'you' });
+        this.recompute();
+        return;
+      }
       this.sigSession.set({
         kind: 'host',
         hostId: this.hostList[0]!.id,
@@ -1585,6 +1656,60 @@ export class MemoryRepository implements RunitRepository {
    * Called on every path Postgres gates and on no path it does not: reading, reporting,
    * hiding, blocking, marking seen and deleting all stay open forever.
    */
+  /**
+   * EVERY PARTY THIS PERSON IS IN, which is the seeded host seats PLUS the one they have
+   * joined -- #76.
+   *
+   * The seeded list is host seats; a guest seat is not seeded because it is not a fact
+   * about the world, it is a fact about what this person has done in it. Deriving it here
+   * rather than pushing a row on join keeps one source of truth, so leaving and re-joining
+   * cannot accumulate duplicates.
+   *
+   * A HOST SEAT WINS over a guest seat at the same event, matching `my_events()`'s own
+   * `not exists`: a founder who took a guest seat (#37) holds both and must appear once,
+   * as host, or she is offered two rows with one name and the wrong one opens.
+   */
+  private myEventsNow(): HostedEvent[] {
+    const list = [...this.hostedList];
+    for (const g of this.joinedList) {
+      if (!list.some((e) => e.id === g.id)) list.push(g);
+    }
+    return list;
+  }
+
+  /**
+   * REMEMBER A GUEST SEAT ACROSS `closeEvent`, because the backend does -- #76.
+   *
+   * THE FIRST VERSION DERIVED THIS FROM `this.ev` AND WAS WRONG in exactly the way the
+   * issue is about. `closeEvent` clears the open event and KEEPS the seat: `join_event` is
+   * idempotent on `(event_id, auth_user_id)`, so walking back in lands on the same guest
+   * row with her votes, photos and blocks intact. A list built from the OPEN event forgets
+   * the party the moment she steps out of it -- which is the one-way door this work exists
+   * to close, reproduced in the fixture.
+   *
+   * `leave()` clears it, because that signs out and the identity holding the seat is gone.
+   */
+  private rememberGuestSeat(): void {
+    const ev = this.ev;
+    if (!ev || this.myGuestId === null) return;
+    if (this.joinedList.some((e) => e.id === ev.id)) return;
+    if (this.hostedList.some((e) => e.id === ev.id)) return;
+    this.joinedList.push({
+      id: ev.id,
+      code: ev.code,
+      name: ev.name,
+      venue: ev.venue,
+      startsAt: ev.startsAt,
+      timezone: ev.timezone,
+      doorsLabel: ev.doorsLabel,
+      seat: 'guest',
+      // Null, never an invented title -- the same statement the SQL makes.
+      role: null,
+      roleLabel: null,
+      guestCount: ev.guestCount,
+    });
+  }
+
   private requireOpen(): void {
     const ev = this.ev;
     if (!ev) return;

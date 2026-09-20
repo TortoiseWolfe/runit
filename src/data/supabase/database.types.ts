@@ -267,7 +267,10 @@ export type Database = {
         Returns: {
           event_id: string; code: string; name: string; venue: string;
           starts_at: string; timezone: string; doors_label: string;
-          role: string; role_label: string; guest_count: number;
+          // #76: every party this person is IN, not only the ones they run. `role` and
+          // `role_label` are null on a guest row -- see HostedEvent.
+          seat: string; role: string | null; role_label: string | null;
+          guest_count: number;
         }[];
       };
       /**

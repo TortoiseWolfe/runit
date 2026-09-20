@@ -18,6 +18,7 @@ import { Stack } from 'expo-router';
 import { MemoryRepository } from '@/data/memory/MemoryRepository';
 import { weddingSeed } from '@/data/memory/fixtures/wedding';
 import { emptySeed } from '@/data/memory/fixtures/empty';
+import { guestSeed } from '@/data/memory/fixtures/guest';
 import { endedSeed } from '@/data/memory/fixtures/ended';
 import { freshSeed } from '@/data/memory/fixtures/fresh';
 import { invitedSeed } from '@/data/memory/fixtures/invited';
@@ -250,6 +251,23 @@ export default function RootLayout() {
     new URLSearchParams(window.location.search).get('ended') === '1';
 
   /**
+   * `?guest=1` boots `guestSeed` -- the wedding, seen by somebody who is ONLY a guest (#76).
+   *
+   * Every other seed answers `holdsHostSeat: true` on purpose, so the harness can reach the
+   * host artboards through `RoleSwitch`. The consequence stayed invisible until the supply
+   * side needed a control drawn for people who are NOT staff: no journey could render a
+   * plain guest, so "Want your own? →" was unreachable in the only lane that screenshots a
+   * screen, and deleting it left the board green. Same reason `?empty=1` and `?stale=1`
+   * exist -- the failure is that the harness cannot reach the world, not that the control
+   * is broken.
+   */
+  const guestWorld =
+    fidelity &&
+    typeof window !== 'undefined' &&
+    typeof window.location?.search === 'string' &&
+    new URLSearchParams(window.location.search).get('guest') === '1';
+
+  /**
    * The one place an implementation is named.
    *
    * NOT a straight swap, and the reason is worth stating: all 142 e2e runs boot
@@ -274,7 +292,9 @@ export default function RootLayout() {
             // it has to be read before the plainer flag can claim the same request.
             // Order matters: each is a strictly more furnished empty world, so the richer
             // flags have to be read before a plainer one claims the same request.
-            endedWorld
+            guestWorld
+              ? guestSeed
+              : endedWorld
               ? endedSeed
               : freshWorld
                 ? freshSeed
@@ -290,7 +310,7 @@ export default function RootLayout() {
               ...(staleWorld ? { connection: 'stale' as const } : {}),
             },
           ),
-    [flaky, emptyWorld, invitedWorld, staleWorld, hostingWorld, freshWorld, endedWorld],
+    [flaky, emptyWorld, invitedWorld, staleWorld, hostingWorld, freshWorld, endedWorld, guestWorld],
   );
 
   const app = (

@@ -69,7 +69,7 @@ describe('the events this identity hosts', () => {
   it('refuses an event this identity holds no seat at', async () => {
     const repo = build();
     await repo.event.loadMine();
-    await expect(repo.event.open('evt_somebody_elses')).rejects.toThrow(/do not hold a host seat/i);
+    await expect(repo.event.open('evt_somebody_elses')).rejects.toThrow(/hold no seat/i);
     // And leaves you where you were, rather than half-switched.
     expect(read(repo.event.current)!.code).toBe('SR1017');
   });
