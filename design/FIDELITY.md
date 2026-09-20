@@ -2928,3 +2928,72 @@ observed on a real message rather than assumed from the architecture.
 from the phone holding a real host seat gets `email_exists`, falls to `sign_in`, and lands in
 that empty identity — `my_events()` returns nothing and the party looks lost. It is data, not
 a defect, and #19's deletion path is what removes it.
+
+## BA. The sheet counts before it asks
+
+**#19, and the number is the feature.** App Store Guideline 5.1.1(v) makes in-app account
+deletion mandatory the day accounts exist, and #18 shipped host sign-in on 2026-09-20. The
+canvas draws none of this — it predates host accounts entirely — so every decision here is
+recorded rather than derived.
+
+### What deletion actually destroys is not hers
+
+`photos` cascades from `events`. So a host deleting her account destroys **her guests'
+photographs**: third-party content, of identifiable people, taken by people who never agreed
+to anything of hers. `docs/design-host-accounts.md` called that "the most consequential line
+in the whole design" and asked for a confirmation that reads the counts first.
+
+So the sheet does, and the sentence names them: *"2 events deleted · 41 photos by 12
+guests."* Every clause is dropped when its number is zero, because "0 photos by 0 guests"
+reads as a template that failed rather than as a fact. A person with nothing gets a sentence
+of their own — *"You have no events, so this removes your sign-in and nothing else"* — rather
+than a blank space above a red button.
+
+**It names what survives, in both directions.** An event with somebody else's seat stays with
+them, which is the difference between deleting an account and destroying somebody else's
+evening. And photographs she added to *other people's* events stay in those albums under her
+name. Both are things she would otherwise discover afterwards.
+
+### The count belongs to the tap
+
+The React Compiler rejects `setState` inside an effect, and it is right to. The load is a real
+event with a real handler, so `AccountRow` does the counting and `DeleteAccountSheet` is a
+pure reading of three props. The sheet opens **first** and says it is counting — waiting for
+the number before showing anything makes an irreversible control feel like a dropped tap,
+which is how somebody presses it twice.
+
+### Two of its three states cannot be reached by any journey
+
+Measured, not suspected. `MemoryRepository.deletionImpact()` resolves instantly and never
+throws, so every journey takes the `ready` path — **deleting the counting branch outright left
+all eight of them green.** The decision is `deleteSheetState()` now, a pure function tested
+across all three states, and `account.spec.ts` says in its docblock which coverage it does not
+have. Same extraction as `diffAuthConfig` and `dmarcVerdict`, for the same reason: a branch no
+test can reach is a branch that rots, and this one decides whether an irreversible button is
+on screen.
+
+The branch that matters most is the one no journey could ever reach: **a count that could not
+be read draws no confirm button at all.** Offering to destroy an unknown quantity of somebody
+else's photographs is exactly what the counting was added to prevent.
+
+### While it is counting there is no control, never a disabled one
+
+`empty-world.spec.ts` asserts `[aria-disabled="true"]` has count 0 across a screen — this
+repo's gate against drawing a door nobody can open. Same swap `SignInScreen` makes for its
+resend throttle and `CreateEventScreen` for its submit button.
+
+### The account row draws nothing without an address
+
+Which is the common case, not an empty state. Nearly everyone who opens this app is a guest,
+the join screen's fine print promises them "No account, no phone number", and a row under that
+sentence would make it read as false to exactly the people it was written for. Same rule
+`MyEventsList` follows for somebody who hosts nothing. Mutation-checked: drawing it
+unconditionally turns three journeys red.
+
+### Sign out is `leave()`, and that inverts the rule everywhere else
+
+`closeEvent` keeps the identity and `leave` discards it, and every other caller in this app
+wants the first — a host switching parties must not lose her seat (FIDELITY note R). Signing
+out is the one case where the identity *should* go, because an emailed code brings it back.
+`LeaveSheet` still calls `closeEvent`, which is why these are two sheets rather than one with
+a checkbox.
