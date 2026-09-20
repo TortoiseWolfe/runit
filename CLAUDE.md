@@ -506,6 +506,30 @@ This is the first time a second product has lived under another product's domain
 nothing and unblocks the queue; it is a decision, not drift. Ported from
 `ScriptHammer/scripts/ci/check-mail-policy.mjs`.
 
+**THE APP STORE LISTING IS WRITABLE FROM HERE, AND A SESSION ASSUMED OTHERWISE.** The
+issuer id is `0d47c4c8-5733-414f-a707-df2282d960a8`, the key id `W92D4L6F5B`, and the `.p8` is
+at `~/.appstoreconnect/private_keys/`. Neither the issuer nor the key id is a secret; the key
+is, and it never leaves that file. ES256 with `dsaEncoding: 'ieee-p1363'` -- Node's default
+DER signature is rejected. **Read the enum back rather than remembering it**: the valid
+screenshot display types, and the fact that `contests` is a frequency STRING while
+`ageAssurance` is a BOOLEAN, all came from Apple's own 409s.
+
+**THE DESCRIPTION NAMED TWO THINGS THE APP DID NOT DO (#69), and they were different kinds of
+wrong.** *"Runit emails everyone the link"* -- `invitees.send` opens the SHARE SHEET
+(`SupabaseRepository.ts`), so the host sends it from her own phone and Runit mails nobody;
+that one was reworded, because emailing people who have never heard of the app is a product
+and legal decision this repo took deliberately. *"The host approves them before they appear"*
+-- that one was made TRUE instead, by flipping `events.photo_moderation` to default on.
+
+**SCREENSHOTS COME FROM `?free=1`, AND THAT IS NOT A DETAIL.** The walk boots the demo wedding
+-- Event tier, 172 guests -- which is right for comparing against `design/renders/` and wrong
+for the store: v1 ships free-only with no purchase path, so those numbers advertise a capacity
+nobody can buy. #69 called it "a configuration the product cannot produce". `?free=1` boots
+`housePartySeed`, which CLAUDE.md had recorded for months as reachable only from
+`MemoryRepository.test.ts` -- "no lane that renders a screen has ever seen a capped event".
+Now one has. `SHOT_PRESET=appstore` shoots 430x932@3x = **1290x2796** (`APP_IPHONE_67`); it was
+1242x2688 (6.5"), still an accepted slot but no longer the one Apple asks for first.
+
 **"UNDER SCRIPTHAMMER" CANNOT MEAN THE APP STORE SELLER NAME.** The Apple membership is
 **Individual** (`ACCOUNTS.md`), and Apple lists the person's legal name as seller -- *"Do not
 enter an alias, nickname, or company name."* A studio name needs an Organization account,

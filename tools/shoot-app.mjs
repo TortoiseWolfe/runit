@@ -22,10 +22,16 @@ const DIST = join(ROOT, 'dist');
  * APP STORE PRESET. `SHOT_PRESET=appstore` re-runs the same walk at the geometry
  * App Store Connect demands, into a separate directory.
  *
- * 414x896 at deviceScaleFactor 3 is 1242x2688 -- the 6.5" display size Apple lists
- * on the upload panel. The fidelity default is 402x874 @3x = 1206x2622, which is
- * real iPhone 16 Pro geometry and is what design/renders/ is compared against; it
- * is NOT an accepted store size, so the two cannot be the same run.
+ * 430x932 at deviceScaleFactor 3 is 1290x2796 -- the 6.7" size (`APP_IPHONE_67`),
+ * which is the largest iPhone display type App Store Connect offers and the one a
+ * submission now has to carry. It was 414x896 @3x = 1242x2688, the 6.5" size
+ * (`APP_IPHONE_65`); that is still an accepted upload slot but it is no longer the
+ * one Apple asks for first, and a set uploaded only at 6.5" leaves the required
+ * slot empty. The valid enum was read back off the API rather than remembered.
+ *
+ * The fidelity default is 402x874 @3x = 1206x2622, which is real iPhone 16 Pro
+ * geometry and is what design/renders/ is compared against; it is NOT an accepted
+ * store size, so the two cannot be the same run.
  *
  * The contrast and colour gates deliberately do NOT apply to this preset: those
  * measure the app against its own design tokens at the fidelity size, and running
@@ -33,11 +39,25 @@ const DIST = join(ROOT, 'dist');
  * never taken there.
  */
 const STORE = process.env.SHOT_PRESET === 'appstore';
-const VIEWPORT = STORE ? { width: 414, height: 896 } : { width: 402, height: 874 };
-// The insets must match the viewport or content rides under the status bar. 414x896
-// is an iPhone 11 Pro Max: top 44, not the 62 of a 16 Pro. Export with
-// EXPO_PUBLIC_FIDELITY_FRAME set to this before shooting the store preset.
-const FIDELITY_FRAME = STORE ? '414x896x44x34' : '402x874x62x34';
+/**
+ * WHICH WORLD THE WALK SHOOTS, and for the store preset it must be one a customer can
+ * actually have.
+ *
+ * The fidelity walk boots the demo wedding, which is the right fixture for comparing
+ * against `design/renders/` -- the canvas drew that party. It is the WRONG fixture for the
+ * App Store: it is an Event-tier event with 172 guests, and v1 ships free-only with no
+ * purchase path, so those numbers advertise a capacity nobody can buy. #69 called that out
+ * as showing App Review "a configuration the product cannot produce".
+ *
+ * `?free=1` is `housePartySeed`, sitting against every free-tier boundary: 3 guests of 10,
+ * 8 invited, one host, one folder. Real numbers a real customer reaches.
+ */
+const WORLD = STORE ? '?free=1' : '';
+const VIEWPORT = STORE ? { width: 430, height: 932 } : { width: 402, height: 874 };
+// The insets must match the viewport or content rides under the status bar. 430x932 is a
+// 16 Pro Max: a 59pt Dynamic Island top, not the 44 of the 11 Pro Max this used to target.
+// Export with EXPO_PUBLIC_FIDELITY_FRAME set to this before shooting the store preset.
+const FIDELITY_FRAME = STORE ? '430x932x59x34' : '402x874x62x34';
 const OUT = join(ROOT, 'design', STORE ? 'appstore' : 'screenshots');
 if (!existsSync(DIST)) { console.error('No dist/. Run: pnpm export:web'); process.exit(1); }
 mkdirSync(OUT, { recursive: true });
@@ -305,7 +325,7 @@ for (scheme of ['dark', 'light']) {
   };
 
   // 01 Join
-  await page.goto(`${base}/join`, { waitUntil: 'networkidle' });
+  await page.goto(`${base}/join${WORLD}`, { waitUntil: 'networkidle' });
   await page.waitForSelector('[data-testid="join-submit"]', { timeout: 30_000 });
   await settled();
   await assertInsets();
@@ -350,7 +370,7 @@ for (scheme of ['dark', 'light']) {
   // whether anyone can GET to it. The code phase is shot rather than the address phase,
   // because the address phase is one field and a button and the interesting layout -- two
   // fields, a CTA, a countdown line and two links -- only exists after a code is sent.
-  await page.goto(`${base}/join`, { waitUntil: 'networkidle' });
+  await page.goto(`${base}/join${WORLD}`, { waitUntil: 'networkidle' });
   await page.waitForSelector('[data-testid="join-submit"]', { timeout: 30_000 });
   await page.click('[data-testid="join-signin"]');
   await page.waitForSelector('[data-testid="host-signin"]', { timeout: 30_000 });
@@ -361,7 +381,7 @@ for (scheme of ['dark', 'light']) {
 
   // 00 Create -- the supply side. Reached by the quiet link on the join screen rather
   // than by URL, so this also proves that link is there and lands somewhere.
-  await page.goto(`${base}/join`, { waitUntil: 'networkidle' });
+  await page.goto(`${base}/join${WORLD}`, { waitUntil: 'networkidle' });
   await page.waitForSelector('[data-testid="join-submit"]', { timeout: 30_000 });
   await page.click('[data-testid="join-create-event"]');
   await page.waitForSelector('[data-testid="create-event"]', { timeout: 30_000 });
