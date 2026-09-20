@@ -20,6 +20,7 @@ import { registerForPush } from '@/lib/push';
 import { checkLimit } from '@/domain/entitlements';
 import { useEntitlements } from './hooks';
 import type {
+  DeletionImpact,
   GuestListId,
   BroadcastId, FolderId, GuestId, InviteeId, PhotoId, ReportId, ReportReason, ReportResolution,
   ReportSubject, ScheduleItemId, SongRequestId,
@@ -399,6 +400,54 @@ export function useSignInActions() {
         } catch (e) {
           show(e instanceof Error ? e.message : 'Could not sign you in.');
           return false;
+        }
+      },
+    }),
+    [repo, show],
+  );
+}
+
+/**
+ * THE ACCOUNT, AND THE TWO WAYS OUT OF IT -- #19.
+ *
+ * `signOut` is `session.leave()` and deliberately not `closeEvent()`. The distinction is
+ * load-bearing everywhere else in this app -- a host switching parties must keep her
+ * identity -- and it inverts here: signing out is exactly the case where the identity SHOULD
+ * go, because an emailed code brings it back. `LeaveSheet` is the other control and still
+ * calls `closeEvent`, which is why these are two sheets and not one with a checkbox.
+ *
+ * `deleteAccount` does not navigate, matching `createEvent`: it reports, the screen moves.
+ */
+export function useAccountActions() {
+  const repo = useRepository();
+  const { show } = useToast();
+  return useMemo(
+    () => ({
+      impact: async (): Promise<DeletionImpact | null> => {
+        try {
+          return await repo.session.deletionImpact();
+        } catch {
+          // NULL IS "WE COULD NOT COUNT", and the sheet draws no confirm button over it.
+          // Offering an irreversible control beside a number that failed to load is how
+          // somebody deletes four hundred photographs believing there were none.
+          return null;
+        }
+      },
+      /** True on success. */
+      deleteAccount: async (): Promise<boolean> => {
+        try {
+          await repo.session.deleteAccount();
+          return true;
+        } catch (e) {
+          show(e instanceof Error ? e.message : 'Could not delete your account.');
+          return false;
+        }
+      },
+      signOut: async () => {
+        try {
+          await repo.session.leave();
+        } catch (e) {
+          show(e instanceof Error ? e.message : 'Could not sign you out.');
         }
       },
     }),

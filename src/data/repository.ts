@@ -17,8 +17,9 @@
  */
 import type {
   BlockedGuest, Broadcast, BroadcastId, Folder, FolderId, GuestId, GuestList, GuestListId, HostRole, Instant,
-  Invitee, InviteeId, NowPlaying, Photo, PhotoId,
+  DeletionImpact,
   Host, HostId, Report, ReportId, ReportReason, ReportResolution, ReportSubject,
+  Invitee, InviteeId, NowPlaying, Photo, PhotoId,
   RunitEvent, ScheduleItem, ScheduleItemId, Session, SongRequest, SongRequestId,
 } from './types';
 import type { EntitlementDenial, Entitlements } from '@/domain/entitlements';
@@ -415,8 +416,39 @@ export interface RunitRepository {
      * strands the first. This is the one a screen should call.
      */
     closeEvent(): Promise<void>;
-    /** Leave the event AND forget who you are. Currently has no UI caller, deliberately. */
+    /** Leave the event AND forget who you are. Also what a Sign out control calls. */
     leave(): Promise<void>;
+    /**
+     * The address on this identity, or null -- #19.
+     *
+     * NULL IS THE COMMON CASE and is not a loading state: nearly everyone who opens this app
+     * is a guest, and a guest never signs in. It gates whether an account row is DRAWN at
+     * all, which is why it is an observable rather than a method -- a screen cannot await an
+     * answer during render, the same reasoning `holdsHostSeat` carries.
+     */
+    account: Observable<string | null>;
+    /**
+     * What deleting this account would destroy, read BEFORE the confirmation is offered.
+     *
+     * A method rather than an observable, deliberately: it is a question asked at the moment
+     * somebody opens the sheet, not a value that has to be live on every screen. Keeping it
+     * live would mean counting an estate on every render for the overwhelming majority of
+     * people who will never open it.
+     */
+    deletionImpact(): Promise<DeletionImpact>;
+    /**
+     * Delete the account, and everything that dies with it -- App Store Guideline 5.1.1(v).
+     *
+     * IT IS NOT A ROW DELETE AND CANNOT BE. `auth.users` is not writable by a client, and
+     * removing a `storage.objects` row does not remove the BYTES -- `storage.protect_delete()`
+     * refuses every direct SQL delete on that table. So the Supabase side calls an Edge
+     * Function holding the service role, bytes first and resumably, and this method is not
+     * done until that function says it is.
+     *
+     * IT TEARS DOWN LOCALLY AFTERWARDS, in that order: the identity has to still exist while
+     * the work is done, and `setPushToken(null)` needs a live JWT.
+     */
+    deleteAccount(): Promise<void>;
     /**
      * Record this device's push address against the caller's own seat (#27).
      *

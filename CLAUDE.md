@@ -1397,6 +1397,39 @@ had only the six-character code to get back in. FIDELITY note AU.
 
 
 
+**AN ACCOUNT CAN DELETE ITSELF, AND THE SHEET COUNTS BEFORE IT ASKS (#19).** Mandatory the
+day #18 shipped -- App Store Guideline 5.1.1(v). Two SQL functions decide
+(`sole_host_events`, revoked from every client role because it takes a uid; and
+`my_deletion_impact`, definer for the same reason `my_events` is), and
+`supabase/functions/delete-account` does the work with a service role. **The caller's own JWT
+is the credential** -- unlike `sweep-photos` and `send-push` it acts on exactly one identity,
+so there is no Vault secret and the uid is read from the token, never from the body.
+
+**THE RULE IS "NO OTHER SEAT", NOT "SHE IS THE FOUNDER."** An event with anybody else's seat
+survives and only her own seat goes -- which is why there is no Transfer action: `invite_host`
+already mints another seat, so a host who wants her party to outlive her account invites
+somebody first. An UNCLAIMED seat counts, because `invite_host` mints `auth_user_id` NULL and
+reading that as "no other account" would delete the event out from under whoever holds the
+printed key.
+
+**BYTES FIRST, ROW SECOND -- and BY PREFIX, which is where it departs from #40's sweep.** The
+sweep deletes what expired, per photo row. This must leave NOTHING, and an upload interrupted
+between the storage write and the row insert has no row to be found by, so it lists
+`<event_id>/`. The order matters more here than there: `event_photos_delete` needs the EVENT
+to exist and `hosts` cascades from it, so deleting the event first turns `is_host()` false
+forever and strands every object against the one role that could have removed them.
+
+**WHAT IT DELIBERATELY KEEPS:** photographs she uploaded at OTHER people's events
+(`uploaded_by_guest_id` is set-null, the name is denormalised) -- somebody else's album, and
+the sheet says so out loud. **What it deliberately removes:** her seats on surviving events,
+because set-null would leave an unclaimed seat whose `host_claims` hash still opens it.
+
+**TWO OF THE SHEET'S THREE STATES ARE UNREACHABLE IN LANE B**, measured rather than suspected:
+`MemoryRepository.deletionImpact()` resolves instantly and never throws, so deleting the
+counting branch left all eight journeys green. The decision lives in `deleteSheetState()` and
+is unit-tested -- including the one that matters, that a count which could not be READ draws
+no confirm button at all.
+
 **Closed:** #15 (`event_preview`) · #14 (event details at `/host/event`) · #13
 (`create_event`) · #32 (the recovery key) · #16 (`invite_host` -- a co-host gets a seat
 and a key, never an account) · #33 (the QR encodes a universal link, so a scan works for

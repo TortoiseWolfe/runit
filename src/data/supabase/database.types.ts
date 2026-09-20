@@ -270,6 +270,22 @@ export type Database = {
           role: string; role_label: string; guest_count: number;
         }[];
       };
+      /**
+       * What deleting this account would destroy (#19). `returns table (...)` of ONE row,
+       * so PostgREST still delivers an array -- typing it as a bare object would compile
+       * and then read `undefined` off an array at runtime, which is the trap
+       * `event_preview` below already carries a comment about.
+       *
+       * `sole_host_events` is deliberately NOT here: it takes a uid and is revoked from
+       * every client role, so a client that could name it would hold an enumeration oracle.
+       * Only the Edge Function's service role calls it. Lane E asserts the revoke.
+       */
+      my_deletion_impact: {
+        Args: Record<string, never>;
+        Returns: {
+          events_deleted: number; events_kept: number; photos: number; guests: number;
+        }[];
+      };
       file_report: {
         Args: {
           p_event_id: string; p_kind: string; p_subject_id: string;

@@ -338,6 +338,15 @@ export class MemoryRepository implements RunitRepository {
    * same flag is a real question, which is the whole point of #29.
    */
   private sigHoldsHostSeat: Signal<boolean>;
+  /**
+   * The address on this identity, or null -- #19.
+   *
+   * NULL UNTIL SIGN-IN, and that is the honest fixture: this adapter's world starts as
+   * somebody who has not signed in, which is what nearly every person opening the app is.
+   * Seeding an address would draw an account row on every journey and make the guest case --
+   * the common one, and the one the join screen's fine print promises -- unreachable.
+   */
+  private sigAccount: Signal<string | null>;
   private sigEvent: Signal<RunitEvent | null>;
   private sigMyEvents: Signal<HostedEvent[]>;
   private hostedList: HostedEvent[];
@@ -410,6 +419,7 @@ export class MemoryRepository implements RunitRepository {
 
     this.sigSession = new Signal<Session>({ kind: 'anonymous' });
     this.sigHoldsHostSeat = new Signal<boolean>(true);
+    this.sigAccount = new Signal<string | null>(null);
     this.inviteeList = [...(seed.invitees ?? [])];
     this.listRows = [];
     this.listMembers = new Map();
@@ -636,6 +646,7 @@ export class MemoryRepository implements RunitRepository {
   session = {
     current: undefined as unknown as Observable<Session>,
     holdsHostSeat: undefined as unknown as Observable<boolean>,
+    account: undefined as unknown as Observable<string | null>,
     joinAsGuest: async ({ code, nickname }: { code: string; nickname: string }) => {
       // The canvas sets joined:true unconditionally -- it never validates the
       // code and never checks capacity. Both are real failure modes.
@@ -758,8 +769,13 @@ export class MemoryRepository implements RunitRepository {
       // `type`. `bad_email_code` rather than a new reason, because that IS what the person
       // sees: the backend cannot tell her the caller sent the wrong request shape.
       if (mode !== this.pendingMode) throw new JoinError('bad_email_code');
+      const address = this.pendingEmail;
       this.pendingEmail = null;
       this.pendingMode = null;
+      // SIGNING IN IS WHAT PUTS AN ADDRESS ON THE IDENTITY, on both branches -- `attach`
+      // adds it to whoever you already were, `sign_in` lands on the identity that already
+      // had it. Either way the account row can be drawn afterwards and could not before.
+      this.sigAccount.set(address);
 
       // 'attach' keeps whoever you were -- that is the entire point of the mode, and a
       // fixture that promoted an anonymous visitor to a host here would invent a seat the
@@ -826,6 +842,56 @@ export class MemoryRepository implements RunitRepository {
 
     closeEvent: async () => {
       this.sigSession.set({ kind: 'anonymous' });
+    },
+
+    deletionImpact: async () => {
+      /*
+       * DERIVED FROM THE FIXTURE, never a seeded constant, because the numbers are the
+       * whole point of the sheet: a constant would render the same sentence over any world
+       * and the assertion would be about the fixture rather than about the screen.
+       *
+       * ONE EVENT, so it either dies or is kept and never both. `hostList.length > 1` is
+       * this adapter's reading of "somebody else holds a seat here" -- which is what
+       * `sole_host_events` asks in SQL, and it is why `weddingSeed` (a planner, a DJ and a
+       * bride) reports KEPT while an event a host just made reports deleted.
+       */
+      const ev = this.sigEvent.get();
+      const staffed = this.hostList.length > 1;
+      const dying = ev !== null && !staffed;
+      return {
+        eventsDeleted: dying ? 1 : 0,
+        eventsKept: ev !== null && staffed ? 1 : 0,
+        photos: dying ? this.photoList.length : 0,
+        // DISTINCT PEOPLE, matching the SQL: "41 photos by 12 guests" is the sentence, and
+        // counting rows would say 41 people where there are 12.
+        guests: dying
+          ? new Set(this.photoList.map((p) => p.uploadedByName)).size
+          : 0,
+      };
+    },
+
+    deleteAccount: async () => {
+      /*
+       * THE WORLD EMPTIES, and this fixture can be honest about that in a way it cannot be
+       * about most of #19. There are no bytes here and no `auth.users` row, so what it
+       * models is the OBSERVABLE consequence: the event is gone, the identity is gone, and
+       * the app is standing where `?empty=1` starts.
+       *
+       * What it deliberately does NOT model is the interesting half -- an event KEPT
+       * because a co-host holds a seat, the resumable byte sweep, a uid disappearing under
+       * an open channel. Lane E asserts the first and lane H is where the rest is real. A
+       * fixture that faked them would be the fixture being kinder than the backend, which
+       * is the one thing this adapter exists not to be.
+       */
+      this.ev = null;
+      this.sigEvent.set(null);
+      this.hostedList = [];
+      this.sigMyEvents.set([]);
+      this.myGuestId = null;
+      this.sigAccount.set(null);
+      this.sigHoldsHostSeat.set(false);
+      this.sigSession.set({ kind: 'anonymous' });
+      this.recompute();
     },
 
     leave: async () => {
@@ -1807,6 +1873,7 @@ export class MemoryRepository implements RunitRepository {
   private wire(): void {
     this.session.current = this.sigSession;
     this.session.holdsHostSeat = this.sigHoldsHostSeat;
+    this.session.account = this.sigAccount;
     this.invitees.all = this.sigInvitees;
     this.guestLists.all = this.sigGuestLists;
     this.event.current = this.sigEvent;
