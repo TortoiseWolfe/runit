@@ -521,6 +521,15 @@ wrong one calls `verifyOtp` with the wrong `type` -- which rejects a CORRECT cod
 `sign_in` branch mints a NEW `auth.uid()` that orphans the host's event behind its recovery
 key.
 
+**AND THE ADAPTER'S OWN BRANCH IS TESTED NOW, where the decision actually lives.** The seam
+commit said this was invisible to every lane but H, which was true of the FIXTURE rather than
+of the adapter -- `MemoryRepository` has no uids to lose. `FakeClient` models `getUser`,
+`updateUser`, `signInWithOtp` and `verifyOtp` and RECORDS THE CALLS, because both branches
+resolve and neither raises: a test that could only read the return value would pass on the
+destructive one. Four mutations die, including the one that survived all sixteen journeys
+(hardcoding `sign_in`, which kills two). Lane H is still the only thing that can prove the
+uid SURVIVES; this proves the call that decides it.
+
 **THE FIXTURE NOW REFUSES A MISMATCHED MODE, AND IT HAD TO.** `MemoryRepository` ignored the
 mode (`void mode`), so a mutation hardcoding `'sign_in'` in the screen left **all sixteen new
 journeys green** -- the single most consequential mistake in the feature, unobserved. It

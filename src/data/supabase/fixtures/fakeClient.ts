@@ -170,8 +170,63 @@ export class FakeClient {
     return this.op('rpc', name, args);
   }
 
+  /**
+   * WHAT `getUser()` REPORTS, and the field that decides host sign-in's branch.
+   *
+   * `is_anonymous` is what separates a host still holding the identity her seat is bound to
+   * from one who already has an account. The adapter reads it to choose between `updateUser`
+   * (keeps the uid) and `signInWithOtp` (mints a new one and orphans her event). Default
+   * `null` is a host on a fresh install who has touched nothing -- which is a real state and
+   * is why `requestEmailCode` deliberately does not mint a session first.
+   */
+  user: { id: string; is_anonymous?: boolean } | null = null;
+
+  /** `updateUser` refuses once with this -- how GoTrue reports an address already taken. */
+  failNextUpdateUser: unknown = null;
+  /** `verifyOtp` refuses once with this -- a wrong, expired or replayed code. */
+  failNextVerifyOtp: unknown = null;
+
+  /**
+   * AUTH CALLS IN ORDER, WITH THEIR ARGUMENTS, because for sign-in the call that went out
+   * IS the behaviour. Both branches resolve and neither raises, so a test that could only
+   * see the return value would pass on the destructive one -- which is exactly the mutation
+   * that survived the screen's sixteen journeys.
+   */
+  authCalls: [string, unknown][] = [];
+
   auth = {
     getSession: async () => ({ data: { session: this.session }, error: this.sessionError }),
+    getUser: async () => {
+      this.authCalls.push(['getUser', undefined]);
+      return { data: { user: this.user }, error: null };
+    },
+    updateUser: async (attrs: { email?: string }) => {
+      this.authCalls.push(['updateUser', attrs]);
+      if (this.failNextUpdateUser) {
+        const error = this.failNextUpdateUser;
+        this.failNextUpdateUser = null;
+        return { data: { user: null }, error };
+      }
+      return { data: { user: this.user }, error: null };
+    },
+    signInWithOtp: async (args: { email: string; options?: unknown }) => {
+      this.authCalls.push(['signInWithOtp', args]);
+      return { data: { user: null, session: null }, error: null };
+    },
+    verifyOtp: async (args: { email: string; token: string; type: string }) => {
+      this.authCalls.push(['verifyOtp', args]);
+      if (this.failNextVerifyOtp) {
+        const error = this.failNextVerifyOtp;
+        this.failNextVerifyOtp = null;
+        return { data: { user: null, session: null }, error };
+      }
+      // A verified code IS a session, on both branches: attach keeps the uid, sign-in
+      // replaces it. The fixture cannot model a uid changing under an open channel, and
+      // says so rather than pretending -- that is lane H's.
+      const user = { id: this.user?.id ?? 'auth-user' };
+      this.session = { user };
+      return { data: { user, session: this.session }, error: null };
+    },
     signInAnonymously: async () => {
       this.signInCalls++;
       if (this.failNextSignIn) {
