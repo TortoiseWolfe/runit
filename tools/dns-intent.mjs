@@ -34,6 +34,18 @@ export const SENDING_DOMAIN = `runit.${ZONE}`;
  */
 export const BOUNCE_DOMAIN = `send.${SENDING_DOMAIN}`;
 
+/**
+ * THE POLICY THIS REPOSITORY INTENDS TO PUBLISH, exported so the GATE and the APPLIER read
+ * the same word.
+ *
+ * `check-mail-policy.mjs` used to hardcode its own idea of the staging -- it treated any
+ * `p=none` as a `todo:` and nothing at all as a failure, so a policy SILENTLY DOWNGRADED
+ * from reject back to none would have printed a polite reminder to do the thing that had
+ * just been undone. Reading the intent from here makes weaker-than-declared a FAILURE and
+ * keeps the reminder for the one case it was written for: an intent that is still staged.
+ */
+export const DMARC_POLICY = 'reject';
+
 export const RECORDS = [
   {
     kind: 'dkim',
@@ -70,14 +82,23 @@ export const RECORDS = [
      * personal Gmail, unaligned). Publishing our own DECOUPLES the two: we can enforce
      * without waiting on a neighbour, and our failures stop landing in their reports.
      *
-     * `p=none` TODAY, `p=reject` AFTER THE FIRST REAL SEND IS READ BACK. The plan for this
-     * work said reject immediately, on the reasoning that our mail is 100% Resend and
-     * therefore aligned. That reasoning is sound and it is still an ASSERTION -- no mail has
-     * been sent from this domain yet, so nothing has observed the alignment it depends on.
-     * DMARC is designed to be monitored and then enforced, and the cost of being wrong at
-     * `reject` is that the very first sign-in code is refused outright rather than junked.
-     * Raising it is a one-word diff in this file once `Authentication-Results` on a real
-     * message says `dkim=pass` with `d=runit.scripthammer.com`.
+     * `p=reject` SINCE 2026-09-20, AND THE ALIGNMENT WAS OBSERVED RATHER THAN ASSUMED.
+     * This started at `p=none` deliberately: the plan said reject immediately, reasoning
+     * that our mail is 100% Resend and therefore aligned, and that reasoning was sound while
+     * remaining an ASSERTION -- no mail had been sent, so nothing had watched a receiver
+     * agree. DMARC is designed to be monitored and then enforced, and the cost of being
+     * wrong at reject is the very first sign-in code refused outright rather than junked.
+     *
+     * What settled it, read out of the inbox those codes arrive in -- a message sent at
+     * 16:37Z on 2026-09-20, the second of two:
+     *
+     *     dkim=pass header.i=@runit.scripthammer.com header.s=resend
+     *     spf=pass   smtp.mailfrom=...@send.runit.scripthammer.com
+     *     dmarc=pass (p=NONE sp=NONE dis=NONE) header.from=runit.scripthammer.com
+     *
+     * Both authentications pass and BOTH align, so `p=reject` changes what a receiver does
+     * with a forgery and changes nothing about our own mail. Google's aggregate reports go
+     * to `admin@scripthammer.com` and are the standing watch on that claim.
      *
      * `adkim=s`: strict DKIM alignment. Our DKIM `d=` IS the From domain, so strict costs
      * nothing and refuses a class of lookalike the relaxed default would admit.
@@ -85,8 +106,8 @@ export const RECORDS = [
     kind: 'dmarc',
     type: 'TXT',
     name: `_dmarc.${SENDING_DOMAIN}`,
-    content: `v=DMARC1; p=none; adkim=s; aspf=r; rua=mailto:admin@${ZONE}`,
-    why: 'our own policy, independent of the root’s. Staged: none now, reject once alignment is observed',
+    content: `v=DMARC1; p=${DMARC_POLICY}; adkim=s; aspf=r; rua=mailto:admin@${ZONE}`,
+    why: 'our own policy, independent of the root’s. Raised to reject once a real message was read back aligned',
   },
 ];
 
