@@ -508,6 +508,41 @@ sender_name = "RunIt"
 # different claims.
 pass = "env(SUPABASE_AUTH_SMTP_PASS)"
 
+# THE EMAIL ITSELF, WHICH EVERY OTHER GATE HERE MEASURED AROUND.
+#
+# On 2026-09-13 the whole mail stack was green -- four DNS records, DKIM, SPF, DMARC, custom
+# SMTP, thirteen declared fields, two sends accepted inside a minute -- and five real messages
+# arrived in an inbox carrying Supabase's DEFAULT body: "Follow the link below to sign in",
+# with no six-digit code anywhere in it. `SignInScreen` asks for six digits and `verifyOtp`
+# is given a token the email never printed, so host sign-in could not complete against
+# production. The envelope was verified end to end and the letter was never read.
+#
+# ALL THREE, because GoTrue picks by situation and a missing one is an intermittent product:
+# `confirmation` is the FIRST email to an address it has never seen, `magic_link` is every one
+# after, and `email_change` is the attach branch -- `updateUser({ email })` on the anonymous
+# identity a host is already holding. Measured: 04:17Z "Confirm your email address" then
+# 04:18Z "Your sign-in link", to the same address, minutes apart.
+#
+# `content_path` RATHER THAN AN INLINE BODY, so the one artefact a person actually reads is a
+# file that can be diffed and reviewed. `pnpm audit:auth-config` compares the FILE against the
+# live project, trimmed at both ends.
+#
+# NO `{{ .ConfirmationURL }}` IN ANY OF THEM, and that is not tidiness. `detectSessionInUrl`
+# is false and there is no associated-domains route, so the link is dead weight on a phone --
+# and worse, it is live: tapping it CONSUMES the one-use token the person is about to type,
+# so the code they were sent stops working because they followed the instruction above it.
+[remotes.production.auth.email.template.confirmation]
+subject = "Your RunIt sign-in code"
+content_path = "./supabase/templates/confirmation.html"
+
+[remotes.production.auth.email.template.magic_link]
+subject = "Your RunIt sign-in code"
+content_path = "./supabase/templates/magic_link.html"
+
+[remotes.production.auth.email.template.email_change]
+subject = "Confirm your RunIt email"
+content_path = "./supabase/templates/email_change.html"
+
 [remotes.production.auth.rate_limit]
 # The free tier's own cap is 2/hour PROJECT-WIDE, which is the reason custom SMTP exists at
 # all. Supabase raises it to 30 automatically when custom SMTP is enabled, and 30 sign-in

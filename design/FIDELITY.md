@@ -2854,3 +2854,77 @@ the app cannot meet two descriptions of one evening.
 ### Lane D: `02-guest-chat` pairs and the render will differ
 The pairing gate checks that a declared render exists, not that the pixels match, so it stays
 green. The canvas draws no such row; this note is the decision.
+
+## AZ. Every mail gate was green over an email nobody could use
+
+**The letter, as opposed to the envelope.** On 2026-09-13 the mail stack was green in every
+direction it could be measured: four DNS records live, DKIM on the sending domain, SPF and
+the feedback MX on the bounce label, our own `_dmarc`, custom SMTP restored with all six
+fields, thirteen declared auth-config fields matching, and `pnpm send:otp --twice` reporting
+two sends accepted a minute apart. #18's screen shipped the same night.
+
+**Five real messages had arrived in the owner's inbox and not one of them carried a code.**
+Read back on 2026-09-20: subject *"Your sign-in link"*, body *"Follow the link below to sign
+in"*, and a `…/auth/v1/verify?token=…&type=magiclink&redirect_to=https://runit-app.pages.dev`
+anchor. `SignInScreen` asks for six digits; `verifyOtp` is handed a code the email never
+printed. **Host sign-in could not complete against production**, and the link went to a
+static invitation site that cannot sign anyone in.
+
+### What every gate measured, and why none of them could see it
+
+DKIM, SPF and DMARC are **public records**: they describe what a receiver should believe
+about mail that arrives, and read identically for a domain that has never sent any. The
+config endpoint returns `smtp_pass` as an undocumented hash, so presence is checkable and
+correctness is not. `send:otp` reads an HTTP status, which is GoTrue accepting a message, not
+a person reading one. Between them they verify the **envelope** end to end. Nothing compared
+the one artefact a human actually looks at.
+
+`docs/design-host-accounts.md` had said from the beginning that a six-digit OTP "costs one
+template edit". The edit was never made, and nothing noticed, because the default template is
+not missing — it is present, plausible, and wrong.
+
+### Three templates, not one, and the third is the attach branch
+
+GoTrue picks by situation, which is why declaring one is worse than declaring none — the
+first sign-in works and the second does not, or the reverse, and that reads as an intermittent
+product rather than a missing setting. Measured on 2026-09-13: 04:17Z *"Confirm your email
+address"* and 04:18Z *"Your sign-in link"*, to the same address, ninety seconds apart.
+
+| template | when GoTrue sends it |
+|---|---|
+| `confirmation` | the first time an address is seen |
+| `magic_link` | every sign-in after that |
+| `email_change` | the attach branch — `updateUser({ email })` on an anonymous host |
+
+**No `{{ .ConfirmationURL }}` in any of them**, and that is not tidiness. The link is not
+merely dead weight on a device (`detectSessionInUrl: false`, no associated-domains route) —
+it is **live**, and it consumes the one-use token. A host who follows the instruction above
+the code destroys the code.
+
+### The gate is the file, compared
+
+`[remotes.production.auth.email.template.*]` declares a `subject` and a `content_path` per
+template; `pnpm audit:auth-config` reads the file and compares it against the live project,
+trimmed at both ends so a round-tripped newline is not a red gate. Declared fields go 13 → 19.
+Four selftest cases pin it, and two mutations kill: dropping the normalisation reds the
+newline case, and an `xform` that reads nothing reds four.
+
+**`--apply` now re-reads every declared field, not only the ones it sent.** That is the
+SMTP outage generalised: a PATCH carrying `{ smtp_pass }` alone had nulled five siblings, and
+a check that only inspects what it wrote cannot see a write damaging what it did not. The six
+template fields were applied on 2026-09-20 and the other thirteen were read back untouched.
+
+### What proves it, and it is the only thing that could
+
+A send, then an inbox. `jonpohlner+runit-rehearsal@gmail.com`, two codes 66 seconds apart:
+**257580** and **206752**, subject *"Your RunIt sign-in code"*, no link in either. The same
+message's `Authentication-Results` reads `dkim=pass header.i=@runit.scripthammer.com
+header.s=resend`, `spf=pass` on `send.runit.scripthammer.com`, `dmarc=pass` — which is the
+alignment `dns-intent.mjs` names as the gate for raising `_dmarc` from `p=none` to `p=reject`,
+observed on a real message rather than assumed from the architecture.
+
+**A plus-address, never the bare one.** `jonpohlner@gmail.com` already holds a non-anonymous
+`auth.users` row with no host seat, left by a 2026-09-10 test signup. Attaching that address
+from the phone holding a real host seat gets `email_exists`, falls to `sign_in`, and lands in
+that empty identity — `my_events()` returns nothing and the party looks lost. It is data, not
+a defect, and #19's deletion path is what removes it.
