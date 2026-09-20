@@ -37,6 +37,38 @@ export const INVITATION_LINE = new RegExp(
 );
 
 /**
+ * A DATE FOR AN EVENT A JOURNEY IS ABOUT TO CREATE, ALWAYS THE SAME DISTANCE FROM TODAY.
+ *
+ * THESE TESTS HAD AN EXPIRY DATE AND NOBODY HAD NOTICED. Ten journeys typed a literal
+ * `2026-09-11` into `create-date`; #41 then shipped `event_is_open()`, which refuses new
+ * content 168 hours after `starts_at`. On 2026-09-18 at 19:00 those events became closed
+ * parties, and from that moment `broadcast-send` and `shutter` were correctly refused --
+ * six journeys red, in a repository where nothing about the app had changed. Measured
+ * 2026-09-20: the same spec passes untouched with the date moved forward, which is the
+ * whole diagnosis.
+ *
+ * It is the failure `INVITATION_LINE` above already describes in the other direction --
+ * "a hardcoded future date self-heals on the day it arrives" (FIDELITY note M) -- and the
+ * creation path never got the lesson. A fixed future date is not a fix, it is the same bug
+ * with a later fuse: `2027-01-09` sits in four specs today and expires on 2027-01-16.
+ *
+ * THIRTY DAYS, not three. The field is a WALL CLOCK date read in the event's own timezone,
+ * so a margin measured in hours can be eaten by a zone offset; a month cannot. It also
+ * reads like the thing it stands for -- a party somebody is planning.
+ *
+ * ONLY FOR EVENTS A TEST THEN WRITES TO. The specs that type a date purely to assert how it
+ * READS -- `create-starts-preview` showing 'Fri, Sep 11 · 7:00 PM' -- keep their literals,
+ * and must: a computed expectation there would be the function under test grading its own
+ * homework, which is exactly what `INVITATION_LINE` refuses to do.
+ */
+export const UPCOMING = (() => {
+  const d = new Date();
+  d.setDate(d.getDate() + 30);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+})();
+
+/**
  * Wait for the app to resolve the colour scheme before asserting anything.
  *
  * The export is a SPA, so the first paint precedes hydration. Without this,

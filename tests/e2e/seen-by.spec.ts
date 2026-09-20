@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
-import { joinAsGuest, switchToHost } from './helpers';
+import { UPCOMING, joinAsGuest, switchToHost } from './helpers';
 
 /**
  * "seen by N" under an announcement -- issue #24.
@@ -138,7 +138,7 @@ test.describe('the author is not an audience', () => {
     await expect(page.getByTestId('scheme-probe')).toHaveText(scheme, { timeout: 20_000 });
     await page.getByTestId('create-host-name').fill('Ruth');
     await page.getByTestId('create-name').fill("Ruth's 40th");
-    await page.getByTestId('create-date').fill('2026-09-11');
+    await page.getByTestId('create-date').fill(UPCOMING);
     await page.getByTestId('create-time').fill('19:00');
     await page.getByTestId('create-venue').fill('The garden');
     await page.getByTestId('create-doors').fill('Doors 7:00 PM');

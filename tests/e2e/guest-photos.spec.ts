@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
-import { joinAsGuest, open, ready, switchToHost, TOKENS } from './helpers';
+import { TOKENS, UPCOMING, joinAsGuest, open, ready, switchToHost } from './helpers';
 
 /**
  * Photos tab -- the shared album.
@@ -359,7 +359,7 @@ test.describe('what the empty album promises (#67)', () => {
     await open(page, scheme, '/create', 'create-event');
     await page.getByTestId('create-host-name').fill('Ruth');
     await page.getByTestId('create-name').fill("Ruth's 40th");
-    await page.getByTestId('create-date').fill('2027-01-09');
+    await page.getByTestId('create-date').fill(UPCOMING);
     await page.getByTestId('create-time').fill('19:00');
     await page.getByTestId('create-submit').click();
     await page.getByTestId('created-continue').click();
@@ -381,7 +381,7 @@ test.describe('what the empty album promises (#67)', () => {
     await open(page, scheme, '/create', 'create-event');
     await page.getByTestId('create-host-name').fill('Ruth');
     await page.getByTestId('create-name').fill("Ruth's 40th");
-    await page.getByTestId('create-date').fill('2027-01-09');
+    await page.getByTestId('create-date').fill(UPCOMING);
     await page.getByTestId('create-time').fill('19:00');
     await page.getByTestId('create-submit').click();
     await page.getByTestId('created-continue').click();
