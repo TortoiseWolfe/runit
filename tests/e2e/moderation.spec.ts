@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
-import { joinAsGuest, open, switchToHost } from './helpers';
+import { UPCOMING, joinAsGuest, open, switchToHost } from './helpers';
 
 /**
  * App Review Guideline 1.2, end to end in a browser.
@@ -171,7 +171,7 @@ test.describe('Guideline 1.2 · taking it down (#65)', () => {
     await open(page, scheme, '/create', 'create-event');
     await page.getByTestId('create-host-name').fill('Ruth');
     await page.getByTestId('create-name').fill("Ruth's 40th");
-    await page.getByTestId('create-date').fill('2027-01-09');
+    await page.getByTestId('create-date').fill(UPCOMING);
     await page.getByTestId('create-time').fill('19:00');
     await page.getByTestId('create-submit').click();
     await page.getByTestId('created-continue').click();
@@ -254,7 +254,7 @@ test.describe("approval is the host's choice, on any tier", () => {
     await open(page, scheme, '/create', 'create-event');
     await page.getByTestId('create-host-name').fill('Ruth');
     await page.getByTestId('create-name').fill("Ruth's 40th");
-    await page.getByTestId('create-date').fill('2026-09-11');
+    await page.getByTestId('create-date').fill(UPCOMING);
     await page.getByTestId('create-time').fill('19:00');
     await page.getByTestId('create-submit').click();
     await page.getByTestId('created-continue').click();

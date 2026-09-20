@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
-import { WEDDING, joinAsGuest, open, switchToHost } from './helpers';
+import { UPCOMING, WEDDING, joinAsGuest, open, switchToHost } from './helpers';
 
 /**
  * The guest list — issue #25.
@@ -323,7 +323,7 @@ async function newEventConsole(page: Page, scheme: 'dark' | 'light') {
   await open(page, scheme, '/create', 'create-event');
   await page.getByTestId('create-host-name').fill('Ruth');
   await page.getByTestId('create-name').fill("Ruth's 40th");
-  await page.getByTestId('create-date').fill('2026-09-11');
+  await page.getByTestId('create-date').fill(UPCOMING);
   await page.getByTestId('create-time').fill('19:00');
   await page.getByTestId('create-submit').click();
   await page.getByTestId('created-continue').click();

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-import { open } from './helpers';
+import { UPCOMING, open } from './helpers';
 
 /**
  * Making your own event -- issues #13 and #32.
@@ -29,7 +29,7 @@ const KEY = /^[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$/;
 async function fillTheForm(page: import('@playwright/test').Page) {
   await page.getByTestId('create-host-name').fill('Ruth');
   await page.getByTestId('create-name').fill("Ruth's 40th");
-  await page.getByTestId('create-date').fill('2026-09-11');
+  await page.getByTestId('create-date').fill(UPCOMING);
   await page.getByTestId('create-time').fill('19:00');
   await page.getByTestId('create-venue').fill('The garden');
   await page.getByTestId('create-doors').fill('Doors 7:00 PM');
@@ -134,7 +134,7 @@ test.describe('making your own event', () => {
     await page.getByTestId('host-segment-event').click();
     await expect(page.getByTestId('event-name')).toHaveValue("Ruth's 40th");
     await expect(page.getByTestId('event-venue')).toHaveValue('The garden');
-    await expect(page.getByTestId('event-date')).toHaveValue('2026-09-11');
+    await expect(page.getByTestId('event-date')).toHaveValue(UPCOMING);
     await expect(page.getByTestId('event-time')).toHaveValue('19:00');
 
     // And the guests' half: the code on the invitation is the code she was handed.

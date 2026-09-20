@@ -1198,6 +1198,15 @@ was green and the half a guest actually walks was dead.
   that nothing in `shoot-app.mjs` answers, and headless Chromium refuses
   `getUserMedia`. `guest-photos.spec.ts` asserts that exact data URI, which is
   what proves the value came from the capture path and not from a literal.
+- **A JOURNEY CAN GO RED BECAUSE THE CALENDAR MOVED (#75).** Ten specs typed a literal
+  `2026-09-11` into `create-date`; #41's `event_is_open()` then closed those events 168 hours
+  after `starts_at`, and on 2026-09-18 six journeys went red with nothing about the app
+  changed. The app was right and the tests were describing a world that had moved. Every
+  creation site uses `UPCOMING` (`tests/e2e/helpers.ts`, today + 30 days) now -- **a fixed
+  FUTURE date is the same bug with a later fuse**, which is what the four `2027-01-09` sites
+  were. The preview-only literals stay: those specs assert how a date READS and never create
+  anything, and a computed expectation there would be the function under test grading its own
+  homework. When a gate fails under a clean `git log`, suspect the clock.
 - **`weddingSeed` HAS 180 INVITED AND NO `invitees` ROWS**, and that trips anything keyed on
   the LIST rather than the COUNT. `invitedCount` is a number on the event; `invitees` is a
   table, and the fixture writes the first without the second on purpose
