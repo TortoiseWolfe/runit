@@ -514,6 +514,13 @@ DER signature is rejected. **Read the enum back rather than remembering it**: th
 screenshot display types, and the fact that `contests` is a frequency STRING while
 `ageAssurance` is a BOOLEAN, all came from Apple's own 409s.
 
+**A SPARSE FIELDSET CAN READ BACK NULL OVER A VALUE THAT IS THERE.** `PATCH` the app's
+`contentRightsDeclaration`, then `GET /v1/apps/{id}?fields[apps]=contentRightsDeclaration`, and
+the attribute comes back **null** while a plain `GET /v1/apps/{id}` shows it set. So the write
+was fine and the VERIFICATION was broken -- which is the more dangerous direction, because it
+invites re-writing a field that was never wrong. Read back with the same shape a plain GET
+uses. Found by the repo's own rule that a 200 is not a value; the rule caught its own check.
+
 **THE DESCRIPTION NAMED TWO THINGS THE APP DID NOT DO (#69), and they were different kinds of
 wrong.** *"Runit emails everyone the link"* -- `invitees.send` opens the SHARE SHEET
 (`SupabaseRepository.ts`), so the host sends it from her own phone and Runit mails nobody;
