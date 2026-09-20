@@ -141,6 +141,22 @@ export interface DeletionImpact {
   guests: number;
 }
 
+/**
+ * What deleting ONE event would destroy -- #73.
+ *
+ * `coHosts` is the field the account version does not have, and it is the one that changes
+ * the sentence: account deletion KEEPS an event somebody else holds a seat at, this takes
+ * it, because she chose this party by name. A planner and a DJ who have been building a run
+ * of show all week are not a detail to leave off a confirmation.
+ */
+export interface EventDeletionImpact {
+  photos: number;
+  /** DISTINCT people, never a row count. */
+  guests: number;
+  /** Other people who lose their seat. */
+  coHosts: number;
+}
+
 export type Session =
   | { kind: 'anonymous' }
   | { kind: 'guest'; guestId: GuestId; nickname: string }

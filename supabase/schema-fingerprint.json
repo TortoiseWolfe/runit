@@ -1,20 +1,20 @@
 {
   "capturedFrom": "a LOCAL build of supabase/migrations/, verified group-for-group against the LIVE project qwusbxallkbzfladvgfx",
   "capturedAt": "2026-09-20",
-  "verifiedAgainst": "Re-captured after #19 added `public.sole_host_events(uuid)` and `public.my_deletion_impact()` (functions 38->40). ONLY the functions group moved, which is the honest shape of this change: two read-only SQL functions, no column, no policy, no index, no trigger and no seed. PRODUCTION WAS RE-CHECKED RATHER THAN ASSUMED -- the two functions were applied to qwusbxallkbzfladvgfx first, then `schema-fingerprint.sql` was run against BOTH SIDES and all six groups compared: columns 130, functions 40, indexes 35, policies 37, tier_limits 4, triggers 19, every hash identical. A baseline refreshed without that comparison records a wish rather than a fact, which is why the tool says so on every failure. AND THE GRANTS WERE READ BACK, because the fingerprint cannot see one: `has_function_privilege` reports `my_deletion_impact` executable by authenticated and not by anon, and `sole_host_events` by neither -- it takes a uid as a parameter, so a client that could call it would hold an enumeration oracle. Lane E asserts that revoke; this records the deployed state matching it.",
+  "verifiedAgainst": "Re-captured after #76 widened `my_events()` and #73 added `hosts.founder`, the `hosts_one_founder` partial unique index, `is_event_founder()` and `event_deletion_impact()` (columns 130->131, functions 40->42, indexes 35->36). PRODUCTION WAS RE-CHECKED, not assumed: everything was applied to qwusbxallkbzfladvgfx first -- including a BACKFILL marking the earliest host seat of every existing event as its founder, after which zero events lacked one -- then `schema-fingerprint.sql` was run against BOTH sides and all six groups compared, every hash identical. NOTE WHAT DID NOT MOVE ON THE PREVIOUS CAPTURE: #76 changed `my_events()`'s RETURN TYPE and body wholesale and the functions hash did not budge, because this file hashes `proname(identity_arguments)`. The signature is what it sees. That is the same blind spot it has for constraints, and it is why a deploy is verified by reading the live signature back rather than by watching this number change.",
   "howToRefresh": "pnpm schema:fingerprint --write, and only after re-checking production. See docs/lane-e.md and issue #49.",
   "schema": {
     "columns": {
-      "n": 130,
-      "fingerprint": "6c1e37fef9361b901be7bf7cfedf5e02"
+      "n": 131,
+      "fingerprint": "0321ef03c35a1e5ca404f4d0a98e9c40"
     },
     "functions": {
-      "n": 40,
-      "fingerprint": "7b96abf23fc44d7c55efa767380df12e"
+      "n": 42,
+      "fingerprint": "5e918361340554f37044d744b867edae"
     },
     "indexes": {
-      "n": 35,
-      "fingerprint": "2f99bce6594a96ed068b86f337fc21a1"
+      "n": 36,
+      "fingerprint": "adcb68271ee12ee3688e8834995d32e4"
     },
     "policies": {
       "n": 37,

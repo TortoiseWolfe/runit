@@ -1827,6 +1827,42 @@ export class SupabaseRepository implements RunitRepository {
      * because a HOST convenience could not load would break the primary path for the
      * majority who are not hosts at all.
      */
+    deletionImpact: async (id: string) => {
+      const { data, error } = await this.db.rpc('event_deletion_impact', { p_event: id });
+      if (error) throw new JoinError(authJoinReason(error), { cause: error });
+      const row = (Array.isArray(data) ? data[0] : data) as {
+        photos: number; guests: number; co_hosts: number;
+      } | undefined;
+      return {
+        photos: row?.photos ?? 0,
+        guests: row?.guests ?? 0,
+        coHosts: row?.co_hosts ?? 0,
+      };
+    },
+
+    remove: async (id: string) => {
+      /*
+       * THE SAME ENDPOINT AS ACCOUNT DELETION, narrowed by `event`. One function rather than
+       * two because the dangerous part is the ORDER -- bytes first, event row last, or
+       * `is_host()` goes false and every photograph is stranded where nothing but a service
+       * role could reach it. A second endpoint would be a second chance to get that wrong.
+       *
+       * It loops for the same reason: the function is bounded and answers `done: false`
+       * while objects remain, so an event with 2,000 photographs is not one request.
+       */
+      for (let call = 0; call < 200; call += 1) {
+        const { data, error } = await this.db.functions.invoke('delete-account', {
+          body: { event: id },
+        });
+        if (error) throw new JoinError(authJoinReason(error), { cause: error });
+        if ((data as { done?: boolean } | null)?.done === true) break;
+      }
+      // The event she was standing in is gone, so the context has to go with it -- but NOT
+      // the identity: `closeEvent`, never `leave`.
+      if (this.eventId === id) await this.session.closeEvent();
+      await this.event.loadMine();
+    },
+
     loadMine: async () => {
       /*
        * THE ADDRESS RIDES ALONG HERE, and this is the cheapest honest place for it. A

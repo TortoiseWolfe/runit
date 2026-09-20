@@ -21,6 +21,7 @@ import { checkLimit } from '@/domain/entitlements';
 import { useEntitlements } from './hooks';
 import type {
   DeletionImpact,
+  EventDeletionImpact,
   GuestListId,
   BroadcastId, FolderId, GuestId, InviteeId, PhotoId, ReportId, ReportReason, ReportResolution,
   ReportSubject, ScheduleItemId, SongRequestId,
@@ -448,6 +449,43 @@ export function useAccountActions() {
           await repo.session.leave();
         } catch (e) {
           show(e instanceof Error ? e.message : 'Could not sign you out.');
+        }
+      },
+    }),
+    [repo, show],
+  );
+}
+
+/**
+ * THE EVENT ITSELF -- #73. Reading what deleting it costs, and doing it.
+ *
+ * Separate from `useHostActions` because this is the one control on that panel that cannot
+ * be taken back, and it belongs beside its own confirmation rather than in the bag of
+ * everything a host can adjust.
+ */
+export function useEventActions() {
+  const repo = useRepository();
+  const { show } = useToast();
+  return useMemo(
+    () => ({
+      impact: async (id: string): Promise<EventDeletionImpact | null> => {
+        try {
+          return await repo.event.deletionImpact(id);
+        } catch {
+          // NULL IS "WE COULD NOT COUNT", and the sheet draws no confirm button over it.
+          return null;
+        }
+      },
+      /** True on success. The screen navigates; this does not. */
+      removeEvent: async (): Promise<boolean> => {
+        const id = repo.event.current.get()?.id;
+        if (!id) return false;
+        try {
+          await repo.event.remove(id);
+          return true;
+        } catch (e) {
+          show(e instanceof Error ? e.message : 'Could not delete this event.');
+          return false;
         }
       },
     }),

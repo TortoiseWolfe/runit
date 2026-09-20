@@ -2240,6 +2240,62 @@ begin
   out := out || format('%s and ce2 has left the dying set by name (%s, want 0)',
                        case when n = 0 then 'PASS' else 'FAIL' end, n);
 
+  ------------------------------------------- DELETING ONE EVENT AND KEEPING YOUR ACCOUNT (#73)
+  -- `create_event` allows ten events per identity FOREVER, so a host who made three to try
+  -- the app has burned three of her ten and #19 gave her only the nuclear option. Who may
+  -- delete ONE is the question this block pins, and the answer is not "a host".
+  perform set_config('request.jwt.claims', json_build_object('sub',cuid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+
+  -- THE FOUNDER IS THE FIRST SEAT, not the permission grade. `create_event` inserts it;
+  -- `invite_host` can mint another at `role = 'host'` -- which is exactly why grade cannot
+  -- be the test.
+  select public.is_event_founder(ce2.event_id) into pin;
+  out := out || format('%s the founder is recognised at her own event (%s, want true)',
+                       case when pin then 'PASS' else 'FAIL' end, pin);
+
+  select public.event_deletion_impact(ce2.event_id) is not null into pin;
+  select count(*) into n from public.event_deletion_impact(ce2.event_id) i where i.co_hosts = 1;
+  -- The DJ invited above still holds a seat there, and she is what makes this sentence
+  -- different from the account one: account deletion KEEPS an event somebody else sits at,
+  -- this takes it, so the confirmation has to say how many people lose it.
+  out := out || format('%s and the impact counts the co-host who would lose their seat (%s, want 1)',
+                       case when n = 1 then 'PASS' else 'FAIL' end, n);
+
+  execute 'reset role';
+
+  -- A CO-HOST AT `role = 'host'` IS NOT THE FOUNDER, and this assertion had to be written
+  -- twice. The first version bound the DJ seat above -- `role = 'dj'` -- so a founder test
+  -- that merely read the GRADE gave the same answer and the mutation SURVIVED. The whole
+  -- claim is about somebody holding host grade who did not create the party, so the fixture
+  -- has to mint one.
+  select * into iv from public.invite_host(ce2.event_id, 'Second host', 'host', 'Co-host');
+  update public.hosts set auth_user_id = nuid where id = iv.host_id;
+  perform set_config('request.jwt.claims', json_build_object('sub',nuid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  select public.is_event_founder(ce2.event_id) into pin;
+  out := out || format('%s a co-host holding a seat there is NOT the founder (%s, want false)',
+                       case when pin = false then 'PASS' else 'FAIL' end, pin);
+  -- AND HER IMPACT READS ZERO rather than raising: the sheet is never drawn for her, and a
+  -- read that can fail is worse than one that answers honestly about nothing.
+  select count(*) into n from public.event_deletion_impact(ce2.event_id) i
+   where i.photos = 0 and i.guests = 0 and i.co_hosts = 0;
+  out := out || format('%s and reads zeros rather than somebody else''s party (%s, want 1)',
+                       case when n = 1 then 'PASS' else 'FAIL' end, n);
+  execute 'reset role';
+  delete from public.hosts where id = iv.host_id;
+
+  -- AND IT IS STILL NOT A CLIENT DELETE. #73 changes who may ASK; it does not put a DELETE
+  -- in anybody's hands, because the bytes have to go first through a service role or every
+  -- photograph is stranded behind an `is_host()` that just went false.
+  perform set_config('request.jwt.claims', json_build_object('sub',cuid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  delete from public.events where id = ce2.event_id;
+  get diagnostics n = row_count;
+  out := out || format('%s even the FOUNDER cannot DELETE the row herself (%s rows, want 0)',
+                       case when n = 0 then 'PASS' else 'FAIL' end, n);
+  execute 'reset role';
+
   -- `sole_host_events` TAKES A UID AND IS THEREFORE REVOKED FROM EVERY CLIENT ROLE. A
   -- function that both accepts a uid and is callable by a client is an enumeration oracle;
   -- `revoke ... from anon` alone is a silent no-op, which is why `public` is revoked too and
