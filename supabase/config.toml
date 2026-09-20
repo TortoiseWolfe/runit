@@ -458,6 +458,23 @@ enabled = true
 # by ref, and the defaults above stay local. Verify with
 # `pnpm supabase config diff --project-ref qwusbxallkbzfladvgfx --exit-code` (exits 2 on any
 # difference). NEVER `config push --yes`.
+# EDGE FUNCTIONS, AND WHAT THE GATEWAY DOES AND DOES NOT PROVE.
+#
+# `verify_jwt` only establishes that the caller holds *a* project JWT, and the publishable key
+# is public -- it is compiled into every shipped bundle. So it is a door, not an authorisation,
+# and each function below says what it actually checks:
+#
+#   sweep-photos    destroys photographs on a cron's say-so and has NO user. It requires
+#                   `x-sweep-key`, compared inside the database by `sweep_authorised()`.
+#   send-push       reads every guest's push token as the service role. `x-push-key`, same
+#                   shape, for the same reason -- #51.
+#   delete-account  acts on EXACTLY ONE identity: the one whose JWT it was handed. The token
+#                   IS the authorisation, and the uid is read from it rather than from the
+#                   body, so no request shape can name somebody else. A second secret would
+#                   add nothing a caller could not already do to their own account.
+[functions.delete-account]
+verify_jwt = true
+
 [remotes.production]
 project_id = "qwusbxallkbzfladvgfx"
 

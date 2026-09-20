@@ -19,6 +19,7 @@ import { useToast } from "@/state/ToastProvider";
 import { icsFilename, icsFor } from "@/lib/invite";
 import { openMaps } from "@/lib/maps";
 import { QrScanner } from "./QrScanner";
+import { AccountRow } from '@/components/ui/AccountRow';
 import { MyEventsList } from "@/components/ui/MyEventsList";
 import { whenAndWhere } from "@/lib/format";
 import { shareIcs } from "@/lib/share";
@@ -451,6 +452,10 @@ export function JoinScreen() {
                 until this existed her only route back to a party she created was to
                 remember the code she gave her guests. */}
             <MyEventsList hideCurrent />
+          {/* Beneath her events, because the list is why a signed-in host opened this screen
+              and the account is housekeeping. Draws nothing for a guest, which is nearly
+              everyone here -- the fine print below promises exactly that. */}
+          <AccountRow />
 
             <Pressable
               onPress={() => router.push("/create")}

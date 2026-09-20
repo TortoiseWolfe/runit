@@ -204,6 +204,16 @@ export class SupabaseRepository implements RunitRepository {
    * and a screen cannot await an RPC during render.
    */
   private readonly sigHoldsHostSeat = new Signal<boolean>(false);
+  /**
+   * The address on this identity, or null -- #19.
+   *
+   * NOTHING PUSHES THIS AT US. There is no `onAuthStateChange` subscription in this adapter
+   * and no constructor that could add one cheaply, so it is filled by an explicit
+   * `auth.getUser()` at the two moments it can change: when the events list is loaded (which
+   * is the first thing a returning host's app does) and immediately after a code is
+   * verified. Cleared by `leave`, because the identity it described is gone.
+   */
+  private readonly sigAccount = new Signal<string | null>(null);
   private readonly sigConnection = new Signal<ConnectionState>('live');
 
   /**
@@ -318,6 +328,7 @@ export class SupabaseRepository implements RunitRepository {
     // readable above, and matches how MemoryRepository does it.
     this.session.current = this.sigSession;
     this.session.holdsHostSeat = this.sigHoldsHostSeat;
+    this.session.account = this.sigAccount;
     this.invitees.all = this.sigInvitees;
     this.guestLists.all = this.sigGuestLists;
     this.event.current = this.sigEvent;
@@ -1004,6 +1015,7 @@ export class SupabaseRepository implements RunitRepository {
   session = {
     current: undefined as unknown as Observable<Session>,
     holdsHostSeat: undefined as unknown as Observable<boolean>,
+    account: undefined as unknown as Observable<string | null>,
 
     joinAsGuest: async ({ code, nickname }: { code: string; nickname: string }) => {
       await this.ensureSession();
@@ -1447,6 +1459,53 @@ export class SupabaseRepository implements RunitRepository {
      * sign-out is a real thing, and it is the half of the split that account deletion
      * and host sign-in will need (docs/design-host-accounts.md).
      */
+    deletionImpact: async () => {
+      const { data, error } = await this.db.rpc('my_deletion_impact');
+      if (error) throw new JoinError(authJoinReason(error), { cause: error });
+      // A definer function returning one row, which PostgREST renders as an array.
+      const row = (Array.isArray(data) ? data[0] : data) as {
+        events_deleted: number; events_kept: number; photos: number; guests: number;
+      } | undefined;
+      // ZERO IS A REAL ANSWER and null is not: an identity with no seats anywhere destroys
+      // nothing, and the sheet should say so rather than refusing to open.
+      return {
+        eventsDeleted: row?.events_deleted ?? 0,
+        eventsKept: row?.events_kept ?? 0,
+        photos: row?.photos ?? 0,
+        guests: row?.guests ?? 0,
+      };
+    },
+
+    deleteAccount: async () => {
+      /*
+       * A LOOP, BECAUSE THE FUNCTION IS BOUNDED. It removes a capped number of objects per
+       * call and answers `done: false` while anything is left -- an event with 2,000
+       * photographs is not one request. Calling it once and reporting success would leave an
+       * account half deleted with a confirmation saying otherwise.
+       *
+       * The ceiling is not a timeout in disguise: each call does real work, so it only stops
+       * early if the account is larger than 200 calls' worth of objects, which is 40,000.
+       */
+      for (let call = 0; call < 200; call += 1) {
+        const { data, error } = await this.db.functions.invoke('delete-account', { body: {} });
+        if (error) throw new JoinError(authJoinReason(error), { cause: error });
+        if ((data as { done?: boolean } | null)?.done === true) break;
+      }
+
+      /*
+       * AND ONLY THEN THE LOCAL TEARDOWN, in that order for two reasons that both bite.
+       * `leave()` clears the push token first, and that write needs a LIVE JWT -- after the
+       * user is deleted there is no identity to scope it to. And every channel open here is
+       * subscribed as an identity that no longer exists.
+       *
+       * `signOut` against a deleted user is not an error worth surfacing: auth-js clears the
+       * local session regardless, which is the outcome that matters. `leave` already
+       * swallows nothing, so this is left to it rather than wrapped -- a failure here is a
+       * genuinely broken teardown and should be seen.
+       */
+      await this.session.leave();
+    },
+
     leave: async () => {
       // CLEAR THE TOKEN FIRST, because `closeEvent` drops `this.eventId` and
       // `setPushToken` has nothing to scope to afterwards. Left behind, the row keeps a
@@ -1461,6 +1520,9 @@ export class SupabaseRepository implements RunitRepository {
       // would leave a heartbeat running for a session that has ended.
       await this.db.realtime.disconnect();
       await this.db.auth.signOut();
+      // The identity this described is gone. Left behind, the next person to open the app
+      // on this phone is shown somebody else's address over their own empty world.
+      this.sigAccount.set(null);
     },
 
     /**
@@ -1766,6 +1828,16 @@ export class SupabaseRepository implements RunitRepository {
      * majority who are not hosts at all.
      */
     loadMine: async () => {
+      /*
+       * THE ADDRESS RIDES ALONG HERE, and this is the cheapest honest place for it. A
+       * returning host's app calls `loadMine` on the way to her events, so by the time any
+       * screen could draw an account row the answer is already in hand -- without a second
+       * round trip on every render and without an `onAuthStateChange` subscription this
+       * adapter does not otherwise have.
+       */
+      const { data: who } = await this.db.auth.getUser();
+      this.sigAccount.set(who.user?.email ?? null);
+
       const { data, error } = await this.db.rpc('my_events');
       if (error) {
         this.sigMyEvents.set([]);

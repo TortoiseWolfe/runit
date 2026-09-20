@@ -12,6 +12,11 @@ export const useSession = () => useObservable(useRepository().session.current);
  * (#29). A host looking at the guest side reads `kind: 'guest'` and still holds her seat.
  */
 export const useHoldsHostSeat = () => useObservable(useRepository().session.holdsHostSeat);
+/**
+ * The address on this identity, or null -- #19. NULL IS THE COMMON CASE: nearly everyone
+ * who opens this app is a guest, and a guest never signs in.
+ */
+export const useAccount = () => useObservable(useRepository().session.account);
 export const useEvent = () => useObservable(useRepository().event.current);
 /**
  * The events this identity is staff at (#17). Empty for everyone who hosts nothing,

@@ -1808,6 +1808,90 @@ revoke execute on function public.my_events() from public, anon;
 grant execute on function public.my_events() to authenticated;
 grant  execute on function public.claim_host(text, text) to authenticated;
 
+-- ========================================================================
+-- DELETING AN ACCOUNT -- #19
+-- ========================================================================
+--
+-- MANDATORY THE DAY SIGN-IN SHIPS. App Store Guideline 5.1.1(v): an app that lets a person
+-- create an account must let them delete it IN THE APP. #18 shipped host sign-in, so this
+-- stopped being optional on the same day.
+--
+-- NEITHER OF THESE FUNCTIONS DELETES ANYTHING, and that is the design rather than a stage
+-- of it. `auth.users` is not writable by `authenticated`, and -- the part that decides the
+-- shape -- DELETING A `storage.objects` ROW DOES NOT DELETE THE BYTES, while
+-- `storage.protect_delete()` refuses every direct SQL delete on that table for the owner as
+-- much as for a guest (asserted in lane E). So removal has to go through the Storage API
+-- with a service role, which only an Edge Function holds: `supabase/functions/delete-account`,
+-- the same shape as #40's sweep. What lives here is the two QUESTIONS that must be answered
+-- in SQL, beside the tables they read.
+
+-- WHICH EVENTS DIE WITH THIS IDENTITY: the ones where she is the only host seat.
+--
+-- THE RULE IS "NO OTHER SEAT", NOT "SHE IS THE FOUNDER". A founder who invited a planner
+-- and a DJ is leaving a staffed party behind; deleting it would destroy two other people's
+-- work and every guest's photographs to satisfy one person's account deletion. An event
+-- with anybody else on it SURVIVES, and only her own seat is removed -- which is also why
+-- there is no Transfer action to build: `invite_host` already mints another seat, so a host
+-- who wants her event to outlive her account invites somebody before deleting.
+--
+-- REVOKED FROM EVERY CLIENT ROLE. It takes a uid as a PARAMETER rather than reading
+-- `auth.uid()`, because its caller is a service role acting for somebody -- and a function
+-- that both takes a uid and is callable by a client is an enumeration oracle. `revoke ...
+-- from anon` alone is a silent no-op, so `public` is revoked too and lane E asserts it.
+create or replace function public.sole_host_events(p_user uuid)
+returns setof uuid
+language sql stable security definer set search_path = public as $$
+  select h.event_id
+    from public.hosts h
+   where h.auth_user_id = p_user
+     and not exists (
+       select 1 from public.hosts o
+        where o.event_id = h.event_id
+          and o.id <> h.id
+     );
+$$;
+
+revoke execute on function public.sole_host_events(uuid) from public, anon, authenticated;
+
+-- WHAT DELETION WOULD DESTROY, read BEFORE it is confirmed.
+--
+-- "The most consequential line in the whole design" (`docs/design-host-accounts.md`):
+-- deleting an owner's account cascades to HER GUESTS' PHOTOGRAPHS. Third-party content, of
+-- identifiable people, taken by people who never agreed to anything of hers. A confirmation
+-- that says "this cannot be undone" over a number nobody has counted is not consent, so the
+-- sheet reads these first and names them out loud -- "2 events deleted · 1 kept with its
+-- other hosts · 41 photos by 12 guests".
+--
+-- `photos` and `guests` are counted ONLY over the events that would actually die. Counting
+-- her whole estate would overstate the loss on a shared event and understate nothing, and a
+-- number that is wrong in the alarming direction gets ignored just as fast as one that is
+-- wrong in the reassuring one.
+--
+-- DEFINER, for the same reason `my_events` is: #34 revoked `hosts.auth_user_id` from every
+-- client role, so an identity filter cannot live in a client. `authenticated` only -- an
+-- anonymous caller HAS an auth.uid() and is exactly who this is for (a host who never
+-- signed in can still erase herself), while `anon` holds no JWT at all and would get a
+-- count of somebody's nothing.
+create or replace function public.my_deletion_impact()
+returns table (events_deleted integer, events_kept integer, photos integer, guests integer)
+language sql stable security definer set search_path = public as $$
+  with dying as (select public.sole_host_events(auth.uid()) as event_id)
+  select
+    (select count(*)::integer from dying),
+    (select count(*)::integer from public.hosts h
+      where h.auth_user_id = auth.uid()
+        and h.event_id not in (select event_id from dying)),
+    (select count(*)::integer from public.photos p
+      where p.event_id in (select event_id from dying)),
+    -- DISTINCT PEOPLE, not rows: "41 photos by 12 guests" is the sentence, and a count of
+    -- `guests` rows would say 41 people where there are 12.
+    (select count(distinct g.id)::integer from public.guests g
+      where g.event_id in (select event_id from dying));
+$$;
+
+revoke execute on function public.my_deletion_impact() from public, anon;
+grant execute on function public.my_deletion_impact() to authenticated;
+
 -- MINTING A CREDENTIAL, and `random()` is not allowed to do it.
 --
 -- Postgres's random() is a fast PRNG (xoshiro256** since 15), seeded per session and

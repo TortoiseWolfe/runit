@@ -117,6 +117,30 @@ export interface Host {
   roleLabel: string;
 }
 
+/**
+ * WHAT DELETING THIS ACCOUNT WOULD DESTROY, read before it is confirmed -- #19.
+ *
+ * The design doc calls the underlying fact its most consequential line: deleting an owner's
+ * account cascades to HER GUESTS' PHOTOGRAPHS. Third-party content, of identifiable people,
+ * taken by people who never agreed to anything of hers. So the confirmation names the
+ * numbers out loud rather than saying "this cannot be undone" over a total nobody counted.
+ *
+ * `eventsKept` is not decoration: an event with anybody else's seat on it SURVIVES, and a
+ * host who cannot see that distinction has no way to tell "my party goes" from "my party
+ * stays with its other hosts" -- which is the difference between deleting an account and
+ * destroying somebody else's evening.
+ */
+export interface DeletionImpact {
+  /** Events where she is the only seat. These die. */
+  eventsDeleted: number;
+  /** Events that survive because somebody else holds a seat there. */
+  eventsKept: number;
+  /** Photographs in the events that die. Mostly other people's. */
+  photos: number;
+  /** DISTINCT people who took them, never a row count. */
+  guests: number;
+}
+
 export type Session =
   | { kind: 'anonymous' }
   | { kind: 'guest'; guestId: GuestId; nickname: string }

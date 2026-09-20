@@ -67,6 +67,8 @@ declare
   -- #68 fixtures: the announcement a host takes back, and the run-of-show row whose
   -- deletion must clear the cursor that points at it.
   bdel uuid; sch1 uuid; sch2 uuid; cur uuid;
+  -- #19 fixtures: what deletion would destroy, read before it is confirmed.
+  imp record;
   -- #41 fixtures: the event whose window is shut, and a photo id to try under it.
   ttlpho uuid; ttlreq uuid;
   out text[] := '{}';
@@ -2089,6 +2091,134 @@ begin
 
   delete from public.photos where id = spho;
   update public.events set tier = 'event', starts_at = now() + interval '1 day' where id = ce2.event_id;
+
+  ------------------------------------------------ WHAT DELETING AN ACCOUNT WOULD COST (#19)
+  -- Apple 5.1.1(v) makes in-app deletion mandatory the day sign-in ships, and #18 shipped
+  -- it. The confirmation has to READ THE COUNTS FIRST, because what it destroys is not only
+  -- hers: `photos` cascades from `events`, and those are her guests' photographs of
+  -- identifiable people. A sheet saying "this cannot be undone" over a number nobody
+  -- counted is not consent.
+  --
+  -- NOTHING HERE DELETES ANYTHING, which is the design: `storage.protect_delete()` refuses
+  -- every direct SQL delete on `storage.objects` (asserted above), so the bytes can only go
+  -- through the Storage API with a service role. These two functions answer the questions;
+  -- `supabase/functions/delete-account` does the work.
+  perform set_config('request.jwt.claims', json_build_object('sub',cuid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+
+  select * into imp from public.my_deletion_impact();
+  -- SHE HOLDS EXACTLY ONE SEAT BY NOW, AND THE FIRST DRAFT OF THIS SAID TWO. `ce` was
+  -- hers, and the `claim_host` block above REBOUND its founding seat to `nuid` and put
+  -- `muid` on it as a DJ -- so `ce` is not hers to delete and `ce2` is the only event she
+  -- is alone at. The expectation was arithmetic over an assumed fixture, which is the same
+  -- mistake `EXPECTED_ASSERTIONS` made when it was 143 over a lane that had never run. The
+  -- state was MEASURED and the number follows it.
+  out := out || format('%s deletion impact counts the events she holds alone (%s, want 1)',
+                       case when imp.events_deleted = 1 then 'PASS' else 'FAIL' end,
+                       imp.events_deleted);
+  out := out || format('%s and keeps none, because the seat she lost is not hers to keep (%s, want 0)',
+                       case when imp.events_kept = 0 then 'PASS' else 'FAIL' end,
+                       imp.events_kept);
+
+  -- AND IT NAMES THE RIGHT EVENT, not merely the right NUMBER of them. A function that
+  -- counted correctly while naming the wrong rows would pass every count above and then
+  -- delete somebody else's party. Read with the role reset because `sole_host_events` is
+  -- revoked from every client role -- which is the assertion two blocks down.
+  execute 'reset role';
+  select count(*) into n from public.sole_host_events(cuid) e where e = ce2.event_id;
+  out := out || format('%s and the dying set NAMES ce2 (%s, want 1)',
+                       case when n = 1 then 'PASS' else 'FAIL' end, n);
+  -- The other half: `ce` is hers no longer, and a set built from "events she founded"
+  -- rather than "seats she holds" would still be carrying it.
+  select count(*) into n from public.sole_host_events(cuid) e where e = ce.event_id;
+  out := out || format('%s and does NOT name the event whose seat she lost (%s, want 0)',
+                       case when n = 0 then 'PASS' else 'FAIL' end, n);
+  perform set_config('request.jwt.claims', json_build_object('sub',cuid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+
+  -- THE CLAUSE THE WHOLE FEATURE TURNS ON. Invite a DJ to ce2 and it stops being hers to
+  -- destroy: an event with anybody else's seat on it SURVIVES, and only her own seat goes.
+  -- Without this a host deleting her account would take a staffed party, two other people's
+  -- work and every guest's photographs with her.
+  select * into iv from public.invite_host(ce2.event_id, 'Deletion DJ', 'dj', 'DJ');
+  select * into imp from public.my_deletion_impact();
+  out := out || format('%s a seat somebody else holds moves that event OUT of the deletion (%s, want 0)',
+                       case when imp.events_deleted = 0 then 'PASS' else 'FAIL' end,
+                       imp.events_deleted);
+  out := out || format('%s and into the kept column instead (%s, want 1)',
+                       case when imp.events_kept = 1 then 'PASS' else 'FAIL' end,
+                       imp.events_kept);
+
+  execute 'reset role';
+
+  -- AN UNCLAIMED SEAT STILL COUNTS, and that is deliberate rather than an oversight.
+  -- `invite_host` mints a seat with `auth_user_id` NULL -- the DJ has a printed key and no
+  -- account. Reading "no other seat" as "no other ACCOUNT" would delete the event out from
+  -- under a person who has the key in their pocket and has simply not arrived yet.
+  --
+  -- READ WITH THE ROLE RESET, and that is not a convenience. #34 revoked
+  -- `hosts.auth_user_id` from every client role, so this same SELECT standing in
+  -- `authenticated` raises 42501 outside any handler and ABORTS THE WHOLE BLOCK -- which is
+  -- exactly how two assertions killed this lane once before, and how the nameless photo
+  -- insert killed it the time before that. It is a claim about the FIXTURE, not about what
+  -- a client may see, so it belongs outside the role.
+  select count(*) into n from public.hosts h
+   where h.event_id = ce2.event_id and h.auth_user_id is null;
+  out := out || format('%s and it counts even though that seat has no account yet (%s, want 1)',
+                       case when n = 1 then 'PASS' else 'FAIL' end, n);
+
+  -- A STRANGER'S IMPACT IS ZERO, which is the same shape as `my_events` not leaking other
+  -- people's parties. A function that ignored auth.uid() would report HER estate to him.
+  perform set_config('request.jwt.claims', json_build_object('sub',nuid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  select * into imp from public.my_deletion_impact();
+  -- HIS OWN ESTATE, NOT HERS, and the interesting half is that it is not zero either. He
+  -- holds `ce`, which also carries `muid`'s DJ seat -- so it is KEPT for him and dies with
+  -- nobody. A pair of zeros here would have been satisfied by a function that returns
+  -- nothing to everyone; this is satisfied only by one that answers per caller.
+  out := out || format('%s somebody else gets HIS estate: kept %s (want 1), deleted %s (want 0)',
+                       case when imp.events_kept = 1 and imp.events_deleted = 0 then 'PASS' else 'FAIL' end,
+                       imp.events_kept, imp.events_deleted);
+  execute 'reset role';
+
+  -- AND ce2 HAS LEFT THE DYING SET BY NAME, which is the pair to the assertion above: it
+  -- was named there and must not be named here. Together they rule out a function that
+  -- simply returns nothing, which every count-based assertion on its own would accept.
+  select count(*) into n from public.sole_host_events(cuid) e where e = ce2.event_id;
+  out := out || format('%s and ce2 has left the dying set by name (%s, want 0)',
+                       case when n = 0 then 'PASS' else 'FAIL' end, n);
+
+  -- `sole_host_events` TAKES A UID AND IS THEREFORE REVOKED FROM EVERY CLIENT ROLE. A
+  -- function that both accepts a uid and is callable by a client is an enumeration oracle;
+  -- `revoke ... from anon` alone is a silent no-op, which is why `public` is revoked too and
+  -- why this is asserted rather than assumed.
+  begin
+    perform set_config('request.jwt.claims', json_build_object('sub',cuid,'role','authenticated')::text, true);
+    execute 'set local role authenticated';
+    perform public.sole_host_events(cuid);
+    execute 'reset role';
+    out := out || format('FAIL a client can ask which events ANY uid holds alone');
+  exception when others then
+    execute 'reset role';
+    out := out || format('%s sole_host_events is revoked from authenticated (%s)',
+                         case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  -- AND THE EVENT ITSELF IS STILL UNDELETABLE FROM A CLIENT. #19 does not change that and
+  -- must not: deletion goes through a service role that removes BYTES FIRST, so a client
+  -- DELETE that worked would strand every photograph permanently (`hosts` cascades, so
+  -- `is_host()` goes false and `event_photos_delete` can never admit anyone for that prefix
+  -- again). The guard above this block already asserts it for ce2; this is the same claim
+  -- after a deletion path exists to be confused with one.
+  perform set_config('request.jwt.claims', json_build_object('sub',cuid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  delete from public.events where id = ce2.event_id;
+  get diagnostics n = row_count;
+  out := out || format('%s and a host still cannot DELETE the event herself (%s rows, want 0)',
+                       case when n = 0 then 'PASS' else 'FAIL' end, n);
+  execute 'reset role';
+
+  delete from public.hosts where id = iv.host_id;
 
   select count(*) into fails from unnest(out) x where x like 'FAIL%';
   raise exception using message =

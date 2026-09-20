@@ -1290,3 +1290,73 @@ describe('the sign-in mode is not decoration (#18)', () => {
     ).rejects.toThrow(JoinError);
   });
 });
+
+describe('deleting an account, and what the fixture can honestly say about it (#19)', () => {
+  it('shows no account until somebody signs in, because nearly everyone here is a guest', async () => {
+    const r = make();
+    // The join screen's fine print promises "no account, no phone number". An address on a
+    // guest's identity would make that read as false to exactly the people it is for.
+    expect(r.session.account.get()).toBeNull();
+  });
+
+  it('carries the address a code was verified against, on either branch', async () => {
+    const r = make();
+    const mode = await r.session.requestEmailCode('ruth@example.com');
+    await r.session.submitEmailCode({ email: 'ruth@example.com', code: FIXTURE_EMAIL_CODE, mode });
+    expect(r.session.account.get()).toBe('ruth@example.com');
+  });
+
+  it('counts a staffed event as KEPT rather than as destroyed', async () => {
+    // The wedding has a bride, a planner and a DJ. It is not hers alone to delete, and a
+    // sheet that said otherwise would be telling her she is about to destroy a party that
+    // will still be running tomorrow.
+    const r = make();
+    const impact = await r.session.deletionImpact();
+    expect(impact.eventsKept).toBe(1);
+    expect(impact.eventsDeleted).toBe(0);
+    // And nothing is counted as destroyed, because nothing is.
+    expect(impact.photos).toBe(0);
+  });
+
+  it('counts an event she holds alone as dying, with the photographs in it', async () => {
+    const r = makeFree();
+    // A guest arrives and adds a photograph, because the number that matters is the one
+    // this host did not take. The free fixture ships an empty album, so asserting against
+    // it as seeded would assert against zero and pass on a count that never ran.
+    await r.session.joinAsGuest({ code: 'HP0842', nickname: 'Ada' });
+    // TWO photographs from ONE guest, and the second one is the whole test. With a single
+    // upload the distinct-people count and the row count are both 1, so a version that
+    // counted rows would pass -- measured, it did. The numbers have to be able to disagree
+    // before an assertion about which one is used means anything.
+    await r.photos.upload({ localUri: 'file:///tmp/a.jpg' });
+    await r.photos.upload({ localUri: 'file:///tmp/b.jpg' });
+
+    const impact = await r.session.deletionImpact();
+    expect(impact.eventsDeleted).toBe(1);
+    expect(impact.eventsKept).toBe(0);
+    expect(impact.photos).toBe(2);
+    // DISTINCT PEOPLE, never rows: "2 photos by 1 guest" is the sentence, and a row count
+    // would say two people where there is one.
+    expect(impact.guests).toBe(1);
+  });
+
+  it('empties the world, because after a deletion there is nothing left to be in', async () => {
+    const r = makeFree();
+    await r.session.requestEmailCode('ruth@example.com');
+    await r.session.submitEmailCode({
+      email: 'ruth@example.com',
+      code: FIXTURE_EMAIL_CODE,
+      mode: 'attach',
+    });
+    expect(r.session.account.get()).toBe('ruth@example.com');
+
+    await r.session.deleteAccount();
+
+    expect(r.event.current.get()).toBeNull();
+    expect(r.event.mine.get()).toEqual([]);
+    expect(r.session.account.get()).toBeNull();
+    // Back where `?empty=1` starts: an identity with nothing, which is what a person who
+    // has just deleted their account is.
+    expect(r.session.current.get()).toEqual({ kind: 'anonymous' });
+  });
+});

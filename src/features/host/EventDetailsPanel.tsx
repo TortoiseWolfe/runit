@@ -8,6 +8,7 @@ import { instantFrom, zoneChoices } from '@/lib/eventForm';
 import { TIERS } from '@/domain/tiers';
 import type { HostRole } from '@/data/types';
 import { alpha, border, eyebrow, radius, useTheme, weight } from '@/theme';
+import { AccountRow } from '@/components/ui/AccountRow';
 import { MyEventsList } from '@/components/ui/MyEventsList';
 import { Disclosure } from '@/components/ui/Disclosure';
 import { ZonePicker } from '@/components/ui/ZonePicker';
@@ -772,6 +773,13 @@ export function EventDetailsPanel() {
             the opposite of the join screen and it is deliberate on both sides. */}
         <MyEventsList heading="" />
       </Disclosure>
+
+      {/* LAST ON THE PANEL, and below the switcher rather than above it. This is the only
+          irreversible control in the product; it belongs where somebody arrives on purpose,
+          not in the path of a host looking for her other party. `AccountRow` draws nothing
+          at all without an address, so for every host who has not signed in this is a
+          no-op -- which is most of them. */}
+      <AccountRow />
 
     </ScrollView>
   );
