@@ -25,6 +25,7 @@
     "audit:mail": "node tools/check-mail-policy.mjs",
     "audit:mail:selftest": "node tools/check-mail-policy.mjs --selftest",
     "send:otp": "node tools/send-otp.mjs",
+    "rehearse:signin": "node tools/rehearse-signin.mjs",
     "smtp:pass": "node tools/set-smtp-pass.mjs",
     "audit:rpc": "node tools/audit-rpc-names.mjs",
     "checks": "./docker/run-checks.sh",
