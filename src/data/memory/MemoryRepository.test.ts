@@ -1124,13 +1124,24 @@ describe('a host turns photo approval on for her own party', () => {
     return r;
   };
 
-  it('starts off, on the only tier create_event mints', async () => {
+  /**
+   * ON, AND THE TIER IS STILL THE FREE ONE -- which is the pair that matters. This
+   * assertion read `photoModeration: false` until the default flipped, and the half of it
+   * that was never about the boolean is `tier: 'house_party'`: approval is not something a
+   * host buys, and `create_event` mints no other tier. Keeping both in one object is what
+   * stops a future tier gate reappearing under a passing test.
+   */
+  it('starts ON, on the only tier create_event mints', async () => {
     const r = await created();
-    expect(r.event.current.get()).toMatchObject({ tier: 'house_party', photoModeration: false });
+    expect(r.event.current.get()).toMatchObject({ tier: 'house_party', photoModeration: true });
   });
 
-  it('lets a photo straight into the album while it is off', async () => {
+  it('lets a photo straight into the album once she turns approval off', async () => {
     const r = await created();
+    // Off is now the deliberate act. The claim is unchanged and still worth holding: with
+    // the gate down, a guest's photo is in the album immediately rather than waiting for
+    // a host who is not coming.
+    await r.event.setPhotoModeration(false);
     // The founder takes a guest seat on demand (#37) -- she has no `guests` row from
     // `create_event`, which is the same route the role switch drives on screen.
     await r.session.becomeGuest();
@@ -1144,6 +1155,10 @@ describe('a host turns photo approval on for her own party', () => {
    */
   it('makes the next photo wait once she turns it on, with no change of tier', async () => {
     const r = await created();
+    // Off and on again, so this still exercises the SWITCH rather than the default. With
+    // the default now on, asserting straight from `created()` would pass on a setter wired
+    // to nothing.
+    await r.event.setPhotoModeration(false);
     await r.event.setPhotoModeration(true);
     expect(r.event.current.get()).toMatchObject({ tier: 'house_party', photoModeration: true });
 
@@ -1166,6 +1181,8 @@ describe('a host turns photo approval on for her own party', () => {
    */
   it('leaves photos already in the album alone when she turns it on', async () => {
     const r = await created();
+    // Start with the gate down so there is something already in the album to leave alone.
+    await r.event.setPhotoModeration(false);
     // The founder takes a guest seat on demand (#37) -- she has no `guests` row from
     // `create_event`, which is the same route the role switch drives on screen.
     await r.session.becomeGuest();
@@ -1183,7 +1200,6 @@ describe('a host turns photo approval on for her own party', () => {
 
   it('and a free-tier host can then approve what is waiting', async () => {
     const r = await created();
-    await r.event.setPhotoModeration(true);
     // The founder takes a guest seat on demand (#37) -- she has no `guests` row from
     // `create_event`, which is the same route the role switch drives on screen.
     await r.session.becomeGuest();

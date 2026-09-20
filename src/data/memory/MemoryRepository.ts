@@ -1258,10 +1258,13 @@ export class MemoryRepository implements RunitRepository {
         nowScheduleItemId: null,
         guestCount: target.guestCount,
         invitedCount: 0,
-        // Off, matching the column default. `openEvent` builds an event out of a
+        // ON, matching the column default. `openEvent` builds an event out of a
         // host-seat listing (`my_events()`), which carries no settings -- so this is a
-        // guess, and off is the same guess `create` makes.
-        photoModeration: false,
+        // guess, and it is the same guess `create` makes. Guessing the SAFER value is the
+        // right way to be wrong here: a host who had approval off sees it on until the
+        // event is loaded properly, which costs a tap; the other way round shows the room
+        // photographs a host had chosen to gate.
+        photoModeration: true,
       };
       this.broadcastList = [];
       this.scheduleList = [];
@@ -1344,9 +1347,11 @@ export class MemoryRepository implements RunitRepository {
         nowScheduleItemId: null,
         guestCount: 0,
         invitedCount: 0,
-        // The column default. A party of eight that has to approve itself is friction
-        // nobody asked for; the host turns it on from Host -> Event when she wants it.
-        photoModeration: false,
+        // The column default, and it changed: approval is ON for a new event. An album is
+        // the one surface where a stranger's mistake is instantly in front of the whole
+        // room, and the host answers for it -- so she removes the gate in one tap rather
+        // than having to predict she needed it. The store listing promises this too.
+        photoModeration: true,
       };
       this.hostList = [
         { id: hostId, displayName: input.hostName.trim() || 'Host', role: 'host', roleLabel: 'Host' },

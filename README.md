@@ -4,8 +4,8 @@ An event companion app for iOS. Guests scan a QR or type a code, pick a
 nickname, and they are in — no account, no phone number.
 
 **Guests** get three tabs: **Chat** (host announcements and a live "Now / Next"
-run of show), **Photos** (a shared album where uploads appear once a host
-approves them), and **Music** (request a song, upvote what you want to hear).
+run of show), **Photos** (a shared album where uploads wait for the
+host's approval, unless she turns that off), and **Music** (request a song, upvote what you want to hear).
 
 **Hosts** get a console: broadcast to everyone, run the DJ queue, and approve
 photos into folders.
