@@ -52,7 +52,19 @@ const BUCKET = 'event-photos';
 /** Objects removed per invocation. The same reasoning as the sweep's ceiling. */
 const DEFAULT_LIMIT = 200;
 
-type Payload = { dry_run?: boolean; limit?: number };
+/**
+ * `event` NARROWS IT TO ONE PARTY -- #73.
+ *
+ * `create_event` allows ten events per identity forever, so a host who made three to try the
+ * app has burned three of her ten and #19 gave her only the nuclear option. This is the same
+ * machinery pointed at one event: bytes first, by prefix, resumable, service role.
+ *
+ * ONE FUNCTION RATHER THAN TWO, because the dangerous part is the ORDER -- event row last,
+ * or `is_host()` goes false and every object is stranded where nothing can reach it. A
+ * second endpoint would be a second chance to get that wrong, and the sweep already proved
+ * once that writing it down is not the same as doing it.
+ */
+type Payload = { dry_run?: boolean; limit?: number; event?: string };
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
@@ -89,15 +101,38 @@ Deno.serve(async (req) => {
   const dry = payload.dry_run === true;
   const limit = Math.max(1, Math.min(payload.limit ?? DEFAULT_LIMIT, 1000));
 
-  // WHICH EVENTS DIE is decided in SQL, beside the tables it reads, and is the same answer
-  // `my_deletion_impact()` showed the person before they confirmed. A second opinion here
-  // would be a second definition of "hers", and the two would drift.
-  const { data: dying, error: dyingError } = await db.rpc('sole_host_events', { p_user: uid });
-  if (dyingError) {
-    console.error('delete-account: could not read which events die', dyingError);
-    return json({ error: 'could not read the account' }, 500);
+  /**
+   * ONE EVENT, OR THE WHOLE ACCOUNT. Either way the list of events to destroy is decided in
+   * SQL, beside the tables it reads, and is the same answer the person was shown before
+   * they confirmed. A second opinion here would be a second definition of "hers".
+   *
+   * THE FOUNDER CHECK RUNS AS THE CALLER, never as the service role. `is_event_founder()`
+   * reads `auth.uid()`, so asking it with the service-role client would answer for nobody
+   * and admit everybody -- the single most dangerous line in this file if it were written
+   * the other way round. A co-host invited at `role = 'host'` must not be able to destroy a
+   * wedding she was brought in to help run.
+   */
+  const one = typeof payload.event === 'string' ? payload.event : null;
+  let events: string[];
+
+  if (one) {
+    const { data: founder, error: founderError } = await asCaller.rpc('is_event_founder', {
+      p_event: one,
+    });
+    if (founderError) {
+      console.error('delete-account: could not check the seat', founderError);
+      return json({ error: 'could not check the seat' }, 500);
+    }
+    if (founder !== true) return json({ error: 'not yours to delete' }, 403);
+    events = [one];
+  } else {
+    const { data: dying, error: dyingError } = await db.rpc('sole_host_events', { p_user: uid });
+    if (dyingError) {
+      console.error('delete-account: could not read which events die', dyingError);
+      return json({ error: 'could not read the account' }, 500);
+    }
+    events = (dying ?? []) as string[];
   }
-  const events = (dying ?? []) as string[];
 
   if (dry) {
     let objects = 0;
@@ -148,6 +183,16 @@ Deno.serve(async (req) => {
       console.error(`delete-account: could not delete event ${event}`, eventError);
       return json({ error: 'could not delete the event', done: false }, 500);
     }
+  }
+
+  /**
+   * AND THE IDENTITY SURVIVES A SINGLE-EVENT DELETE, which is the whole point of #73: she
+   * came here to free a slot against the ten-event cap, not to erase herself. Everything
+   * below belongs to account deletion only.
+   */
+  if (one) {
+    console.log(`delete-account: event ${one} gone -- ${removed} object(s)`);
+    return json({ done: true, uid, events: 1, removed, account: false });
   }
 
   /**

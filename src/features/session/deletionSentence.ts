@@ -65,7 +65,8 @@ export function deletionSentence(i: DeletionImpact): string {
  */
 export function deleteSheetState(input: {
   counting: boolean;
-  counts: DeletionImpact | null;
+  /** Any counted impact. Shared by the account sheet and the per-event one (#73). */
+  counts: object | null;
 }): 'counting' | 'unknown' | 'ready' {
   if (input.counting) return 'counting';
   if (input.counts === null) return 'unknown';

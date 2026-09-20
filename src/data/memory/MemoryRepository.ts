@@ -1175,6 +1175,51 @@ export class MemoryRepository implements RunitRepository {
     preview: undefined as unknown as Observable<EventPreview | null>,
     mine: undefined as unknown as Observable<HostedEvent[]>,
 
+    deletionImpact: async (id: string) => {
+      /*
+       * THE FOUNDER ONLY, and this fixture reads it the way the SQL does rather than
+       * approximating: `hostList[0]` is the seat `create_event` mints, and anything else is
+       * somebody who was invited. Zeros for a non-founder, because the control is never
+       * drawn for her.
+       */
+      const ev = this.ev;
+      if (!ev || ev.id !== id || this.sigSession.get().kind !== 'host') {
+        return { photos: 0, guests: 0, coHosts: 0 };
+      }
+      return {
+        photos: this.photoList.length,
+        // DISTINCT PEOPLE, matching the SQL: two photographs from one guest is one guest.
+        guests: new Set(this.photoList.map((p) => p.uploadedByName)).size,
+        // Everybody else with a seat here. They lose it, which is what makes this sentence
+        // different from the account one.
+        coHosts: Math.max(0, this.hostList.length - 1),
+      };
+    },
+
+    remove: async (id: string) => {
+      /*
+       * THE EVENT GOES AND THE IDENTITY STAYS, which is the whole of #73: she came to free a
+       * slot against the ten-event cap, not to erase herself. Her other parties -- the
+       * seeded host seats and any party she is a guest at -- are untouched.
+       *
+       * What this fixture CANNOT model is the half that matters most: bytes leaving a
+       * bucket, and the order that keeps them reachable while they do. Lane E asserts who
+       * may ask; the Edge Function does the work and was exercised against production by
+       * hand. A fixture pretending otherwise would be the fixture being kinder than the
+       * backend.
+       */
+      this.hostedList = this.hostedList.filter((e) => e.id !== id);
+      this.joinedList = this.joinedList.filter((e) => e.id !== id);
+      if (this.ev?.id === id) {
+        this.ev = null;
+        this.myGuestId = null;
+        this.hostList = [];
+        this.sigHoldsHostSeat.set(false);
+        this.sigSession.set({ kind: 'anonymous' });
+      }
+      this.recompute();
+    },
+
     loadMine: async () => {
       // No RPC to call and no identity to be signed out of, so this is a re-publish
       // rather than a fetch. It exists so the screens read both adapters identically.
@@ -1329,6 +1374,29 @@ export class MemoryRepository implements RunitRepository {
         kind: 'host', hostId, displayName: this.hostList[0]!.displayName,
         role: 'host', roleLabel: 'Host',
       });
+      /*
+       * AND IT IS IN HER LIST (#17, and #73 is what noticed). `create` set `this.ev` and
+       * nothing else, so the party she had just made was absent from "your events" until
+       * something else republished -- and a journey asserting that a DELETED event had left
+       * the list passed VACUOUSLY, because it had never been in it. The seeded seats were
+       * the only rows this fixture ever had.
+       */
+      this.hostedList = [
+        ...this.hostedList,
+        {
+          id: this.ev.id,
+          code: this.ev.code,
+          name: this.ev.name,
+          venue: this.ev.venue,
+          startsAt: this.ev.startsAt,
+          timezone: this.ev.timezone,
+          doorsLabel: this.ev.doorsLabel,
+          seat: 'host',
+          role: 'host',
+          roleLabel: 'Host',
+          guestCount: 0,
+        },
+      ];
       this.recompute();
       return { code, hostKey: group(key) };
     },

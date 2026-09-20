@@ -283,6 +283,13 @@ export type Database = {
        * every client role, so a client that could name it would hold an enumeration oracle.
        * Only the Edge Function's service role calls it. Lane E asserts the revoke.
        */
+      /** What deleting ONE event would destroy (#73). One row, delivered as an array. */
+      event_deletion_impact: {
+        Args: { p_event: string };
+        Returns: { photos: number; guests: number; co_hosts: number }[];
+      };
+      /** Does the caller hold the FOUNDING seat at this event? Grade is not ownership. */
+      is_event_founder: { Args: { p_event: string }; Returns: boolean };
       my_deletion_impact: {
         Args: Record<string, never>;
         Returns: {

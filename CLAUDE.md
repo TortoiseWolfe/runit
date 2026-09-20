@@ -1564,6 +1564,34 @@ null one both yield a null `v_cur_pos`, measured by mutation -- it is that **the
 diverged on observable state**, which is the one thing the seam exists to make checkable and
 the one shape no lane here can check.
 
+**A HOST CAN DELETE ONE PARTY AND KEEP HER ACCOUNT (#73).** `create_event` allows TEN events
+per identity forever and nothing freed one, so a host who made three to try the app had burned
+three permanently -- and #19's account deletion was the only remedy, which is the nuclear
+option wearing a cap remedy's clothes. Same Edge Function, narrowed by an `event` argument:
+ONE function rather than two, because the dangerous part is the ORDER (event row last, or
+`is_host()` goes false and every object is stranded) and a second endpoint is a second chance
+to get it wrong.
+
+**THE FOUNDER ONLY, AND GRADE IS NOT OWNERSHIP.** `invite_host` can mint a seat at
+`role = 'host'`, so a co-host brought in to help run a wedding must not be able to destroy it.
+`hosts.founder` is a COLUMN, written by `create_event` alone, with a partial unique index so
+an event cannot have two. **The first draft inferred it from `created_at` and lane E killed
+it in one run**: that column defaults to `now()`, which is the TRANSACTION timestamp, so every
+seat minted in one transaction ties and the tiebreak falls to a random uuid. In production the
+two calls are separate transactions and it would usually have been right -- a rule that holds
+until it does not, deciding who may delete a wedding. **The founder check runs as the CALLER,
+never as the service role**: `is_event_founder()` reads `auth.uid()`, so asking it with the
+service-role client would answer for nobody and admit everybody.
+
+**`coHosts` IS THE FIELD THAT CHANGES THE SENTENCE.** Account deletion KEEPS an event somebody
+else holds a seat at; this one TAKES it, because she picked the party by name. People who have
+been building a run of show all week would otherwise find out by opening the app.
+
+**AND A VACUOUS ASSERTION WAS FOUND BY MUTATING IT.** "the deleted party has left the list"
+passed with the filter deleted -- because `create` set `this.ev` and never added the event to
+`hostedList`, so the row had never been there. A host who made an event could not see it in
+her own list until something else republished. Both fixed together; the mutation bites now.
+
 **EVENT DELETION IS DELIBERATELY NOT BUILT**, and lane E now guards its absence rather than
 leaving it to a policy that merely does not exist -- the state `folders` was in before its own
 incident. One `events` row cascades through sixteen tables: every photo byte is stranded

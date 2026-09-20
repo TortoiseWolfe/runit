@@ -18,6 +18,8 @@
 import type {
   BlockedGuest, Broadcast, BroadcastId, Folder, FolderId, GuestId, GuestList, GuestListId, HostRole, Instant,
   DeletionImpact,
+  EventDeletionImpact,
+  EventId,
   Host, HostId, Report, ReportId, ReportReason, ReportResolution, ReportSubject,
   Invitee, InviteeId, NowPlaying, Photo, PhotoId,
   RunitEvent, ScheduleItem, ScheduleItemId, Session, SongRequest, SongRequestId,
@@ -639,6 +641,28 @@ export interface RunitRepository {
      * Refuses an id this identity holds no seat at, rather than trusting the caller --
      * the list is a convenience, not the authority.
      */
+    /**
+     * WHAT DELETING THIS ONE EVENT WOULD DESTROY -- #73. Zeros for anybody who is not its
+     * founder, because the control is never drawn for them and a read that can fail is
+     * worse than one that honestly reports nothing.
+     */
+    deletionImpact(id: EventId): Promise<EventDeletionImpact>;
+    /**
+     * Delete ONE event and keep the account -- #73.
+     *
+     * `create_event` allows ten per identity FOREVER, so a host who made three to try the
+     * app has burned three of her ten and #19's account deletion is the nuclear option
+     * wearing a cap remedy's clothes.
+     *
+     * THE FOUNDER ONLY, and that is not the permission grade: `invite_host` can mint a seat
+     * at `role = 'host'`, and a co-host brought in to help run a wedding must not be able to
+     * destroy it. `hosts.founder` is the column that says which seat created the party.
+     *
+     * It is not a row delete and cannot be -- the bytes go first, through a service role,
+     * or every photograph is stranded behind an `is_host()` that has just gone false.
+     */
+    remove(id: EventId): Promise<void>;
+
     open(eventId: string): Promise<void>;
     /**
      * Bring an event into existence, and become its host in the same breath.

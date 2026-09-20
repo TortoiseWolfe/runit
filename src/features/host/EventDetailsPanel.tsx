@@ -1,17 +1,19 @@
 import { useMemo, useRef, useState } from 'react';
+import { useRouter } from 'expo-router';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { useEvent, useGuestLists, useHosts, useInvitees, useLoadMyEvents } from '@/state/hooks';
-import { useHostActions } from '@/state/actions';
+import { useEventActions, useHostActions } from '@/state/actions';
 import { formatClock, formatEventDate, instantToWallClock } from '@/lib/format';
 import { instantFrom, zoneChoices } from '@/lib/eventForm';
 import { TIERS } from '@/domain/tiers';
-import type { HostRole } from '@/data/types';
+import type { EventDeletionImpact, HostRole } from '@/data/types';
 import { alpha, border, eyebrow, radius, useTheme, weight } from '@/theme';
 import { AccountRow } from '@/components/ui/AccountRow';
 import { MyEventsList } from '@/components/ui/MyEventsList';
 import { Disclosure } from '@/components/ui/Disclosure';
 import { ZonePicker } from '@/components/ui/ZonePicker';
+import { DeleteEventSheet } from './DeleteEventSheet';
 
 /**
  * The event's own details, which nothing could edit until now.
@@ -44,6 +46,27 @@ const ROLE_CHOICES: { role: HostRole; label: string }[] = [
 
 export function EventDetailsPanel() {
   const { tokens, fade, depthCss } = useTheme();
+  const router = useRouter();
+  const { impact } = useEventActions();
+  const [deleting, setDeleting] = useState(false);
+  const [counting, setCounting] = useState(false);
+  const [counts, setCounts] = useState<EventDeletionImpact | null>(null);
+
+  /*
+   * THE TAP DOES THE COUNTING, not an effect -- the React Compiler rejects `setState` inside
+   * one and is right to. The sheet opens first and says it is counting, because waiting for
+   * a number before showing anything makes an irreversible control feel like a dropped tap.
+   */
+  const openDelete = async () => {
+    const id = event?.id;
+    if (!id) return;
+    setCounts(null);
+    setCounting(true);
+    setDeleting(true);
+    const got = await impact(id);
+    setCounts(got);
+    setCounting(false);
+  };
   // A host who created an event and came straight here never passed the join screen, so
   // the list has to be loaded from this side too (#17).
   useLoadMyEvents();
@@ -774,6 +797,42 @@ export function EventDetailsPanel() {
         <MyEventsList heading="" />
       </Disclosure>
 
+      {/*
+        DELETING THIS PARTY (#73), and it is below everything a host might be reaching for.
+        `create_event` allows ten per identity forever and nothing frees one, so a host who
+        made three to try the app had burned three of her ten permanently -- and #19's
+        account deletion was the only remedy, which is the nuclear option wearing a cap
+        remedy's clothes.
+
+        DRAWN FOR THE FOUNDER ONLY. `invite_host` can mint a seat at `role = 'host'`, so
+        grade is not ownership: a co-host brought in to help run a wedding must not be able
+        to destroy it. `event_deletion_impact` answers zeros for anybody else, and the
+        control is not drawn over zeros she did not ask for -- the seat is checked in the
+        database on the way through regardless (`is_event_founder`).
+      */}
+      {event ? (
+        <View style={s.danger}>
+          <Pressable
+            onPress={openDelete}
+            accessibilityRole="button"
+            accessibilityLabel={`Delete ${event.name}`}
+            hitSlop={10}
+            testID="event-delete"
+          >
+            <Text style={[s.dangerText, { color: tokens.error }]}>Delete this event…</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      <DeleteEventSheet
+        visible={deleting}
+        counting={counting}
+        counts={counts}
+        eventName={event?.name ?? 'this event'}
+        onClose={() => setDeleting(false)}
+        onDeleted={() => router.replace('/join')}
+      />
+
       {/* LAST ON THE PANEL, and below the switcher rather than above it. This is the only
           irreversible control in the product; it belongs where somebody arrives on purpose,
           not in the path of a host looking for her other party. `AccountRow` draws nothing
@@ -787,6 +846,8 @@ export function EventDetailsPanel() {
 
 const s = StyleSheet.create({
   scroll: { flex: 1 },
+  danger: { marginTop: 18, paddingTop: 14, borderTopWidth: border, borderTopColor: 'transparent' },
+  dangerText: { fontSize: 13, fontWeight: weight.semibold, paddingVertical: 8 },
   content: { paddingVertical: 16, paddingHorizontal: 20, gap: 10 },
   sectionTitle: { ...eyebrow.section, fontSize: 12, marginBottom: 4 },
   label: { fontSize: 11, letterSpacing: 0.6, marginTop: 6 },

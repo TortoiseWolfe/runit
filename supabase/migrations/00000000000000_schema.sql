@@ -115,8 +115,25 @@ create table public.hosts (
   -- "Best Man", "Head of Ops". FREE TEXT. This is the field that makes the
   -- event type a variable rather than a wedding with the words changed.
   role_label   text not null,
+  -- WHO CREATED THIS PARTY -- #73, and it is a column rather than an inference.
+  --
+  -- The first draft read "the earliest `hosts` row" and it is WRONG in a way lane E caught
+  -- immediately: `created_at` defaults to `now()`, which is the TRANSACTION timestamp, so
+  -- every seat minted in one transaction ties and the tiebreak falls to a random uuid. In
+  -- production `create_event` and `invite_host` are separate transactions and it would
+  -- usually have been right, which is the worst kind of wrong -- a rule that holds until it
+  -- does not, deciding who may destroy a wedding.
+  --
+  -- It matters because GRADE IS NOT OWNERSHIP: `invite_host` can mint a seat at
+  -- `role = 'host'`, and a co-host brought in to help run an event must not be able to
+  -- delete it. Written once by `create_event` and by nothing else.
+  founder      boolean not null default false,
   created_at   timestamptz not null default now()
 );
+
+-- ONE FOUNDER PER EVENT, enforced rather than trusted. Two would make "may she delete this?"
+-- a question with two answers.
+create unique index hosts_one_founder on public.hosts (event_id) where founder;
 
 -- ========================================================================
 -- CHAT + RUN OF SHOW
@@ -1935,6 +1952,67 @@ $$;
 revoke execute on function public.my_deletion_impact() from public, anon;
 grant execute on function public.my_deletion_impact() to authenticated;
 
+-- DELETING ONE EVENT AND KEEPING YOUR ACCOUNT -- #73.
+--
+-- `create_event` allows TEN events per identity, FOREVER. A host who makes three to try the
+-- app has burned three of her ten permanently and there is no route to free one. #19 gave
+-- her a way to delete EVERYTHING, which is not a cap remedy -- it is the nuclear option
+-- wearing one.
+--
+-- WHO MAY: THE FOUNDER, AND ONLY HER. `invite_host` can mint a seat at `role = 'host'`, so
+-- the permission GRADE does not identify who owns a party -- a co-host invited to help run a
+-- wedding must not be able to destroy it. `hosts.founder` says which seat created it,
+-- written by `create_event` alone; see that column for why inferring it from `created_at`
+-- was wrong.
+--
+-- IT DELETES NOTHING ITSELF, exactly as `sole_host_events` does not. The bytes can only be
+-- removed through the Storage API with a service role (`storage.protect_delete()` refuses
+-- every direct SQL delete on `storage.objects`), so this answers the QUESTION and
+-- `supabase/functions/delete-account` -- which grew a `p_event` mode for it -- does the
+-- work.
+create or replace function public.is_event_founder(p_event uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1
+      from public.hosts h
+     where h.event_id = p_event
+       and h.auth_user_id = auth.uid()
+       and h.founder
+  );
+$$;
+
+revoke execute on function public.is_event_founder(uuid) from public, anon;
+grant execute on function public.is_event_founder(uuid) to authenticated;
+
+-- WHAT DELETING THIS ONE EVENT WOULD DESTROY, read before it is confirmed -- the same
+-- contract `my_deletion_impact()` has, narrowed to one party.
+--
+-- `co_hosts` IS THE FIELD THAT IS NOT IN THE ACCOUNT VERSION, and it is the one that changes
+-- the sentence. Account deletion KEEPS an event somebody else has a seat at; this one takes
+-- it, because she chose this party by name. So the confirmation has to say how many other
+-- people lose their seat -- a planner and a DJ who have been building a run of show all week
+-- are not a detail.
+--
+-- A NON-FOUNDER GETS ZEROS rather than an error: the sheet is never drawn for her, and a
+-- function that raised would make a read into something that can fail.
+create or replace function public.event_deletion_impact(p_event uuid)
+returns table (photos integer, guests integer, co_hosts integer)
+language sql stable security definer set search_path = public as $$
+  select
+    (select count(*)::integer from public.photos p
+      where p.event_id = p_event and public.is_event_founder(p_event)),
+    -- DISTINCT PEOPLE, never rows -- the same rule the account sentence follows.
+    (select count(distinct g.id)::integer from public.guests g
+      where g.event_id = p_event and public.is_event_founder(p_event)),
+    (select count(*)::integer from public.hosts h
+      where h.event_id = p_event
+        and h.auth_user_id is distinct from auth.uid()
+        and public.is_event_founder(p_event));
+$$;
+
+revoke execute on function public.event_deletion_impact(uuid) from public, anon;
+grant execute on function public.event_deletion_impact(uuid) to authenticated;
+
 -- MINTING A CREDENTIAL, and `random()` is not allowed to do it.
 --
 -- Postgres's random() is a fast PRNG (xoshiro256** since 15), seeded per session and
@@ -2117,8 +2195,10 @@ begin
 
   update public.events set active_folder_id = v_folder where id = v_event;
 
-  insert into public.hosts (event_id, auth_user_id, display_name, role, role_label)
-  values (v_event, auth.uid(), coalesce(nullif(btrim(p_host_name), ''), 'Host'), 'host', 'Host')
+  -- `founder` TRUE HERE AND NOWHERE ELSE. `invite_host` leaves the column at its default,
+  -- so the seat that created the party is the only one that can end it (#73).
+  insert into public.hosts (event_id, auth_user_id, display_name, role, role_label, founder)
+  values (v_event, auth.uid(), coalesce(nullif(btrim(p_host_name), ''), 'Host'), 'host', 'Host', true)
   returning id into v_host;
 
   v_key := public.mint_token(12);
