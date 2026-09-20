@@ -1852,6 +1852,10 @@ export class SupabaseRepository implements RunitRepository {
           startsAt: r.starts_at,
           timezone: r.timezone,
           doorsLabel: r.doors_label,
+          // Narrowed rather than cast: the column is `text` in SQL and the union is what
+          // the screens branch on, so a third value arriving should read as 'guest' (the
+          // lesser seat) rather than as staff.
+          seat: r.seat === 'host' ? ('host' as const) : ('guest' as const),
           role: r.role,
           roleLabel: r.role_label,
           guestCount: r.guest_count,

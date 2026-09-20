@@ -1482,6 +1482,39 @@ only in `src/domain/tiers.ts` is enforced by whichever client happens to be aski
 `src/domain/tiers.test.ts` re-parses the migration's seed to fail on drift between the two
 — the same shape as `tokens.test.ts` re-parsing `theme.css`.
 
+**THE LIST IS EVERY PARTY YOU ARE IN, NOT ONLY THE ONES YOU RUN (#76).** `my_events()` joined
+`hosts` only, which made leaving a party a ONE-WAY DOOR: a guest who left to go and make her
+own event could not find the one she left. Her `guests` row survives -- `join_event` is
+idempotent on `(event_id, auth_user_id)` and `closeEvent` keeps the identity -- so the seat
+was intact and reachable by nothing but the six-character code off a place card at a venue she
+had left. It carries guest seats now, with a `seat` column saying which. **`seat` is not a
+`role` value**: `hosts.role` is a closed set meaning permission GRADE, and folding 'guest' into
+it would make every policy reading `role` answer a question it was not asked. Guest rows carry
+NULL role and label -- the word "Guest" is rendered from `seat`, never invented into `hosts`
+data. A founder holding both seats at one event appears ONCE, as host.
+
+**AND THERE WAS NEVER A PERMISSION GATE ON HOSTING, only a missing door.** `create_event` is
+granted to `authenticated`, which an anonymous guest session already holds, so a guest can make
+an event with no email and no sign-in. What was missing: the app had exactly ONE link to
+`/create`, on the join screen, which a guest sees once -- before joining -- and reaching it
+again meant tapping Leave. The supply side's entire funnel ran through walking out. It is in
+the chat footer now, in the slot a HOST gets her console switch, addressed to a guest ("Want
+your own?") rather than to somebody who already has a party to run.
+
+**NO JOURNEY COULD RENDER A PLAIN GUEST, which is why that control could be deleted with the
+board green.** Every seed answers `holdsHostSeat: true` on purpose so the harness can reach the
+host artboards through `RoleSwitch`. **`?guest=1` boots `guestSeed`** -- the wedding seen by
+somebody who is only a guest, plus a second party she is a guest at. The second seat is not a
+workaround: `closeEvent` here keeps `event.current` set and the join screen's list passes
+`hideCurrent`, so the party you just left is the one row lane B will never draw. Lane E asserts
+that one instead.
+
+**A HARNESS WORLD HAS TO SURVIVE A REDIRECT.** The `?...=1` flags are read from
+`window.location.search` when the repository is built, so the guest layout's
+`<Redirect href="/join" />` silently REBOOTED the app into `weddingSeed` -- a world where the
+person is staff -- and the journey then asserted against a fixture it never asked for. It
+carries the search string through now; in the shipped app there is never one.
+
 **`session.holdsHostSeat` is not `session.current.kind`.** The first says which SEAT you
 hold, the second says which VIEW you are looking at. A host who switched to the guest side
 reads `kind: 'guest'` and still holds her seat. Gate a control on the wrong one and you

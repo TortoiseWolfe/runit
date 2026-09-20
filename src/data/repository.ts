@@ -210,10 +210,27 @@ export type EventPreview = Pick<
  * list does not see herself counted at her own party.
  */
 export interface HostedEvent extends EventPreview {
-  /** The permission grade: 'host', 'planner' or 'dj'. */
-  role: string;
-  /** The human label beside the name -- "Bride", "Head of Ops". Free text. */
-  roleLabel: string;
+  /**
+   * WHICH KIND OF SEAT, and it is a separate field from `role` on purpose -- #76.
+   *
+   * `hosts.role` is a closed set ('host','planner','dj') meaning PERMISSION GRADE. Whether
+   * you are staff or a guest is a different question, and folding 'guest' into that set
+   * would make every policy reading `role` answer a question it was not asked.
+   *
+   * It exists because this list used to hold host seats only, which made leaving a party a
+   * ONE-WAY DOOR: a guest who left to make her own event could not find the one she left.
+   * Her `guests` row survives -- `join_event` is idempotent and `closeEvent` keeps the
+   * identity -- so the seat was intact and reachable by nothing but the six-character code.
+   */
+  seat: 'host' | 'guest';
+  /** The permission grade: 'host', 'planner' or 'dj'. NULL for a guest seat. */
+  role: string | null;
+  /**
+   * The human label beside the name -- "Bride", "Head of Ops". Free text, and NULL for a
+   * guest: they hold no printed title, and inventing one would be `hosts` data that came
+   * from nowhere. A screen prints the word "Guest" from `seat` instead.
+   */
+  roleLabel: string | null;
   guestCount: number;
 }
 

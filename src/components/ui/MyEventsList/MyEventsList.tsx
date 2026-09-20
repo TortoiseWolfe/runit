@@ -1,5 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { useRouter } from 'expo-router';
+
 import { useEvent, useMyEvents } from '@/state/hooks';
 import { useSessionActions } from '@/state/actions';
 import { formatEventDate } from '@/lib/format';
@@ -25,9 +27,16 @@ import { alpha, eyebrow, radius, useTheme, weight } from '@/theme';
  * because a control that navigates you to where you already are is a control that looks
  * broken.
  *
- * IT DRAWS NOTHING WHEN THERE IS NOTHING, and that is the common case: most people who
- * open this app are guests who host no events, and an empty "Your events" heading on the
- * join screen would be a promise to them that the app does not mean.
+ * IT DRAWS NOTHING WHEN THERE IS NOTHING, and that is still the common case: somebody who
+ * has joined no party and runs none has an empty list, and a heading over it would be a
+ * promise the app does not mean.
+ *
+ * IT IS EVERY PARTY YOU ARE IN NOW, NOT ONLY THE ONES YOU RUN (#76), and that changed what
+ * this screen means. Host seats only made leaving a ONE-WAY DOOR: a guest who left to go and
+ * make her own event could not find the one she left, because her `guests` row is not a
+ * `hosts` row. The seat was intact and reachable by nothing but the six-character code off a
+ * place card at a venue she had left. A guest row prints "Guest" where a host row prints her
+ * title, and opening one puts her back in as a guest.
  */
 export function MyEventsList({
   heading = 'Your events',
@@ -44,11 +53,28 @@ export function MyEventsList({
   hideCurrent?: boolean;
 }) {
   const { tokens, fade } = useTheme();
+  const router = useRouter();
   const all = useMyEvents();
   const current = useEvent();
   const { openEvent } = useSessionActions();
 
   const events = hideCurrent ? all.filter((e) => e.id !== current?.id) : all;
+
+  /**
+   * OPENING A GUEST ROW HAS TO TAKE YOU INTO THE PARTY (#76).
+   *
+   * `openEvent` switches the context and navigates nowhere, which is right on the host
+   * console -- the console re-renders around the new event and you are already looking at
+   * it. From the join screen it is not: a guest tapping her party changed the world behind
+   * a screen that does not show it, so the tap read as dead.
+   *
+   * Only for a GUEST seat. A host row opening straight into the guest tabs would take the
+   * console away from somebody who was reaching for it.
+   */
+  const openRow = async (e: (typeof events)[number]) => {
+    await openEvent(e.id);
+    if (e.seat === 'guest') router.replace('/chat');
+  };
   // Nothing to show is nothing to draw -- an empty "Your events" heading on the join
   // screen would be a promise to the guests who are most of this app's users.
   if (events.length === 0) return null;
@@ -77,7 +103,13 @@ export function MyEventsList({
                 {/* The same three facts the join screen composes, in the same order, so a
                     host reading her list and then her party does not meet two different
                     descriptions of one evening. */}
-                {formatEventDate(e.startsAt, e.timezone)} · {e.roleLabel} ·{' '}
+                {/* THE SEAT, NOT A ROLE LABEL, for a party she merely joined (#76). A
+                    guest holds no permission grade and no printed title -- `my_events()`
+                    returns null for both -- so the word comes from `seat`, which is a
+                    statement about the seat rather than a value pretending to have come
+                    from `hosts`. */}
+                {formatEventDate(e.startsAt, e.timezone)} ·{' '}
+                {e.seat === 'host' ? e.roleLabel : 'Guest'} ·{' '}
                 {e.guestCount === 1 ? '1 guest' : `${e.guestCount} guests`}
               </Text>
             </View>
@@ -108,7 +140,7 @@ export function MyEventsList({
             testID={`my-event-${e.code}`}
             accessibilityRole="button"
             accessibilityLabel={`Open ${e.name}`}
-            onPress={() => void openEvent(e.id)}
+            onPress={() => void openRow(e)}
             hitSlop={4}
             style={[s.card, { borderColor: tokens.base300 }]}
           >

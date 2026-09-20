@@ -1757,7 +1757,7 @@ end $$;
 revoke execute on function public.claim_host(text, text) from public, anon;
 
 -- ------------------------------------------------------------------------
--- THE EVENTS THIS PERSON HOSTS (#17)
+-- THE EVENTS THIS PERSON IS IN (#17, widened by #76)
 -- ------------------------------------------------------------------------
 --
 -- WHY A FUNCTION RATHER THAN A SELECT, and it is not a style choice: #34 revoked
@@ -1777,6 +1777,26 @@ revoke execute on function public.claim_host(text, text) from public, anon;
 -- "where am I staff?" -- and a DJ invited through `invite_host` needs the way back just as
 -- much as the founder does. A co-host's seat carries `auth_user_id` NULL until `claim_host`
 -- binds it, so an unclaimed invitation correctly does not appear here for anybody.
+-- EVERY PARTY THIS PERSON IS IN, not only the ones they run -- #17, widened by #76.
+--
+-- IT LISTED HOST SEATS ONLY, AND THAT MADE LEAVING A ONE-WAY DOOR. A guest who left a party
+-- to go and make their own could not find the one they left: their `guests` row survives
+-- (`join_event` is idempotent on `(event_id, auth_user_id)` and `closeEvent` keeps the
+-- identity), so the seat was intact and unreachable, and the only route back was the
+-- six-character code off a place card at a venue they had left.
+--
+-- That is the supply side's whole problem in one query. The path this product grows along is
+-- guest -> host: somebody enjoys a party and wants their own. Making that step cost them the
+-- party they were enjoying is the most expensive possible toll.
+--
+-- `seat` IS A NEW COLUMN RATHER THAN A ROLE VALUE. `hosts.role` is a closed set
+-- ('host','planner','dj') and means PERMISSION GRADE; whether you are staff or a guest is a
+-- different question, and folding 'guest' into that check constraint would make every
+-- policy reading `role` answer a question it was not asked.
+--
+-- A FOUNDER WHO TOOK A GUEST SEAT HOLDS BOTH (#37) and must appear ONCE, as host. The
+-- `not exists` below is what does it: listing her twice would show two rows with one name,
+-- one of them offering less than she has.
 create or replace function public.my_events()
 returns table (
   event_id    uuid,
@@ -1786,19 +1806,42 @@ returns table (
   starts_at   timestamptz,
   timezone    text,
   doors_label text,
+  seat        text,
   role        text,
   role_label  text,
   guest_count integer
 )
 language sql stable security definer set search_path = public as $$
+  select * from (
   select e.id, e.code, e.name, e.venue, e.starts_at, e.timezone, e.doors_label,
-         h.role, h.role_label, public.guest_seats(e.id)
+         'host' as seat, h.role, h.role_label, public.guest_seats(e.id) as guest_count
     from public.hosts h
     join public.events e on e.id = h.event_id
    where h.auth_user_id = auth.uid()
+
+  union all
+
+  -- NULL role and role_label, not a made-up label. A guest holds no permission grade and no
+  -- printed title; the client renders the word "Guest" from `seat`, which is a statement
+  -- about the seat rather than a value pretending to have come from `hosts`.
+  select e.id, e.code, e.name, e.venue, e.starts_at, e.timezone, e.doors_label,
+         'guest', null, null, public.guest_seats(e.id)
+    from public.guests g
+    join public.events e on e.id = g.event_id
+   where g.auth_user_id = auth.uid()
+     and not exists (
+       select 1 from public.hosts h2
+        where h2.event_id = g.event_id and h2.auth_user_id = auth.uid()
+     )
+  ) seats
    -- Soonest first, and future before past: the event you are walking into tonight is the
    -- one you are opening the app for. `starts_at desc` would bury it under last year.
-   order by (e.starts_at < now()), e.starts_at;
+   --
+   -- THE UNION IS WRAPPED FOR THIS LINE. Postgres allows only result COLUMN NAMES in a
+   -- set operation's ORDER BY -- `order by (starts_at < now())` on the union itself is
+   -- 0A000, "Only result column names can be used, not expressions or functions". The
+   -- subquery gives the expression something to sort.
+   order by (seats.starts_at < now()), seats.starts_at;
 $$;
 
 -- Definer, so the revoke is the whole access control. `authenticated` only: an anonymous

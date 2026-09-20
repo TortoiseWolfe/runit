@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { useRouter } from 'expo-router';
 import {
   type LayoutChangeEvent,
   type NativeScrollEvent,
@@ -13,7 +14,7 @@ import {
 import type { BroadcastId } from '@/data/types';
 import { useChatActions } from '@/state/actions';
 import { useEvent, useFeed, useHoldsHostSeat } from '@/state/hooks';
-import { alpha, border, useTheme } from '@/theme';
+import { alpha, border, useTheme, weight } from '@/theme';
 import { RoleSwitch } from '@/components/ui/RoleSwitch';
 import { LeaveSheet } from '@/features/session/LeaveSheet';
 import { BroadcastBubble } from './BroadcastBubble';
@@ -33,6 +34,7 @@ import { NowNextCard } from './NowNextCard';
  * the guest arrives by an invitation that is always on screen.
  */
 export function ChatScreen() {
+  const router = useRouter();
   const { tokens, fade } = useTheme();
   const feed = useFeed();
   const event = useEvent();
@@ -159,7 +161,39 @@ export function ChatScreen() {
           The way IN for a real host is untouched: a host key on the join screen, or
           creating the event. This removes a door that was painted on.
         */}
-        {holdsHostSeat ? <RoleSwitch /> : null}
+        {holdsHostSeat ? (
+          <RoleSwitch />
+        ) : (
+          /*
+            THE SAME SLOT, THE RIGHT CONTROL FOR WHO YOU ARE (#76).
+
+            A host gets the way to her console here. A guest got NOTHING -- and the only
+            door to making an event in the whole app was one quiet link on the join screen,
+            which a guest sees once, before they join, and never again. Reaching it meant
+            tapping Leave, which tears down the party they are standing in. So the supply
+            side's entire funnel ran through the act of walking out.
+
+            THE COPY IS ADDRESSED TO A GUEST, which is the half that was really missing.
+            The join screen's link reads "Running an event? Make one" -- true, and written
+            for somebody who already has one to run. The person worth reaching is at a
+            wedding having a good time and does not think of themselves as a host yet.
+
+            AND IT COSTS THEM NOTHING NOW: `my_events()` carries guest seats, so the party
+            they are at is in their list and the way back is a tap rather than a
+            six-character code they no longer have.
+          */
+          <Pressable
+            onPress={() => router.push('/create')}
+            accessibilityRole="button"
+            accessibilityLabel="Create an event you are hosting"
+            hitSlop={8}
+            testID="guest-make-your-own"
+          >
+            <Text style={[s.footerText, { color: tokens.primary, fontWeight: weight.semibold }]}>
+              Want your own? →
+            </Text>
+          </Pressable>
+        )}
       </View>
       <LeaveSheet visible={leaving} onClose={() => setLeaving(false)} />
     </View>
