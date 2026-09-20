@@ -385,12 +385,27 @@ is what exposed it -- the gate cried "half-configured" over a correctly-configur
 today, `_dmarc` still at `p=none` -- prints `todo:` and stays green. Devaluing the word is how
 a summary stops being read.
 
-**DMARC IS STAGED: `p=none` NOW, `p=reject` ONCE A REAL SEND IS READ BACK.** The plan said
-reject immediately, reasoning that our mail is 100% Resend and therefore aligned. Sound, and
-still an assertion -- no mail had been sent, so nothing had observed the alignment it rests
-on. The cost of being wrong at reject is the first sign-in code refused outright rather than
-junked. Publishing our own `_dmarc` at all is the point: without it the subdomain inherits the
-neighbour's policy and could not be enforced independently of it.
+**DMARC IS AT `p=reject` SINCE 2026-09-20, AND THE STAGING WAS THE POINT.** It published at
+`p=none` first: the plan said reject immediately, reasoning that our mail is 100% Resend and
+therefore aligned -- sound, and still an ASSERTION, because no mail had been sent and nothing
+had watched a receiver agree. The cost of being wrong at reject is the first sign-in code
+refused outright rather than junked. What raised it is a message read out of the inbox, sent
+16:37Z on 2026-09-20: `dkim=pass header.i=@runit.scripthammer.com header.s=resend`, `spf=pass`
+on the bounce label, `dmarc=pass`. Both authentications pass and both align, so reject changes
+what a receiver does with a forgery and nothing about our own mail. Publishing our own
+`_dmarc` at all is what makes this possible: without it the subdomain inherits the neighbour's
+policy and cannot be enforced independently of it.
+
+**THE GATE COMPARES LIVE AGAINST DECLARED NOW, and the downgrade is the case worth catching.**
+`DMARC_POLICY` is exported from `dns-intent.mjs` so the gate and the applier read the same
+word. Weaker-than-declared is a FAILURE; `p=none` is only a `todo:` while the FILE also says
+none. The first version hardcoded the staging, so a policy silently weakened back to none --
+a dashboard edit, a restored zone file, a provider's "fix your DNS" wizard -- would have
+printed a polite reminder to go and do the thing that had just been undone, and nothing
+visibly breaks when it happens. **`pnpm audit:mail --selftest` runs on every board** because
+live and declared now both read `reject`, so every real run takes the ok path and the
+downgrade branch would otherwise be unreachable and untested forever. Eight synthetic cases;
+deleting the weaker-than check kills two.
 
 **EVERY MAIL GATE HERE IS GREEN OVER A MAILER THAT CANNOT SEND** -- measured 2026-09-13, and
 it is the sharpest example in this repo of a gate that reports green having measured the wrong

@@ -154,6 +154,13 @@ lane "lane G -- the invitation host serves OUR association file" \
 # signs, and -- the half no other repo checks -- that ScriptHammer's INBOUND mail is
 # undisturbed by us being a guest on its zone. It skips LOUDLY on the first half until the
 # Resend domain exists (#18).
+# The free half first, for the reason the SQL check runs before lane E: an unreachable
+# resolver must not be able to skip the logic that needs no network. It is also the only
+# way the DOWNGRADE branch is reachable at all -- live and declared both read `reject`, so
+# every real run takes the ok path and a mutation there would sit green forever.
+step "mail policy selftest  (the DMARC comparison, on synthetic inputs)"
+node tools/check-mail-policy.mjs --selftest
+
 step "mail policy  (the sending domain, and the neighbour it must not break)"
 lane "mail policy -- our sending domain is not live yet" \
   node tools/check-mail-policy.mjs

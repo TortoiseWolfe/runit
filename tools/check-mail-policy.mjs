@@ -31,7 +31,7 @@
  *   pnpm audit:mail
  */
 
-import { BOUNCE_DOMAIN, SENDING_DOMAIN, ZONE } from './dns-intent.mjs';
+import { BOUNCE_DOMAIN, DMARC_POLICY, SENDING_DOMAIN, ZONE } from './dns-intent.mjs';
 
 const DOH = 'https://cloudflare-dns.com/dns-query';
 
@@ -70,6 +70,12 @@ const PARENT = process.env.MAIL_PARENT_DOMAIN || ZONE;
 const red = (s) => `\x1b[31m${s}\x1b[0m`;
 const green = (s) => `\x1b[32m${s}\x1b[0m`;
 const yellow = (s) => `\x1b[33m${s}\x1b[0m`;
+
+/**
+ * BEFORE THE NETWORK, so the free half cannot be skipped by an unreachable resolver. Same
+ * placement `run-checks.sh` gives the static SQL check ahead of lane E's expensive half.
+ */
+if (process.argv.includes('--selftest')) selftest();
 
 async function query(name, type) {
   const res = await fetch(`${DOH}?name=${encodeURIComponent(name)}&type=${type}`, {
@@ -201,16 +207,99 @@ if (!configured) {
     );
   } else if (!/\bp=/.test(dmarc41)) {
     fail(`_dmarc.${INTENDED.sending} declares no policy tag: "${dmarc41}"`);
-  } else if (/\bp=none\b/.test(dmarc41)) {
-    // NOT a failure. `p=none` is the correct first step and the raise is a one-word diff in
-    // dns-intent.mjs once a real send has been read back -- but an unraised policy that
-    // nobody remembers is how a domain sits unenforced for a year.
-    reminders.push(
-      `_dmarc.${INTENDED.sending} is still p=none. Raise it to p=reject in ` +
-        `tools/dns-intent.mjs once Authentication-Results on a real message shows ` +
-        `dkim=pass with d=${INTENDED.sending}.`,
-    );
+  } else {
+    /**
+     * LIVE AGAINST DECLARED, rather than against a word written here.
+     *
+     * The first version of this branch hardcoded the staging: any `p=none` was a polite
+     * `todo:` and anything stronger passed silently. So once `dns-intent.mjs` was raised to
+     * `reject`, a live policy SILENTLY DOWNGRADED back to `none` -- by a dashboard edit, a
+     * restored zone file, a provider's "fix your DNS" wizard -- would have printed a
+     * reminder to go and do the thing that had just been undone. A gate that cannot tell
+     * "not there yet" from "someone took it away" is not measuring the intent at all.
+     *
+     * So the comparison is against `DMARC_POLICY`, the same export the applier writes from.
+     * Weaker than declared is a FAILURE; still staged at none WHILE the file says none is
+     * the reminder, which is the case it was written for.
+     */
+    const v = dmarcVerdict(dmarc41, DMARC_POLICY);
+    if (v.kind === 'unreadable') {
+      fail(`_dmarc.${INTENDED.sending} declares no policy this tool understands: "${dmarc41}"`);
+    } else if (v.kind === 'weaker') {
+      fail(
+        `_dmarc.${INTENDED.sending} is live at p=${v.live} and this repo declares ` +
+          `p=${v.declared}. A policy does not weaken by itself: either somebody edited the ` +
+          `zone, or \`pnpm dns:apply\` has not run. \`pnpm dns:plan\` shows the diff.`,
+      );
+    } else if (v.kind === 'staged') {
+      // Declared none AND live none: the staging is deliberate and outstanding. An unraised
+      // policy nobody remembers is how a domain sits unenforced for a year.
+      reminders.push(
+        `_dmarc.${INTENDED.sending} is still p=none. Raise it to p=reject in ` +
+          `tools/dns-intent.mjs once Authentication-Results on a real message shows ` +
+          `dkim=pass with d=${INTENDED.sending}.`,
+      );
+    }
   }
+}
+
+/**
+ * LIVE DMARC POLICY vs THE ONE THIS REPO DECLARES.
+ *
+ * EXTRACTED SO IT CAN BE TESTED AT ALL, which is the same move `check-auth-config.mjs` made
+ * and for the same reason: the interesting branch is unreachable in a normal run. Live and
+ * declared now both read `reject`, so every real invocation takes the `ok` path and a
+ * mutation to the comparison would sit green forever -- and the branch that would be dead is
+ * precisely the one that catches somebody weakening the policy.
+ *
+ * THE DOWNGRADE IS THE CASE WORTH CATCHING. A DMARC policy does not weaken by itself, and
+ * when one does -- a dashboard edit, a restored zone file, a provider's "fix your DNS"
+ * wizard -- nothing visibly breaks: mail still flows, and the protection is simply gone. The
+ * first version of this branch treated any `p=none` as a polite reminder to go and raise it,
+ * which would have read as a to-do item over an undone decision.
+ */
+export function dmarcVerdict(record, declared) {
+  const strength = { none: 0, quarantine: 1, reject: 2 };
+  const live = /\bp=(none|quarantine|reject)\b/.exec(record ?? '')?.[1];
+  if (!live) return { kind: 'unreadable' };
+  if (strength[live] < strength[declared]) return { kind: 'weaker', live, declared };
+  // Declared none and live none: staged on purpose, and outstanding.
+  if (live === 'none') return { kind: 'staged', live, declared };
+  return { kind: 'ok', live, declared };
+}
+
+/** Synthetic cases for the verdict above. No network, no credential. */
+function selftest() {
+  const fails = [];
+  let cases = 0;
+  const check = (name, cond) => { cases += 1; if (!cond) fails.push(name); };
+
+  check('live reject under a declared reject is ok',
+    dmarcVerdict('v=DMARC1; p=reject; adkim=s', 'reject').kind === 'ok');
+  // THE ONE THAT MATTERS. This is today's live state downgraded by somebody else.
+  check('live none under a declared reject is a FAILURE, not a reminder',
+    dmarcVerdict('v=DMARC1; p=none; adkim=s', 'reject').kind === 'weaker');
+  check('live quarantine under a declared reject is also weaker',
+    dmarcVerdict('v=DMARC1; p=quarantine', 'reject').kind === 'weaker');
+  check('live reject under a declared none is NOT a failure',
+    dmarcVerdict('v=DMARC1; p=reject', 'none').kind === 'ok');
+  check('none while none is declared is the staged reminder',
+    dmarcVerdict('v=DMARC1; p=none', 'none').kind === 'staged');
+  check('a record with no policy tag is unreadable, not assumed',
+    dmarcVerdict('v=DMARC1; rua=mailto:x@y', 'reject').kind === 'unreadable');
+  check('an absent record is unreadable rather than throwing',
+    dmarcVerdict(undefined, 'reject').kind === 'unreadable');
+  // `p=nonesuch` must not match `none` through a loose regex and read as a live policy.
+  check('a policy word that merely starts with one is not that one',
+    dmarcVerdict('v=DMARC1; p=nonesuch', 'reject').kind === 'unreadable');
+
+  if (fails.length) {
+    console.error(red(`FAIL: ${fails.length} mail-policy selftest case(s).`));
+    for (const f of fails) console.error(`  ${f}`);
+    process.exit(1);
+  }
+  console.log(green(`ok: DMARC policy comparison passes ${cases} synthetic cases`));
+  process.exit(0);
 }
 
 /* ------------------------------------------------------------------------ report */
