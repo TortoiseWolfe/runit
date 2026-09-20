@@ -32,6 +32,7 @@
     "checks:docker": "docker compose run --rm checks",
     "checks:shell": "docker compose run --rm shell",
     "export:web": "EXPO_PUBLIC_FIDELITY=1 expo export --platform web --output-dir dist --clear",
+    "feedback:app": "node tools/app-feedback-to-issues.mjs",
     "feedback:sync": "node tools/feedback-to-issues.mjs",
     "testers": "node tools/testflight-testers.mjs",
     "ios": "expo run:ios",

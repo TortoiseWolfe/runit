@@ -3239,3 +3239,75 @@ create trigger guest_blocks_stamp_name
   for each row execute function public.stamp_block_name();
 
 revoke execute on function public.stamp_block_name() from public, anon, authenticated;
+
+-- ========================================================================
+-- WHAT A CUSTOMER TELLS US -- #77
+-- ========================================================================
+--
+-- `tools/feedback-to-issues.mjs` already turns a TestFlight tester's words into a GitHub
+-- issue with their device and their screenshot, and its docblock calls itself "the channel
+-- for testers who have no terminal". IT STOPS WORKING THE DAY THE APP SHIPS: TestFlight
+-- feedback exists only for beta builds, and a real customer's only route to us is a support
+-- URL pointing at a static page. Nobody at a party opens a browser and composes an email.
+--
+-- THE GITHUB TOKEN STAYS OUT OF THE SERVER, and that is why this is a table rather than a
+-- third Edge Function beside `send-push` and `delete-account`. Those hold a SERVICE ROLE,
+-- which is this project's own secret; a GitHub token is an account-wide credential for a
+-- different system, and the narrowest one that can file an issue can also read every private
+-- repo it is scoped to. The app writes a row; `pnpm feedback:sync` files the issue from a
+-- laptop, where `gh auth token` already works and the existing tool already dedupes.
+--
+-- NO SELECT POLICY, deliberately, and it is the `guests` shape rather than an oversight. The
+-- person reporting a bug has no reason to read the queue, and a queue readable by any guest
+-- is a list of other people's complaints.
+create table public.feedback (
+  id           uuid primary key default gen_random_uuid(),
+  -- WHO, ONLY AS AN OPAQUE IDENTITY. No nickname, no email. `feedback-to-issues.mjs`
+  -- deliberately drops `testerEmail` for the reason that applies here twice over: a private
+  -- repo can be made public and git history is forever.
+  auth_user_id uuid not null references auth.users(id) on delete cascade,
+  -- Which party they were in, so it can be reproduced. Null for somebody who never joined
+  -- one, which is exactly the person most likely to be reporting that joining did not work.
+  event_id     uuid references public.events(id) on delete set null,
+  body         text not null check (btrim(body) <> '' and length(body) <= 2000),
+  -- Device, build, route, connection. Shaped by the client and kept as jsonb because this
+  -- is EVIDENCE rather than state: nothing here is read by a policy or a trigger, and a
+  -- column per field would be a migration every time a new phone detail is worth having.
+  context      jsonb not null default '{}'::jsonb,
+  created_at   timestamptz not null default now()
+);
+
+alter table public.feedback enable row level security;
+
+-- INSERT ONLY, AND ONLY AS YOURSELF. There is no select, update or delete policy for any
+-- client role: this table is written by people and read by a maintainer with a service role.
+create policy feedback_insert_self on public.feedback
+  for insert to authenticated
+  with check (auth_user_id = auth.uid());
+
+-- ONE IDENTITY, SIX AN HOUR. An endpoint that files GitHub issues is an endpoint somebody
+-- can fill, and the publishable key is compiled into the bundle -- so the cap is in the
+-- database rather than in a client that an attacker is not obliged to run.
+--
+-- SIX, NOT ONE. A person hitting a real bug reports it, tries something, and reports what
+-- happened next; a cap of one would silence the most useful reporter in the product. The
+-- number is high enough to never be met by somebody acting in good faith and low enough that
+-- filling the tracker takes longer than it is worth.
+create or replace function public.feedback_rate_limit() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare n int;
+begin
+  select count(*) into n from public.feedback f
+   where f.auth_user_id = new.auth_user_id
+     and f.created_at > now() - interval '1 hour';
+  if n >= 6 then
+    raise exception 'feedback_too_often' using errcode = '54023';
+  end if;
+  return new;
+end $$;
+
+create trigger feedback_rate_limit
+  before insert on public.feedback
+  for each row execute function public.feedback_rate_limit();
+
+revoke execute on function public.feedback_rate_limit() from public, anon, authenticated;
