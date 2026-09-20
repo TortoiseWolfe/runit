@@ -87,6 +87,115 @@ beforeEach(() => {
   global.fetch = jest.fn(async () => ({ arrayBuffer: async () => new ArrayBuffer(8) })) as never;
 });
 
+/* ------------------------------------------------------------------- host sign-in */
+
+/**
+ * THE BRANCH THAT DESTROYS AN EVENT, TESTED WHERE IT IS DECIDED (#18).
+ *
+ * `requestEmailCode` chooses between two Supabase calls and the wrong one is silently
+ * destructive: for a host still holding the anonymous identity her seat is bound to,
+ * `signInWithOtp` succeeds, delivers a code, and mints a DIFFERENT uid -- her event survives
+ * in the database reachable by nothing but its recovery key, with no error anywhere.
+ *
+ * THE SEAM COMMIT SAID ONLY LANE H COULD SEE THIS, and that was true of the fixture rather
+ * than of the adapter: `MemoryRepository` has no uids to lose, and the sixteen journeys ran
+ * against it. But the DECISION lives here, in this file's own object, and a fake that
+ * records what was sent can watch it -- so the mutation that survived the screen's tests
+ * (hardcoding `sign_in`) dies against these. Lane H is still the only thing that can prove
+ * the uid actually survives; this proves the call that decides it.
+ */
+describe('host sign-in chooses between two calls, and one of them is destructive', () => {
+  it('attaches the address to an anonymous host, keeping the uid her seat is bound to', async () => {
+    const c = ready();
+    c.user = { id: 'auth-user', is_anonymous: true };
+    const repo = build(c);
+
+    await expect(repo.session.requestEmailCode('ruth@example.com')).resolves.toBe('attach');
+
+    expect(c.authCalls).toEqual([
+      ['getUser', undefined],
+      ['updateUser', { email: 'ruth@example.com' }],
+    ]);
+  });
+
+  it('signs a returning host in, when the identity on this phone is already an account', async () => {
+    const c = ready();
+    c.user = { id: 'auth-user', is_anonymous: false };
+    const repo = build(c);
+
+    await expect(repo.session.requestEmailCode('ruth@example.com')).resolves.toBe('sign_in');
+
+    // updateUser is never reached: it would move the address of an account she is already
+    // signed into, which is a different act from signing in.
+    expect(c.authCalls.map(([name]) => name)).toEqual(['getUser', 'signInWithOtp']);
+    // A host whose seat exists under an anonymous uid has no account to find, so refusing
+    // to create one would make sign-in work only for people who had already signed in.
+    expect(c.authCalls.find(([name]) => name === 'signInWithOtp')?.[1]).toEqual({
+      email: 'ruth@example.com',
+      options: { shouldCreateUser: true },
+    });
+  });
+
+  it('falls back to signing in when the address already belongs to somebody', async () => {
+    const c = ready();
+    c.user = { id: 'auth-user', is_anonymous: true };
+    c.failNextUpdateUser = authApiError('email_exists', 422);
+    const repo = build(c);
+
+    // Not an error. A second phone, a reinstall, an event made months ago -- without this
+    // she is told her own address is unusable.
+    await expect(repo.session.requestEmailCode('ruth@example.com')).resolves.toBe('sign_in');
+    expect(c.authCalls.map(([name]) => name)).toEqual(['getUser', 'updateUser', 'signInWithOtp']);
+  });
+
+  it('refuses an empty address here rather than sending a code to nowhere', async () => {
+    const c = ready();
+    const repo = build(c);
+    await expect(repo.session.requestEmailCode('   ')).rejects.toMatchObject({
+      reason: 'needs_an_email',
+    });
+    expect(c.authCalls).toEqual([]);
+  });
+
+  it('verifies an attach as email_change and a sign-in as email, which is the whole point of carrying the mode', async () => {
+    const c = ready();
+    const repo = build(c);
+
+    await repo.session.submitEmailCode({ email: 'ruth@example.com', code: '424242', mode: 'attach' });
+    await repo.session.submitEmailCode({ email: 'ruth@example.com', code: '424242', mode: 'sign_in' });
+
+    const types = c.authCalls
+      .filter(([name]) => name === 'verifyOtp')
+      .map(([, args]) => (args as { type: string }).type);
+    // `email_change` is what updateUser({ email }) issues and `email` is what signInWithOtp
+    // issues. Sending the wrong one REJECTS A CORRECT CODE.
+    expect(types).toEqual(['email_change', 'email']);
+  });
+
+  it('reads a refused code as a bad code rather than as a broken session', async () => {
+    const c = ready();
+    c.failNextVerifyOtp = authApiError('otp_expired', 403);
+    const repo = build(c);
+
+    // Wrong, expired and replayed all arrive as 403 and share one remedy, so they share
+    // one sentence -- see JOIN_COPY.
+    await expect(
+      repo.session.submitEmailCode({ email: 'ruth@example.com', code: '000000', mode: 'sign_in' }),
+    ).rejects.toMatchObject({ reason: 'bad_email_code' });
+  });
+
+  it('refreshes the events list after signing in, because my_events filters on auth.uid()', async () => {
+    const c = ready();
+    const repo = build(c);
+
+    await repo.session.submitEmailCode({ email: 'ruth@example.com', code: '424242', mode: 'sign_in' });
+
+    // Without this she signs in and is shown the PREVIOUS identity's empty list -- her
+    // parties are all still there and none of them is on screen.
+    expect(c.ops.some((op) => op.kind === 'rpc' && op.table === 'my_events')).toBe(true);
+  });
+});
+
 /* ------------------------------------------------------------------------ auth */
 
 describe('joining', () => {
