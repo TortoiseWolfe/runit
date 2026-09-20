@@ -996,6 +996,31 @@ export class MemoryRepository implements RunitRepository {
     };
   }
 
+  /**
+   * #77. The fixture keeps what was sent, because the only claim a journey can honestly make
+   * about feedback is that the screen HANDED IT OVER -- there is no tracker here and no
+   * GitHub, and inventing an issue number would be the fixture being kinder than the world.
+   */
+  private sentFeedback: { body: string; context?: Record<string, unknown> }[] = [];
+
+  /** What `feedback.send` received, for the tests that prove the screen reached the seam. */
+  feedbackSent(): { body: string; context?: Record<string, unknown> }[] {
+    return [...this.sentFeedback];
+  }
+
+  feedback = {
+    send: async (input: { body: string; context?: Record<string, unknown> }) => {
+      const body = input.body.trim();
+      // THE SAME TWO RULES THE DATABASE HAS, because a fixture kinder than the backend is
+      // the one thing this adapter exists not to be -- #66's nameless guest and #18's
+      // mismatched mode were both this mistake. `feedback.body` is `check (btrim <> '')`
+      // with a 2000 cap, and the trigger refuses a seventh report in an hour.
+      if (!body) throw new JoinError('needs_a_name');
+      if (this.sentFeedback.length >= 6) throw new JoinError('reported_too_often');
+      this.sentFeedback.push({ body, context: input.context });
+    },
+  };
+
   invitees = {
     all: undefined as unknown as Observable<Invitee[]>,
 

@@ -71,7 +71,8 @@ export type JoinReason =
   | 'code_too_soon'
   | 'session_unavailable'
   | 'offline'
-  | 'rate_limited';
+  | 'rate_limited'
+  | 'reported_too_often';
 
 /**
  * The one place a join failure's wording lives.
@@ -141,6 +142,11 @@ const JOIN_COPY: Record<JoinReason, string> = {
   session_unavailable: 'Sign-in is unavailable right now. Your code is fine — this is on us.',
   offline: "Can't reach the network. Check your connection and try again.",
   rate_limited: 'Too many people joining at once. Wait a moment and try again.',
+  // ITS OWN SENTENCE, not `rate_limited`. That one reads "Too many people joining at once",
+  // which is true at a door with forty guests on one wifi and nonsense shown to one person
+  // who has just sent their sixth report -- the reason/message contradiction this table was
+  // built to make impossible (#18's `code_too_soon` is the same call).
+  reported_too_often: "Thanks — that's several reports in a row. Give it an hour and tell us anything else.",
 };
 
 /**
@@ -504,6 +510,34 @@ export interface RunitRepository {
      * DRAWN, and a screen cannot await an answer during render.
      */
     holdsHostSeat: Observable<boolean>;
+  };
+
+  /**
+   * TELLING US SOMETHING WENT WRONG -- #77.
+   *
+   * `tools/feedback-to-issues.mjs` is "the channel for testers who have no terminal", and it
+   * stops working the day the app leaves TestFlight: that feedback exists only for beta
+   * builds. After launch a customer's only route to us is a support URL on a static page,
+   * which nobody at a party is going to open.
+   *
+   * IT WRITES A ROW, NOT A GITHUB ISSUE. The token that files an issue is a credential for
+   * somebody else's system, and the narrowest one that can post to a tracker can also read
+   * every private repo it is scoped to -- so it stays on a laptop, where `pnpm feedback:sync`
+   * already runs and already dedupes. The app's job is to catch the person while they are
+   * still annoyed enough to say something.
+   */
+  feedback: {
+    /**
+     * `context` is EVIDENCE, not state: build, device, route, connection. The adapter adds
+     * what only it can see; the caller adds what only the screen knows.
+     *
+     * NOTHING IDENTIFYING TRAVELS WITH IT. No nickname, no address, nobody else's name --
+     * the same rule `feedback-to-issues.mjs` follows when it drops `testerEmail`, and it
+     * matters twice as much here because a private repo can be made public later.
+     *
+     * Rejects with `JoinError('reported_too_often')` when the per-identity cap refuses it.
+     */
+    send(input: { body: string; context?: Record<string, unknown> }): Promise<void>;
   };
 
   /**

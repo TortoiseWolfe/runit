@@ -463,6 +463,32 @@ export function useAccountActions() {
  * be taken back, and it belongs beside its own confirmation rather than in the bag of
  * everything a host can adjust.
  */
+/**
+ * TELLING US SOMETHING WENT WRONG -- #77. The channel that replaces TestFlight's at launch.
+ */
+export function useFeedbackActions() {
+  const repo = useRepository();
+  const { show } = useToast();
+  return useMemo(
+    () => ({
+      /** True on success. The sheet closes; this does not close it. */
+      send: async (body: string, context?: Record<string, unknown>): Promise<boolean> => {
+        try {
+          await repo.feedback.send({ body, context });
+          // SAYING THANK YOU IS THE FEATURE. Somebody who reports a bug into silence does
+          // not report the second one, and the second one is usually the better report.
+          show('Thanks — that went straight to the people who build this.');
+          return true;
+        } catch (e) {
+          show(e instanceof Error ? e.message : 'Could not send that.');
+          return false;
+        }
+      },
+    }),
+    [repo, show],
+  );
+}
+
 export function useEventActions() {
   const repo = useRepository();
   const { show } = useToast();

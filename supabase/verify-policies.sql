@@ -2353,6 +2353,49 @@ begin
 
   delete from public.hosts where id = iv.host_id;
 
+  ------------------------------------------------ WHAT A CUSTOMER TELLS US (#77)
+  -- The channel that replaces TestFlight's the day the app ships. It is insert-only for
+  -- every client role, capped per identity, and carries no name or address.
+  perform set_config('request.jwt.claims', json_build_object('sub',cuid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+
+  insert into public.feedback (auth_user_id, event_id, body, context)
+  values (cuid, ce2.event_id, 'The join code would not take', '{"build":"14"}'::jsonb);
+  get diagnostics n = row_count;
+  out := out || format('%s a person can report a problem (%s rows, want 1)',
+                       case when n = 1 then 'PASS' else 'FAIL' end, n);
+
+  -- AS YOURSELF ONLY. Without the `with check` a client could file under somebody else's
+  -- identity, which is how a complaint gets attributed to the person it is about.
+  begin
+    insert into public.feedback (auth_user_id, body) values (nuid, 'not mine to file');
+    out := out || format('FAIL somebody can report AS another identity');
+  exception when others then
+    out := out || format('%s and cannot file under somebody else (%s)',
+                         case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  -- AND NOBODY CAN READ THE QUEUE. No select policy at all, the `guests` shape: a queue a
+  -- guest could read is a list of other people's complaints.
+  select count(*) into n from public.feedback;
+  out := out || format('%s and nobody can read what anyone else reported (%s, want 0)',
+                       case when n = 0 then 'PASS' else 'FAIL' end, n);
+
+  -- THE CAP IS IN THE DATABASE, because the publishable key is in the bundle and a client
+  -- is not obliged to run our rate limiting.
+  begin
+    for i in 1..8 loop
+      insert into public.feedback (auth_user_id, body) values (cuid, format('report %s', i));
+    end loop;
+    out := out || format('FAIL one identity filled the tracker unchecked');
+  exception when others then
+    out := out || format('%s and one identity cannot fill the tracker (%s)',
+                         case when sqlstate = '54023' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  execute 'reset role';
+  delete from public.feedback where auth_user_id in (cuid, nuid);
+
   select count(*) into fails from unnest(out) x where x like 'FAIL%';
   raise exception using message =
     format('%s FAILURE(S). %s', fails, array_to_string(out, E'\n  '));

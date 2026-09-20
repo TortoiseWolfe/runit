@@ -998,6 +998,44 @@ native. A green run does **not** mean iOS is fine. Real iOS verification needs
 EAS Build onto a physical device. Do not let anyone read a green check as iOS
 coverage.
 
+## The customer channel, and the tester one it outlives
+
+**`public.feedback` + `pnpm feedback:app` (#77).** `feedback-to-issues.mjs` below calls itself
+"the channel for testers who have no terminal" and is right; it stops working the day the app
+leaves TestFlight, because that feedback exists only for beta builds. After launch a
+customer's only route to us is a support URL on a static page, which nobody standing in a
+party is going to open.
+
+**THE CONTROL IS ON THE JOIN SCREEN, NOT INSIDE THE PARTY, and that placement is the whole
+point.** The person most worth hearing from is the one who CANNOT GET IN -- they never reach a
+tab. "The code would not take" is exactly the report this product has been missing since
+2026-09-11, when a real party produced zero anonymous sign-ins and nobody could say why. The
+first draft put it in the chat footer, where it displaced *"Announcements only · hosts post
+here"* -- and `guest-chat.spec.ts` went red, correctly: that line is what tells a guest why
+there is no compose box.
+
+**THE GITHUB TOKEN NEVER REACHES A SERVER.** `send-push` and `delete-account` hold the SERVICE
+ROLE, which is this project's own secret; a token that can file an issue is a credential for
+somebody else's system, and the narrowest one that posts to a tracker can also read every
+private repo it is scoped to. So the app writes a row and a laptop files the issue, where
+`gh auth token` already works.
+
+**INSERT-ONLY, AS YOURSELF, SIX AN HOUR.** No select policy for any client role -- the
+`guests` shape, because a queue a guest could read is a list of other people's complaints. The
+cap is a trigger rather than client-side, because the publishable key is in the bundle and an
+attacker is not obliged to run our rate limiting. Lane E holds all four.
+
+**NOTHING IDENTIFYING TRAVELS.** Platform, OS, app version, build, locale, timezone and the
+event code. Not the nickname, not an address, not another guest's name -- the rule
+`feedback-to-issues.mjs` already follows when it drops `testerEmail`, and it matters twice as
+much here. The sheet PRINTS what it is about to send, because a report that quietly harvests
+is a different product from one that says so.
+
+**SCREENSHOTS ARE NOT BUILT YET, and the design is decided: the image PICKER, never a view
+capture.** `expo-image-picker` is already a dependency. A silent capture would send other
+guests' photographs and names to a repository without the reporter seeing what left their
+phone; the picker means they choose, and can crop first.
+
 ## The tester channel
 
 Testers have no terminal. TestFlight already collects their screenshots and crashes;

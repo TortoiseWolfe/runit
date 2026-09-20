@@ -20,6 +20,7 @@ import { icsFilename, icsFor } from "@/lib/invite";
 import { openMaps } from "@/lib/maps";
 import { QrScanner } from "./QrScanner";
 import { AccountRow } from '@/components/ui/AccountRow';
+import { FeedbackSheet } from '@/features/session/FeedbackSheet';
 import { MyEventsList } from "@/components/ui/MyEventsList";
 import { whenAndWhere } from "@/lib/format";
 import { shareIcs } from "@/lib/share";
@@ -69,6 +70,8 @@ export function JoinScreen() {
       event?.code ??
       "",
   );
+  /** #77: the report sheet, for the person who cannot get in. */
+  const [reporting, setReporting] = useState(false);
   // One lookup, on arrival, for the code the link carried. `params.code` is stable
   // for the life of this screen, so this fires once. Typing into the field below does
   // NOT re-run it -- see useLookUpInvite.
@@ -479,6 +482,30 @@ export function JoinScreen() {
                 So the whole of sign-in lives one tap away and nothing about it appears
                 on the join path. `signin.spec.ts` fails if an email field ever shows up
                 here -- that assertion is the only thing keeping the promise. */}
+            {/*
+              TELLING US SOMETHING IS WRONG, AND IT IS ON THIS SCREEN FOR A REASON (#77).
+
+              The person most worth hearing from is the one who CANNOT GET IN. They never
+              reach the chat tab, so a control inside the party is a control they will never
+              see -- and "the code would not take" is precisely the report this product has
+              been missing. A real party ran on 2026-09-11 and produced ZERO anonymous
+              sign-ins; nobody could tell us why, because there was nowhere to.
+
+              Quiet, and below the two links that already live here, for the same reason
+              they are quiet: nearly everyone arriving is holding a code that works.
+            */}
+            <Pressable
+              onPress={() => setReporting(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Tell us something is wrong"
+              hitSlop={10}
+              testID="open-feedback"
+            >
+              <Text style={[s.createLink, { color: alpha(tokens.baseContent, fade.soft) }]}>
+                Something not right? Tell us →
+              </Text>
+            </Pressable>
+
             <Pressable
               onPress={() => router.push("/signin")}
               accessibilityRole="button"
@@ -521,6 +548,7 @@ export function JoinScreen() {
             offset measured from the screen floor, so inside a scroll container it
             would scroll away from the place it is aligned to. */}
         <Toast />
+        <FeedbackSheet visible={reporting} onClose={() => setReporting(false)} />
 
         {/*
           The sheet is mounted here rather than inside the ScrollView for the same reason

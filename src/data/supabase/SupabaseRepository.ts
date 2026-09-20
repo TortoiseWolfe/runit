@@ -1664,6 +1664,39 @@ export class SupabaseRepository implements RunitRepository {
     );
   }
 
+  feedback = {
+    send: async ({ body, context }: { body: string; context?: Record<string, unknown> }) => {
+      const said = body.trim();
+      if (!said) throw new JoinError('needs_a_name');
+
+      // AN INSERT, NOT AN RPC. There is nothing for a definer function to decide: the
+      // policy's `with check (auth_user_id = auth.uid())` is the whole authorisation, and
+      // the cap is a trigger. A function here would be machinery around a single row.
+      const { data: who } = await this.db.auth.getUser();
+      const uid = who.user?.id;
+      if (!uid) throw new JoinError('session_unavailable');
+
+      const { error } = await this.db.from('feedback').insert({
+        auth_user_id: uid,
+        // The party they were in, so it can be reproduced. Null is the common case for the
+        // person most worth hearing from: somebody reporting that joining did not work.
+        event_id: this.eventId ?? null,
+        body: said.slice(0, 2000),
+        context: context ?? {},
+      });
+
+      if (error) {
+        // 54023 is the per-identity cap, and it gets its own sentence -- `rate_limited`
+        // reads "Too many people joining at once", which is nonsense shown to one person
+        // who has just sent their sixth report.
+        if ((error as { code?: string }).code === '54023') {
+          throw new JoinError('reported_too_often', { cause: error });
+        }
+        throw new JoinError(authJoinReason(error), { cause: error });
+      }
+    },
+  };
+
   invitees = {
     all: undefined as unknown as Observable<Invitee[]>,
 

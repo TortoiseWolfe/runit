@@ -1,32 +1,32 @@
 {
   "capturedFrom": "a LOCAL build of supabase/migrations/, verified group-for-group against the LIVE project qwusbxallkbzfladvgfx",
   "capturedAt": "2026-09-20",
-  "verifiedAgainst": "Re-captured after #76 widened `my_events()` and #73 added `hosts.founder`, the `hosts_one_founder` partial unique index, `is_event_founder()` and `event_deletion_impact()` (columns 130->131, functions 40->42, indexes 35->36). PRODUCTION WAS RE-CHECKED, not assumed: everything was applied to qwusbxallkbzfladvgfx first -- including a BACKFILL marking the earliest host seat of every existing event as its founder, after which zero events lacked one -- then `schema-fingerprint.sql` was run against BOTH sides and all six groups compared, every hash identical. NOTE WHAT DID NOT MOVE ON THE PREVIOUS CAPTURE: #76 changed `my_events()`'s RETURN TYPE and body wholesale and the functions hash did not budge, because this file hashes `proname(identity_arguments)`. The signature is what it sees. That is the same blind spot it has for constraints, and it is why a deploy is verified by reading the live signature back rather than by watching this number change.",
+  "verifiedAgainst": "Re-captured after #77 added `public.feedback`, its insert-only policy and its rate-limit trigger (columns 131->137, functions 42->43, indexes 36->37, policies 37->38, triggers 19->20). PRODUCTION WAS RE-CHECKED: applied to qwusbxallkbzfladvgfx first, the table, policy, trigger and `relrowsecurity` read back, then `schema-fingerprint.sql` run against BOTH sides with all six groups identical. NOTE THAT FIVE GROUPS MOVED HERE AND ZERO MOVED FOR THE CHANGE BEFORE IT: #73's `photo_moderation` default flip is invisible to this file, which hashes `table.column type null=...` and not the default. A new TABLE is the case this gate sees clearly; a default, a constraint, and a function's return type or body are the three it does not. Verify a deploy by reading the thing back.",
   "howToRefresh": "pnpm schema:fingerprint --write, and only after re-checking production. See docs/lane-e.md and issue #49.",
   "schema": {
     "columns": {
-      "n": 131,
-      "fingerprint": "0321ef03c35a1e5ca404f4d0a98e9c40"
+      "n": 137,
+      "fingerprint": "2c9e6382030c704e0cbaa8f4c2398775"
     },
     "functions": {
-      "n": 42,
-      "fingerprint": "5e918361340554f37044d744b867edae"
+      "n": 43,
+      "fingerprint": "91e0da2ece911c8aa63bf72f9959cc28"
     },
     "indexes": {
-      "n": 36,
-      "fingerprint": "adcb68271ee12ee3688e8834995d32e4"
+      "n": 37,
+      "fingerprint": "dbe5aab1e9c70ad305c6ff4899bcccbd"
     },
     "policies": {
-      "n": 37,
-      "fingerprint": "abc9802a01fe0e7fd9aa213438a663fe"
+      "n": 38,
+      "fingerprint": "953ed49bda22f1553d5afe783e6ae60c"
     },
     "tier_limits": {
       "n": 4,
       "fingerprint": "8bd890fb12fd2c60d91b6e19bd9bc517"
     },
     "triggers": {
-      "n": 19,
-      "fingerprint": "16e930773c652f6b6f9796a2ee58ed98"
+      "n": 20,
+      "fingerprint": "19dceb0342acd2fee5c768f78b8cd82d"
     }
   }
 }

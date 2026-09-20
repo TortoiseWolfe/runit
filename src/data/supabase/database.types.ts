@@ -187,6 +187,24 @@ export type Database = {
         };
         Relationships: [];
       };
+      /**
+       * What a customer told us (#77). INSERT ONLY for every client role -- there is no
+       * select policy at all, the `guests` shape, because a queue a guest could read is a
+       * list of other people's complaints. `Row` is here for the service-role reader that
+       * `pnpm feedback:sync` uses, not for anything in the app.
+       */
+      feedback: {
+        Row: {
+          id: string; auth_user_id: string; event_id: string | null;
+          body: string; context: Record<string, unknown>; created_at: string;
+        };
+        Insert: {
+          id?: string; auth_user_id: string; event_id?: string | null;
+          body: string; context?: Record<string, unknown>; created_at?: string;
+        };
+        Update: { body?: string; context?: Record<string, unknown> };
+        Relationships: [];
+      };
       reports: {
         Row: {
           id: string; event_id: string; reporter_guest_id: string | null; reporter_name: string;
