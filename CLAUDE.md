@@ -409,6 +409,29 @@ checkable and correctness is not. Between them they prove the envelope and say n
 the credential. **The only check that can is a send**, which is why `pnpm send:otp` exists and
 why `pnpm smtp:pass` refuses to report a write as done until a message has been accepted.
 
+**AND A SEND WAS STILL NOT ENOUGH, because the envelope is not the letter (FIDELITY AZ).**
+With everything above green, five real sign-in emails reached the owner's inbox carrying
+Supabase's DEFAULT body -- *"Follow the link below to sign in"*, a `type=magiclink` URL, and
+NO six-digit code -- against a screen that asks for six digits. Host sign-in could not
+complete against production, and the link consumes the one-use token, so following it destroys
+the code. `docs/design-host-accounts.md` had said since it was written that OTP "costs one
+template edit"; the edit was never made, and the default template is not missing but present,
+plausible and wrong.
+
+**THREE TEMPLATES, AND DECLARING ONE IS WORSE THAN DECLARING NONE.** GoTrue picks by
+situation: `confirmation` the first time an address is seen, `magic_link` every time after,
+`email_change` for the attach branch. One declared means a host's first sign-in works and her
+second does not, which reads as an intermittent product. They live in `supabase/templates/`,
+are declared as `content_path` under `[remotes.production.auth.email.template.*]`, and
+`pnpm audit:auth-config` compares the FILE against the live project (19 declared fields now,
+trimmed at both ends so a round-tripped newline is not a red gate). **No
+`{{ .ConfirmationURL }}` in any of them** -- not for tidiness, but because tapping it spends
+the token the person is about to type.
+
+**`--apply` RE-READS EVERY DECLARED FIELD NOW, not only the ones it sent** -- the SMTP outage
+generalised. A check that inspects only what it wrote cannot see a write damaging what it did
+not, which is exactly how `{ smtp_pass }` alone nulled five siblings under six green lines.
+
 **`PATCH /config/auth` REPLACES THE SMTP BLOCK, IT DOES NOT MERGE INTO IT** -- and getting
 that wrong turned custom SMTP off while every send still answered 200. A PATCH carrying
 `{ smtp_pass }` alone nulled `smtp_host`, `smtp_port`, `smtp_user`, `smtp_admin_email` and
@@ -446,6 +469,14 @@ of the key in use is blast radius, not exposure: it never passes through a trans
 is the sending identity for six repos, so a leak of RunIt's auth config would be an estate
 problem. That trade was made deliberately by the owner, three times, and a session that
 re-litigates it wastes an evening -- as one did.
+
+**READ THE INBOX WITH THE GMAIL TOOL, AND SEND TO A PLUS-ADDRESS.** The connector reads
+`jonpohlner@gmail.com`, so the last half of every mail claim -- arrival, the body, the
+`Authentication-Results` header -- is measurable here rather than being handed to a person.
+Send to `jonpohlner+runit-rehearsal@gmail.com`, NEVER the bare address: it already holds a
+non-anonymous `auth.users` row with no host seat from a 2026-09-10 test signup, so attaching
+it from a phone holding a real seat gets `email_exists`, falls to `sign_in`, and lands in that
+empty identity with the host's party apparently gone.
 
 **A 200 FROM THE SEND IS STILL NOT A DELIVERY.** GoTrue answers the moment it hands the message
 to SMTP. Acceptance, arrival and `dkim=pass d=runit.scripthammer.com` are three claims, and

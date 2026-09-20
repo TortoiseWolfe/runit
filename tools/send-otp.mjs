@@ -144,3 +144,7 @@ console.log(yellow('   - that `Authentication-Results` reads dkim=pass'));
 console.log(yellow('     d=runit.scripthammer.com -- which is the gate on raising'));
 console.log(yellow('     _dmarc to p=reject. `pnpm audit:mail` prints that todo.'));
 console.log(yellow('   - that the code is 6 digits and expires in 10 minutes.'));
+console.log('');
+console.log('  The body is declared: supabase/templates/, compared by `pnpm audit:auth-config`.');
+console.log('  What you should see is a SIX-DIGIT CODE and no link at all -- a message reading');
+console.log('  "Follow the link below" means the templates were reverted. FIDELITY note AZ.');

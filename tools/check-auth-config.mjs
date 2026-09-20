@@ -53,6 +53,7 @@
  * trade worth making.
  */
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { envLocal } from './lib/env.mjs';
@@ -72,6 +73,23 @@ const yellow = (s) => `\x1b[33m${s}\x1b[0m`;
  * clever mapping would be a guess wearing a rule's clothes. Two are outright inversions or
  * unit changes, and each is the kind of thing that silently passes while asserting nothing.
  */
+/**
+ * THE THREE EMAILS A HOST CAN ACTUALLY RECEIVE, and all three carry the CODE.
+ *
+ * `confirmation` is what GoTrue sends the first time an address is seen, `magic_link` every
+ * time after, and `email_change` is the attach branch -- `updateUser({ email })` on an
+ * anonymous host. Declaring one and not the others means a host's FIRST sign-in works and
+ * her second does not, or the reverse, which reads as an intermittent product.
+ *
+ * WHY THIS BLOCK EXISTS AT ALL. Every mail gate in this repo was green on 2026-09-13 --
+ * four DNS records, DKIM, SPF, DMARC, custom SMTP, thirteen declared auth fields, two sends
+ * accepted inside a minute -- and every message delivered was Supabase's DEFAULT template: a
+ * magic LINK with no six-digit code anywhere in it, against a screen that asks for six
+ * digits. The gates measured the envelope and never the letter. Nothing here could see it
+ * because nothing here compared the one thing a person reads.
+ */
+const TEMPLATES = ['confirmation', 'magic_link', 'email_change'];
+
 const MAP = [
   { toml: ['auth', 'site_url'], api: 'site_url' },
   { toml: ['auth', 'enable_anonymous_sign_ins'], api: 'external_anonymous_users_enabled' },
@@ -103,6 +121,20 @@ const MAP = [
   { toml: ['auth', 'email', 'smtp', 'sender_name'], api: 'smtp_sender_name' },
   { toml: ['auth', 'rate_limit', 'email_sent'], api: 'rate_limit_email_sent' },
   { toml: ['auth', 'rate_limit', 'anonymous_users'], api: 'rate_limit_anonymous_users' },
+  ...TEMPLATES.flatMap((t) => [
+    { toml: ['auth', 'email', 'template', t, 'subject'], api: `mailer_subjects_${t}` },
+    {
+      toml: ['auth', 'email', 'template', t, 'content_path'],
+      api: `mailer_templates_${t}_content`,
+      // THE DECLARED VALUE IS A PATH AND THE COMPARED VALUE IS THE FILE. Declaring a body
+      // inline in TOML would make the one artefact a person reads -- the email -- the one
+      // thing not reviewable as a file; `content_path` is the CLI's own syntax for this.
+      xform: (v) => readFileSync(join(ROOT, String(v)), 'utf8').trim(),
+      // BOTH SIDES TRIMMED. The API round-trips a body with its own trailing whitespace,
+      // and a gate that reds over an invisible newline is a gate somebody switches off.
+      norm: (v) => String(v ?? '').trim(),
+    },
+  ]),
 ];
 
 /** The one declared value that is a secret: compared for PRESENCE, never for content. */
@@ -169,7 +201,7 @@ export function diffAuthConfig(remote, live) {
   for (const m of MAP) {
     if (read(remote, m.toml) === undefined) continue;
     const want = (m.xform ?? ((v) => v))(read(remote, m.toml));
-    const got = live[m.api];
+    const got = (m.norm ?? ((v) => v))(live[m.api]);
     if (got !== want) drift.push({ field: m.api, from: m.toml.join('.'), want, got });
   }
 
@@ -207,20 +239,32 @@ function selftest() {
           host: 'smtp.resend.com', port: 465, user: 'resend',
           admin_email: 'a@b.test', sender_name: 'RunIt', pass: 'env(X)',
         },
+        // The real files, deliberately: a synthetic template here would test that the
+        // map reads SOMETHING, not that it reads what `config.toml` points at.
+        template: {
+          confirmation: { subject: 'C', content_path: './supabase/templates/confirmation.html' },
+          magic_link: { subject: 'M', content_path: './supabase/templates/magic_link.html' },
+          email_change: { subject: 'E', content_path: './supabase/templates/email_change.html' },
+        },
       },
       rate_limit: { email_sent: 60, anonymous_users: 100 },
     },
   };
+  const tpl = (f) => readFileSync(join(ROOT, 'supabase/templates', f), 'utf8').trim();
   const applied = {
     site_url: 'https://example.test', external_anonymous_users_enabled: true,
     disable_signup: false, mailer_otp_length: 6, mailer_otp_exp: 600,
     smtp_max_frequency: 60, smtp_host: 'smtp.resend.com', smtp_port: '465',
     smtp_user: 'resend', smtp_admin_email: 'a@b.test', smtp_sender_name: 'RunIt',
     smtp_pass: 'hash:abc', rate_limit_email_sent: 60, rate_limit_anonymous_users: 100,
+    mailer_subjects_confirmation: 'C', mailer_templates_confirmation_content: tpl('confirmation.html'),
+    mailer_subjects_magic_link: 'M', mailer_templates_magic_link_content: tpl('magic_link.html'),
+    mailer_subjects_email_change: 'E', mailer_templates_email_change_content: tpl('email_change.html'),
   };
 
   const fails = [];
-  const check = (name, cond) => { if (!cond) fails.push(name); };
+  let cases = 0;
+  const check = (name, cond) => { cases += 1; if (!cond) fails.push(name); };
 
   check('a matching config reports no drift', diffAuthConfig(base, applied).drift.length === 0);
   check('and reads as applied', diffAuthConfig(base, applied).everApplied === true);
@@ -249,6 +293,23 @@ function selftest() {
   check('no smtp_host reads as never applied',
     diffAuthConfig(base, { ...applied, smtp_host: null }).everApplied === false);
 
+  // THE TEMPLATES. For a day every sign-in email was a magic LINK with no code in it, while
+  // DNS, SMTP and thirteen declared fields were all green: the gate compared everything
+  // about the mail except what a person would read. A subject, a body and an unset body
+  // are each drift; a trailing newline from a round trip is not.
+  check('a template SUBJECT that differs is drift',
+    diffAuthConfig(base, { ...applied, mailer_subjects_magic_link: 'Your sign-in link' })
+      .drift.some((d) => d.field === 'mailer_subjects_magic_link'));
+  check('a template BODY that differs is drift',
+    diffAuthConfig(base, { ...applied, mailer_templates_magic_link_content: '<p>{{ .ConfirmationURL }}</p>' })
+      .drift.some((d) => d.field === 'mailer_templates_magic_link_content'));
+  check('a template that was never set (null) is drift',
+    diffAuthConfig(base, { ...applied, mailer_templates_email_change_content: null })
+      .drift.some((d) => d.field === 'mailer_templates_email_change_content'));
+  check('a trailing newline on the live body is NOT drift',
+    diffAuthConfig(base, { ...applied, mailer_templates_confirmation_content: `${applied.mailer_templates_confirmation_content}\n` })
+      .drift.length === 0);
+
   check('an emptied declaration is reported as missing, not as agreement',
     diffAuthConfig({ project_id: 'x', auth: {} }, applied).missing.length === MAP.length);
 
@@ -257,7 +318,7 @@ function selftest() {
     for (const f of fails) console.error(`  ${f}`);
     process.exit(1);
   }
-  console.log(green('ok: auth-config diff logic passes 9 synthetic cases'));
+  console.log(green(`ok: auth-config diff logic passes ${cases} synthetic cases`));
   process.exit(0);
 }
 
@@ -380,7 +441,33 @@ if (process.argv.includes('--apply')) {
     }
     process.exit(1);
   }
+
+  /**
+   * AND EVERY OTHER DECLARED FIELD, WHICH IS THE HALF THAT WAS MISSING.
+   *
+   * Reading back only what was SENT is exactly the blind spot that took custom SMTP down:
+   * a PATCH carrying `{ smtp_pass }` alone nulled five sibling fields, the send afterwards
+   * answered 200 off the built-in mailer, and the only tell was an unrelated rate limit
+   * moving on its own. A write that damages a field it never named cannot be seen by a
+   * check that only looks at the named ones.
+   *
+   * Collateral is reported SEPARATELY from pre-existing drift: `--apply` sends only the
+   * fields that differ, so anything still differing here that was NOT in this write is
+   * either a field that refused to move or one this write broke. Both want a human.
+   */
+  const afterDrift = diffAuthConfig(remote, after).drift.filter((d) => !(d.field in body));
+  if (afterDrift.length) {
+    console.error(red(`FAIL: ${afterDrift.length} field(s) this write never named now differ.`));
+    console.error('  A PATCH can REPLACE a composite block rather than merge into it.');
+    for (const d of afterDrift) {
+      console.error(`  ${d.field}: declared ${JSON.stringify(d.want)}, live ${JSON.stringify(d.got)}`);
+    }
+    console.error('  If the SMTP block is among them, `pnpm smtp:pass --verify-to=` restores it.');
+    process.exit(1);
+  }
+
   console.log(green(`ok: ${Object.keys(body).length} field(s) applied and read back`));
+  console.log(green(`  and the other ${MAP.length - Object.keys(body).length} declared field(s) are untouched`));
   process.exit(0);
 }
 
