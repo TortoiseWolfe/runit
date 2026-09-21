@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { Platform } from 'react-native';
-import Constants from 'expo-constants';
 
 import { pickScreenshot } from '@/lib/pickScreenshot';
 import { useFeedbackActions } from '@/state/actions';
 import { alpha, border, radius, useTheme, weight } from '@/theme';
+
+import { deviceFacts, factLine } from './deviceFacts';
 
 /**
  * THE CHANNEL THAT REPLACES TESTFLIGHT'S THE DAY WE SHIP -- #77.
@@ -157,37 +157,6 @@ export function FeedbackSheet({ visible, onClose }: { visible: boolean; onClose:
       </View>
     </Modal>
   );
-}
-
-/**
- * WHAT THE PHONE KNOWS AND THE PERSON DOES NOT.
- *
- * Exported so the test can read it without mounting a modal, and so the sentence the sheet
- * prints is built from the same object that is sent -- a summary composed separately would
- * be free to describe something else.
- */
-export function deviceFacts(): Record<string, unknown> {
-  const expo = Constants.expoConfig;
-  return {
-    app: expo?.version ?? 'unknown',
-    build:
-      Platform.OS === 'ios'
-        ? (expo?.ios?.buildNumber ?? 'unknown')
-        : String(expo?.android?.versionCode ?? 'unknown'),
-    platform: Platform.OS,
-    os: String(Platform.Version),
-    // `deviceName` is the only field here a person could consider theirs -- "Ruth's iPhone" --
-    // so it is deliberately left out. The MODEL is what reproduces a bug; the name is not.
-    locale: Intl.DateTimeFormat().resolvedOptions().locale,
-    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-  };
-}
-
-/** The same facts as one readable line, for the sentence above the Send button. */
-export function factLine(f: Record<string, unknown>): string {
-  return [`${f.platform} ${f.os}`, `app ${f.app} (${f.build})`, String(f.timezone)]
-    .filter(Boolean)
-    .join(' · ');
 }
 
 const s = StyleSheet.create({
