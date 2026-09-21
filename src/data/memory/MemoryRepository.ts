@@ -13,7 +13,7 @@ import * as Crypto from 'expo-crypto';
 import type {
   GuestList, GuestListId,
   BlockedGuest, Broadcast, BroadcastId, Folder, FolderId, GuestId, Host, HostRole,
-  Invitee, InviteeId, NowPlaying, Photo, PhotoId,
+  Invitee, InviteeId, InviteSendResult, NowPlaying, Photo, PhotoId,
   Report, ReportId, ReportReason, ReportResolution, ReportSubject,
   RunitEvent, ScheduleItem, ScheduleItemId, Session, SongRequest, SongRequestId, TierId,
 } from '../types';
@@ -28,6 +28,8 @@ import {
 import { checkFeature, checkLimit, type Entitlements, checkOpen } from '@/domain/entitlements';
 import { TIERS } from '@/domain/tiers';
 import { songKey } from '@/domain/songKey';
+import { inviteEmail, type ComposeOutcome } from '@/lib/invite';
+import { composeInviteEmail } from '@/lib/share';
 import { phoneKey } from '@/domain/phoneKey';
 import { hueForPhotoSeq } from '@/theme/oklch';
 
@@ -352,6 +354,7 @@ export class MemoryRepository implements RunitRepository {
    * are reachable today.
    */
   private transfer: (photo: Photo, onProgress: (fraction: number) => void) => Promise<void>;
+  private compose: (m: { bcc: readonly string[]; subject: string; body: string }) => Promise<ComposeOutcome>;
 
   private sigSession: Signal<Session>;
   /**
@@ -419,9 +422,17 @@ export class MemoryRepository implements RunitRepository {
        * broken", it is "no test can reach the state where it matters".
        */
       connection?: ConnectionState;
+      /**
+       * WHAT OPENS THE MAIL COMPOSER, injectable for the same reason `transfer` is. The real
+       * one is `composeInviteEmail`, which on web returns `unconfirmed` and on iOS reports
+       * `sent` -- and only `sent` stamps `invitedAt`. A unit test hands in a composer that
+       * answers `sent` to exercise the stamping rule, because no lane here runs iOS's composer.
+       */
+      composer?: (m: { bcc: readonly string[]; subject: string; body: string }) => Promise<ComposeOutcome>;
     } = {},
   ) {
     this.now = opts.now ?? (() => new Date().toISOString());
+    this.compose = opts.composer ?? composeInviteEmail;
     // A FIXTURE, not a secret. The real key exists only as a bcrypt hash in Postgres
     // and is never in this repo; this exists so the claim flow has both branches to
     // exercise without a network.
@@ -1089,14 +1100,32 @@ export class MemoryRepository implements RunitRepository {
      * capped events. The composer itself lives in `src/lib/share.ts` and only a phone
      * witnesses it.
      */
-    send: async (ids: InviteeId[]) => {
+    /*
+     * THE FIXTURE USED TO BE KINDER THAN THE BACKEND HERE. It opened nothing, stamped every
+     * guest asked for, and answered `true` -- so every journey saw a Send that always
+     * succeeded, over a real one that opened a blank share sheet and addressed nobody. It
+     * now calls the same composer the app does and stamps on the same single outcome.
+     */
+    send: async (ids: InviteeId[]): Promise<InviteSendResult> => {
+      const ev = this.ev;
+      if (!ev || ids.length === 0) return { outcome: 'no-emails', emailed: 0, phoneOnly: 0 };
       const wanted = new Set(ids);
-      const at = this.now();
-      this.inviteeList = this.inviteeList.map((i) =>
-        wanted.has(i.id) ? { ...i, invitedAt: i.invitedAt ?? at } : i,
-      );
-      this.recompute();
-      return true;
+      const chosen = this.inviteeList.filter((i) => wanted.has(i.id));
+      const phoneOnly = chosen.filter((i) => !i.email && i.phone).length;
+      const message = inviteEmail(ev, chosen.map((i) => i.email));
+      if (message.bcc.length === 0) return { outcome: 'no-emails', emailed: 0, phoneOnly };
+
+      const outcome = await this.compose(message);
+      if (outcome === 'sent') {
+        // Keeps the FIRST stamp: the honest answer to "when was she invited" is the first time.
+        const at = this.now();
+        const emailed = new Set(chosen.filter((i) => i.email).map((i) => i.id));
+        this.inviteeList = this.inviteeList.map((i) =>
+          emailed.has(i.id) ? { ...i, invitedAt: i.invitedAt ?? at } : i,
+        );
+        this.recompute();
+      }
+      return { outcome, emailed: message.bcc.length, phoneOnly };
     },
 
     remove: async (id: InviteeId) => {
@@ -2146,6 +2175,7 @@ export class MemoryRepository implements RunitRepository {
       /** Fixture value, not a secret -- the real key lives as a bcrypt hash in Postgres. */
       hostKey?: string;
       connection?: ConnectionState;
+      composer?: (m: { bcc: readonly string[]; subject: string; body: string }) => Promise<ComposeOutcome>;
     } = {},
   ): MemoryRepository {
     return new MemoryRepository(seed, opts);

@@ -1,5 +1,8 @@
 import { Share } from 'react-native';
 import { Directory, File, Paths } from 'expo-file-system';
+import * as MailComposer from 'expo-mail-composer';
+
+import { outcomeFromMailStatus, type ComposeOutcome } from './invite';
 
 /**
  * The platform half of sharing. Native implementation.
@@ -39,4 +42,31 @@ export async function shareIcs(filename: string, contents: string): Promise<bool
 
   const result = await Share.share({ url: file.uri, title: filename });
   return result.action === Share.sharedAction;
+}
+
+/**
+ * OPEN THE MAIL COMPOSER WITH THE GUEST LIST ALREADY IN BCC.
+ *
+ * `invitees.send` promised this and opened a blank share sheet instead, so the addresses a
+ * host had entered never reached anything. `expo-mail-composer` opens the in-app composer,
+ * pre-addressed, and -- on iOS -- REPORTS whether it was sent, cancelled or saved as a draft.
+ * That report is the whole reason for the dependency: `invitedAt` is stamped only on a
+ * confirmed send, and the share sheet could only say that it was used.
+ *
+ * BCC only. See `inviteEmail` for why a recipient can never land in To.
+ */
+export async function composeInviteEmail(m: {
+  bcc: readonly string[];
+  subject: string;
+  body: string;
+}): Promise<ComposeOutcome> {
+  if (m.bcc.length === 0) return 'unavailable';
+  // No mail account configured is a real state on a phone, and on a simulator the ordinary one.
+  if (!(await MailComposer.isAvailableAsync())) return 'unavailable';
+  const r = await MailComposer.composeAsync({
+    bccRecipients: [...m.bcc],
+    subject: m.subject,
+    body: m.body,
+  });
+  return outcomeFromMailStatus(r.status);
 }

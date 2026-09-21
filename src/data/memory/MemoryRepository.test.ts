@@ -5,7 +5,8 @@ import { flakyTransfer } from './fixtures/flakyTransfer';
 import { EntitlementError, JoinError, ScheduleError } from '../repository';
 
 const FIXED = '2026-10-17T20:00:00.000Z';
-const make = () => MemoryRepository.create(weddingSeed, { now: () => FIXED });
+const make = (opts: Parameters<typeof MemoryRepository.create>[1] = {}) =>
+  MemoryRepository.create(weddingSeed, { now: () => FIXED, ...opts });
 const makeFree = () => MemoryRepository.create(housePartySeed, { now: () => FIXED });
 
 describe('the seed is the canvas seed', () => {
@@ -864,8 +865,24 @@ describe('the guest list', () => {
     expect(r.invitees.all.get()).toHaveLength(2);
   });
 
+  /*
+   * SEND STAMPS ONLY WHAT THE OS CONFIRMED (iOS's composer answering `sent`). No lane here runs
+   * that composer, so these hand one in -- the same seam `transfer` gives the upload path.
+   */
+  const composing = (outcome: 'sent' | 'unconfirmed' | 'cancelled' | 'unavailable') => {
+    const seen: { bcc: readonly string[] }[] = [];
+    return {
+      seen,
+      composer: async (m: { bcc: readonly string[]; subject: string; body: string }) => {
+        seen.push(m);
+        return outcome;
+      },
+    };
+  };
+
   it('send stamps only who was asked for, and keeps the FIRST time', async () => {
-    const r = make();
+    const c = composing('sent');
+    const r = make({ composer: c.composer });
     await r.invitees.addMany([{ email: 'a@x.test' }, { email: 'b@x.test' }]);
     const [first, second] = r.invitees.all.get();
 
@@ -882,6 +899,44 @@ describe('the guest list', () => {
     await r.invitees.send([first!.id, second!.id]);
     expect(r.invitees.all.get()[0]!.invitedAt).toBe(stamp);
     expect(r.invitees.all.get().every((i) => i.invitedAt !== null)).toBe(true);
+  });
+
+  it('hands the composer every address, in BCC, and nothing else', async () => {
+    const c = composing('sent');
+    const r = make({ composer: c.composer });
+    await r.invitees.addMany([{ email: 'A@x.test' }, { email: 'b@x.test' }]);
+    await r.invitees.send(r.invitees.all.get().map((i) => i.id));
+    expect(c.seen[0]!.bcc).toEqual(['a@x.test', 'b@x.test']);
+  });
+
+  it('stamps NOBODY when the composer opened but could not say it was sent', async () => {
+    // Android's composer and every browser. A date beside an email nobody may have sent is
+    // the lie `invitedAt`'s docblock forbids.
+    const r = make({ composer: composing('unconfirmed').composer });
+    await r.invitees.addMany([{ email: 'a@x.test' }]);
+    const res = await r.invitees.send(r.invitees.all.get().map((i) => i.id));
+    expect(res).toEqual({ outcome: 'unconfirmed', emailed: 1, phoneOnly: 0 });
+    expect(r.invitees.all.get()[0]!.invitedAt).toBeNull();
+  });
+
+  it('never marks a phone-only guest invited, even when the email confirms', async () => {
+    // She was not in that email. Stamping her would make "send to the unsent" skip her forever.
+    const r = make({ composer: composing('sent').composer });
+    await r.invitees.addMany([{ email: 'a@x.test' }, { phone: '+15555550100' }]);
+    const res = await r.invitees.send(r.invitees.all.get().map((i) => i.id));
+    expect(res).toEqual({ outcome: 'sent', emailed: 1, phoneOnly: 1 });
+    const phone = r.invitees.all.get().find((i) => i.phone);
+    expect(phone!.invitedAt).toBeNull();
+  });
+
+  it('opens nothing for a list of phone numbers, and says so', async () => {
+    const c = composing('sent');
+    const r = make({ composer: c.composer });
+    await r.invitees.addMany([{ phone: '+15555550100' }, { phone: '+15555550101' }]);
+    const res = await r.invitees.send(r.invitees.all.get().map((i) => i.id));
+    expect(res).toEqual({ outcome: 'no-emails', emailed: 0, phoneOnly: 2 });
+    // No group text, and no empty composer either.
+    expect(c.seen).toHaveLength(0);
   });
 });
 

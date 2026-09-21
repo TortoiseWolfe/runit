@@ -3,6 +3,7 @@ import { join } from 'path';
 
 import {
   INVITE_ORIGIN, appSchemeLink, codeFromScan, icsFilename, icsFor, joinLink, shareMessage, RETIRED_ORIGINS, acceptedOrigins,
+  inviteEmail, inviteMailto, MAILTO_BUDGET, outcomeFromMailStatus, addressFromInput,
 } from './invite';
 
 /**
@@ -380,5 +381,119 @@ describe('reading a scanned code back (#28)', () => {
     expect(codeFromScan('THISISWAYTOOLONGFORACODE')).toBeNull();
     expect(codeFromScan(`${INVITE_ORIGIN}/i/`)).toBeNull();
     expect(codeFromScan(`${INVITE_ORIGIN}/i/HOUSE7/extra`)).toBeNull();
+  });
+});
+
+/*
+ * SEND ADDRESSES THE GUEST LIST NOW, AND ONLY IN BCC.
+ *
+ * `invitees.send` promised to open Mail "pre-addressed" and opened a blank share sheet, so a
+ * host built a list, tapped Send, and typed everybody again. These are the pure half: which
+ * addresses go where, and what the message says.
+ *
+ * BCC IS THE WHOLE POINT, not a detail. The join screen promises "guests can't see each other",
+ * and a To line of forty addresses breaks that in the first email anybody receives.
+ */
+describe('the email a host sends her guest list', () => {
+  it('puts every address in BCC, lowercased and without duplicates', () => {
+    const m = inviteEmail(EVENT, ['Ruth@Example.com', 'ruth@example.com', 'sam@example.com']);
+    expect(m.bcc).toEqual(['ruth@example.com', 'sam@example.com']);
+  });
+
+  it('leaves out the people who only have a phone number', () => {
+    // A phone is not an email address, and a group text is not private -- see the screen.
+    expect(inviteEmail(EVENT, [null, undefined, '', 'sam@example.com']).bcc).toEqual(['sam@example.com']);
+  });
+
+  it('says what it is in the subject and carries the same invitation Share writes', () => {
+    const m = inviteEmail(EVENT, ['sam@example.com']);
+    expect(m.subject).toBe("You're invited to Sam & Riley's Wedding");
+    // ONE invitation, composed once. A second hand-built copy is how two versions drift.
+    expect(m.body).toBe(shareMessage(EVENT));
+  });
+});
+
+describe('the mailto link that opens it', () => {
+  it('addresses nobody in To -- the recipients are all BCC', () => {
+    const url = inviteMailto(EVENT, ['sam@example.com', 'ruth@example.com'])!;
+    // Nothing between `mailto:` and `?` is the To line, and it must be empty.
+    expect(url.startsWith('mailto:?')).toBe(true);
+    const params = new URLSearchParams(url.slice('mailto:?'.length));
+    expect(params.get('bcc')).toBe('sam@example.com,ruth@example.com');
+    expect(params.has('to')).toBe(false);
+    expect(params.has('cc')).toBe(false);
+  });
+
+  it("encodes the party's name, so an ampersand cannot start a new parameter", () => {
+    // Unencoded, "Sam & Riley's" splits the subject at the ampersand and the mail app
+    // shows "You're invited to Sam " with the rest discarded.
+    const url = inviteMailto(EVENT, ['sam@example.com'])!;
+    const params = new URLSearchParams(url.slice('mailto:?'.length));
+    expect(params.get('subject')).toBe("You're invited to Sam & Riley's Wedding");
+    expect(params.get('body')).toBe(shareMessage(EVENT));
+  });
+
+  it('gives up rather than dropping people when the list is too long for one link', () => {
+    // Some mail clients refuse a URL past roughly 2,000 characters. Truncating the BCC line
+    // would invite some guests and silently not others; null sends the host to Copy addresses.
+    const many = Array.from({ length: 200 }, (_, i) => `guest${i}@example.com`);
+    expect(inviteMailto(EVENT, many)).toBeNull();
+  });
+
+  it('stays inside the budget whenever it does return a link', () => {
+    const some = Array.from({ length: 12 }, (_, i) => `guest${i}@example.com`);
+    const url = inviteMailto(EVENT, some)!;
+    expect(url).not.toBeNull();
+    expect(url.length).toBeLessThanOrEqual(MAILTO_BUDGET);
+  });
+
+  it('has nothing to open when nobody on the list has an email', () => {
+    expect(inviteMailto(EVENT, [null, ''])).toBeNull();
+  });
+});
+
+/*
+ * AND WHAT THE COMPOSER'S ANSWER IS ALLOWED TO MEAN. Only `sent` stamps `invitedAt`, because
+ * only `sent` was confirmed by anything.
+ */
+describe('what a closed mail composer lets a host conclude', () => {
+  it('counts a confirmed send as sent', () => {
+    expect(outcomeFromMailStatus('sent')).toBe('sent');
+  });
+
+  it('does not count a draft as a send', () => {
+    // "Saved" is sitting in Drafts. Nobody was invited.
+    expect(outcomeFromMailStatus('saved')).toBe('cancelled');
+  });
+
+  it("does not count Android's undetermined as a send", () => {
+    // Android reports this whether the host sent the email or backed out of it. Reading it as
+    // sent would stamp every dismissed composer on every Android phone.
+    expect(outcomeFromMailStatus('undetermined')).toBe('unconfirmed');
+  });
+});
+
+/*
+ * ONE FIELD FOR AN EMAIL OR A PHONE NUMBER. It was email-only, so a host on a desktop -- where
+ * there is no contacts picker -- could not put a phone number on the list at all.
+ */
+describe('telling an email from a phone number in one field', () => {
+  it('reads an address with an @ as an email', () => {
+    expect(addressFromInput('  Ruth@Example.com ')).toEqual({ email: 'Ruth@Example.com' });
+  });
+
+  it('reads digits, however they are punctuated, as a phone number', () => {
+    // Kept as typed. The database folds formats through `phone_key`, so three spellings of one
+    // number are one row -- this must not pretend to normalise what it does not own.
+    expect(addressFromInput('(555) 555-0100')).toEqual({ phone: '(555) 555-0100' });
+    expect(addressFromInput('+44 20 7946 0958')).toEqual({ phone: '+44 20 7946 0958' });
+  });
+
+  it('refuses what is neither, rather than filing it as an email', () => {
+    // The field used to send anything at all to `add({ email })`.
+    expect(addressFromInput('ruth')).toBeNull();
+    expect(addressFromInput('ruth@')).toBeNull();
+    expect(addressFromInput('12345')).toBeNull(); // too short to be anybody's number
+    expect(addressFromInput('   ')).toBeNull();
   });
 });

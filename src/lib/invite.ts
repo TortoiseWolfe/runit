@@ -182,6 +182,138 @@ export function shareMessage(
 }
 
 /**
+ * THE EMAIL A HOST SENDS HER GUEST LIST -- the pure half of `invitees.send`.
+ *
+ * `send` promised to open Mail "pre-addressed" and opened a blank share sheet, so a host
+ * built a list, tapped Send, and typed everybody again. This decides which addresses go where
+ * and what the message says; the composer that opens it is a device concern and lives in
+ * `share.ts`.
+ *
+ * BCC, NEVER TO. The join screen promises "guests can't see each other", and a To line of
+ * forty addresses breaks that in the first email anybody receives. There is no parameter here
+ * that could put a recipient anywhere else.
+ *
+ * ONE INVITATION. The body IS `shareMessage`, the same text the Share button writes, so the
+ * two cannot drift -- the rule `whenAndWhere` exists to enforce one level down.
+ *
+ * Phone numbers are not accepted, deliberately. A group text puts every guest's number in one
+ * thread they can all read, which is the same promise broken louder; phones go through Share,
+ * where the host picks recipients in Messages.
+ */
+export function inviteEmail(
+  event: Pick<RunitEvent, 'name' | 'code' | 'venue' | 'doorsLabel' | 'startsAt' | 'timezone'>,
+  emails: readonly (string | null | undefined)[],
+): { bcc: string[]; subject: string; body: string } {
+  return { bcc: bccList(emails), subject: `You're invited to ${event.name}`, body: shareMessage(event) };
+}
+
+/**
+ * The addresses a BCC line should carry: trimmed, lowercased, de-duplicated, blanks dropped.
+ *
+ * Lowercased because `Ruth@x.com` and `ruth@x.com` are one person and double-mailing her is the
+ * fastest way to look broken -- the rule `invitees.add` and the unique index already hold. ONE
+ * copy of it, shared by the email and by Copy addresses, so the list a host pastes and the list
+ * a composer opens with cannot disagree.
+ */
+export function bccList(emails: readonly (string | null | undefined)[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of emails) {
+    const addr = (raw ?? '').trim().toLowerCase();
+    if (!addr || seen.has(addr)) continue;
+    seen.add(addr);
+    out.push(addr);
+  }
+  return out;
+}
+
+/**
+ * ONE FIELD, AN EMAIL OR A PHONE NUMBER, told apart by shape.
+ *
+ * The guest-list field was email-only, and the contacts picker is the only other way a phone
+ * number arrives -- which does not exist on a desktop. So a host at a laptop could not put a
+ * phone number on her list at all.
+ *
+ * AN `@` MEANS EMAIL, and then it has to look like one. Otherwise, digits with the usual
+ * punctuation mean a phone. Anything else is refused rather than filed as an email, which is
+ * what the field used to do with whatever it was given.
+ *
+ * A phone is RETURNED AS TYPED. The database folds formats through `phone_key`, so
+ * "(555) 555-0100" and "5555550100" are one row -- normalising here would be a second, weaker
+ * copy of a rule this does not own.
+ */
+export function addressFromInput(raw: string): { email: string } | { phone: string } | null {
+  const s = raw.trim();
+  if (!s) return null;
+  if (s.includes('@')) return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s) ? { email: s } : null;
+  // Seven digits is the shortest local number worth calling one; fifteen is E.164's ceiling.
+  return /^\+?\d{7,15}$/.test(s.replace(/[\s().-]/g, '')) ? { phone: s } : null;
+}
+
+/**
+ * THE LONGEST mailto: THIS WILL HAND TO A MAIL APP. Some clients refuse a URL past roughly
+ * 2,000 characters, and they do not say so -- the composer opens with the recipient list cut
+ * short or does not open at all. Kept under that with room to spare.
+ */
+export const MAILTO_BUDGET = 1900;
+
+/**
+ * The same email as a `mailto:` URL, for the web, where there is no native composer to hand
+ * recipients to.
+ *
+ * NULL PAST THE BUDGET, NEVER A TRUNCATED LIST. Cutting the BCC line to fit would invite some
+ * guests and silently not the rest -- a host would see "sent" over people who never got
+ * anything. Null sends her to Copy addresses, which has no length limit.
+ *
+ * Every value is `encodeURIComponent`-ed. Unencoded, the ampersand in "Sam & Riley's Wedding"
+ * starts a new parameter, and the mail app shows a subject of "You're invited to Sam ".
+ */
+export function inviteMailto(
+  event: Pick<RunitEvent, 'name' | 'code' | 'venue' | 'doorsLabel' | 'startsAt' | 'timezone'>,
+  emails: readonly (string | null | undefined)[],
+): string | null {
+  return mailtoFor(inviteEmail(event, emails));
+}
+
+/** The message `inviteEmail` builds, as a `mailto:`. The web composer's only input. */
+export function mailtoFor(m: { bcc: readonly string[]; subject: string; body: string }): string | null {
+  if (m.bcc.length === 0) return null;
+  const url =
+    'mailto:?' +
+    [
+      `bcc=${m.bcc.map(encodeURIComponent).join(',')}`,
+      `subject=${encodeURIComponent(m.subject)}`,
+      `body=${encodeURIComponent(m.body)}`,
+    ].join('&');
+  return url.length <= MAILTO_BUDGET ? url : null;
+}
+
+/**
+ * WHAT A HOST MAY CONCLUDE AFTER THE COMPOSER CLOSES -- and the answer is usually "less than
+ * you would like".
+ *
+ * `sent` is the only outcome that stamps `invitedAt`, because it is the only one anything
+ * CONFIRMED. `invitees.send`'s own docblock has said since #60 that a date beside a message
+ * nobody sent is worse than no date at all.
+ */
+export type ComposeOutcome = 'sent' | 'unconfirmed' | 'cancelled' | 'unavailable';
+
+/**
+ * `expo-mail-composer`'s status, mapped. Here rather than in `share.ts` because that file's
+ * rule is that it holds no logic worth testing, and this is exactly the kind that goes wrong
+ * quietly.
+ *
+ * `saved` is a DRAFT, not a send. `undetermined` is what Android reports whether the person
+ * sent the email or backed out of it -- the OS will not say -- so it is `unconfirmed`, not
+ * `sent`. Treating it as sent would stamp every dismissed composer on every Android phone.
+ */
+export function outcomeFromMailStatus(status: string): ComposeOutcome {
+  if (status === 'sent') return 'sent';
+  if (status === 'cancelled' || status === 'saved') return 'cancelled';
+  return 'unconfirmed';
+}
+
+/**
  * READING A QR BACK -- the inverse of `joinLink`, and the whole of #28 that can be tested
  * without a camera.
  *

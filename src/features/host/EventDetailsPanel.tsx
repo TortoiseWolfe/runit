@@ -73,7 +73,7 @@ export function EventDetailsPanel() {
   const event = useEvent();
   const {
     saveEventDetails, rotateHostKey, invite, addInvitee, removeInvitee,
-    addFromContacts, sendInvitations, saveGuestList, attachGuestList, setPhotoModeration,
+    addFromContacts, sendInvitations, copyAddresses, saveGuestList, attachGuestList, setPhotoModeration,
   } = useHostActions();
   const hosts = useHosts();
   const invitees = useInvitees();
@@ -155,6 +155,16 @@ export function EventDetailsPanel() {
    * addressed to the thirty who already have it.
    */
   const unsent = invitees.filter((i) => i.invitedAt === null);
+  /*
+   * WHO A SEND WOULD REACH, split by how. Send emails; it never texts, because a group text
+   * puts every guest's number in front of every other guest. So the label counts EMAILS, and
+   * phone-only guests get their own line telling the host to text them from Share -- rather
+   * than a Send that claims to invite people it does not.
+   */
+  const sendTarget = unsent.length > 0 ? unsent : invitees;
+  const emailTarget = sendTarget.filter((i) => i.email).length;
+  const phoneOnlyTarget = sendTarget.filter((i) => !i.email && i.phone).length;
+  const anyEmail = invitees.some((i) => i.email);
 
   const onSaveGuestList = async () => {
     if (busy) return;
@@ -605,8 +615,9 @@ export function EventDetailsPanel() {
           <TextInput
             value={inviteeEmail}
             onChangeText={setInviteeEmail}
-            placeholder="name@example.com"
+            placeholder="Email or phone number"
             placeholderTextColor={alpha(tokens.baseContent, fade.faint)}
+            accessibilityLabel="An email address or a phone number to add to the list"
             testID="invitee-email"
             keyboardType="email-address"
             autoCapitalize="none"
@@ -690,20 +701,48 @@ export function EventDetailsPanel() {
             </Pressable>
           ))}
 
-          {invitees.length > 0 ? (
+          {/* EMAIL, PRE-ADDRESSED, IN BCC. It opened a blank share sheet for months while its
+              own docblock promised "pre-addressed", so a host built this list and typed her
+              guests in again. Drawn only when somebody on the target has an email -- a Send
+              that could reach nobody is the control-that-cannot-act this panel does not draw. */}
+          {emailTarget > 0 ? (
             <Pressable
               onPress={onSendInvitations}
               accessibilityRole="button"
-              accessibilityLabel={`Send the invitation to ${unsent.length || invitees.length} people`}
+              accessibilityLabel={`Email the invitation to ${emailTarget} ${emailTarget === 1 ? 'guest' : 'guests'}, in BCC`}
               testID="invitee-send"
               style={[s.rotate, { borderColor: tokens.base300 }]}
             >
               <Text style={[s.rotateText, { color: tokens.accent }]}>
                 {unsent.length > 0
-                  ? `Send the invitation to ${unsent.length}`
-                  : 'Send the invitation again'}
+                  ? `Email the invitation to ${emailTarget}`
+                  : 'Email the invitation again'}
               </Text>
             </Pressable>
+          ) : null}
+
+          {/* THE ROUTE THAT ALWAYS WORKS. A desktop's default mail app is often not the one the
+              host uses -- a `mailto:` then opens nothing she will see -- and a long list will not
+              fit in one link at all. Copying the addresses has neither limit. Drawn when there
+              is an email to copy, for the same reason Send is. */}
+          {anyEmail ? (
+            <Pressable
+              onPress={() => void copyAddresses(invitees.map((i) => i.email))}
+              accessibilityRole="button"
+              accessibilityLabel="Copy every email address on the list, to paste into BCC"
+              testID="invitee-copy"
+              hitSlop={8}
+              style={s.copyLink}
+            >
+              <Text style={[s.inviteeNote, { color: tokens.accent }]}>Copy addresses</Text>
+            </Pressable>
+          ) : null}
+
+          {phoneOnlyTarget > 0 ? (
+            <Text testID="invitee-phones" style={[s.inviteeNote, { color: alpha(tokens.baseContent, fade.muted) }]}>
+              {phoneOnlyTarget} with only a phone number — text them from Share, so nobody sees
+              anyone else&apos;s number.
+            </Text>
           ) : null}
         </Disclosure>
       ) : null}
@@ -878,6 +917,10 @@ const s = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   rotateText: { fontSize: 14, fontWeight: weight.medium },
+  // Its own box, not the row's: a full-width Pressable is what the gutter gate caught on
+  // `ReportLink` twice (CLAUDE.md, "THE GUTTER GATE MEASURES THE CONTROL'S OWN BOX").
+  copyLink: { alignSelf: 'flex-start', paddingVertical: 6 },
+  inviteeNote: { fontSize: 13, lineHeight: 18 },
   save: { height: 52, borderRadius: radius.field, alignItems: 'center', justifyContent: 'center', marginTop: 8 },
   saveText: { fontSize: 16, fontWeight: weight.semibold },
 });

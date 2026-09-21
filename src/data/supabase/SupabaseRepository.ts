@@ -22,7 +22,7 @@ import {
 } from '../repository';
 import type {
   BlockedGuest, Broadcast, BroadcastId, Folder, FolderId, GuestId, GuestList, GuestListId,
-  Host, Invitee, InviteeId,
+  Host, Invitee, InviteeId, InviteSendResult,
   NowPlaying, Photo,
   PhotoId, Report, ReportId, ReportReason, ReportResolution, ReportSubject, RunitEvent,
   ScheduleItem, ScheduleItemId, Session, SongRequest, SongRequestId,
@@ -33,8 +33,8 @@ import {
 } from '@/domain/entitlements';
 import { TIERS } from '@/domain/tiers';
 import { phoneKey } from '@/domain/phoneKey';
-import { shareMessage } from '@/lib/invite';
-import { shareText } from '@/lib/share';
+import { inviteEmail, shareMessage } from '@/lib/invite';
+import { composeInviteEmail } from '@/lib/share';
 
 /**
  * The Supabase adapter.
@@ -711,9 +711,14 @@ export class SupabaseRepository implements RunitRepository {
       // HOST-ONLY BY POLICY, and a guest simply gets zero rows. Not gated on
       // `holdsHostSeat` here: RLS is the authority, and asking the client to decide what
       // it is allowed to read is how a second, weaker rule gets written.
+      // `phone` WAS MISSING FROM THIS LIST from #60, when a guest list first took phone numbers,
+      // until the Send fix read it. Every phone-only guest came back from a reload with no
+      // number at all -- a row showing a name and nothing to reach them on. Nothing here could
+      // see it: FakeClient returns seeded rows whatever columns were asked for, so only the
+      // recorded select string can pin it, and a test now does.
       this.db
         .from('invitees')
-        .select('id, email, display_name, invited_at, joined_guest_id')
+        .select('id, email, phone, display_name, invited_at, joined_guest_id')
         .eq('event_id', eventId),
     ]);
     if (hosts.error) throw hosts.error;
@@ -1871,20 +1876,34 @@ export class SupabaseRepository implements RunitRepository {
      * The OS reports that the sheet was used and nothing after. There is no delivery receipt
      * on this path and no mail server to ask (#18).
      */
-    send: async (ids: InviteeId[]) => {
+    send: async (ids: InviteeId[]): Promise<InviteSendResult> => {
       const eventId = this.requireEvent();
       const event = this.sigEvent.get();
-      if (!event || ids.length === 0) return false;
+      if (!event || ids.length === 0) return { outcome: 'no-emails', emailed: 0, phoneOnly: 0 };
 
-      const shared = await shareText(shareMessage(event));
-      if (!shared) return false;
+      const wanted = new Set(ids);
+      const chosen = this.sigInvitees.get().filter((i) => wanted.has(i.id));
+      const phoneOnly = chosen.filter((i) => !i.email && i.phone).length;
+      const message = inviteEmail(event, chosen.map((i) => i.email));
+      // A list that is all phone numbers. Not texted -- see the contract -- and not an error.
+      if (message.bcc.length === 0) return { outcome: 'no-emails', emailed: 0, phoneOnly };
 
-      const { error } = await this.db.rpc('mark_invited', { p_event_id: eventId, p_ids: ids });
-      if (error) throw error;
+      const outcome = await composeInviteEmail(message);
 
-      await this.loadFetchOnce();
-      this.recompute();
-      return true;
+      /*
+       * STAMP ONLY WHAT WAS CONFIRMED, AND ONLY WHO WAS EMAILED. `sent` is iOS's composer
+       * saying it went; everything else stamps nobody. And a guest with only a phone was not
+       * in that email, so she is not marked invited by it -- otherwise "send to the unsent"
+       * would silently skip her forever.
+       */
+      if (outcome === 'sent') {
+        const emailedIds = chosen.filter((i) => i.email).map((i) => i.id);
+        const { error } = await this.db.rpc('mark_invited', { p_event_id: eventId, p_ids: emailedIds });
+        if (error) throw error;
+        await this.loadFetchOnce();
+        this.recompute();
+      }
+      return { outcome, emailed: message.bcc.length, phoneOnly };
     },
 
     remove: async (id: InviteeId) => {

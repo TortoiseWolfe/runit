@@ -170,6 +170,23 @@ export type Session =
  * of Runit. The schema treats it as the strictest table it has, and the app should not be
  * more relaxed than the schema.
  */
+/**
+ * WHAT HAPPENED WHEN A HOST TAPPED SEND -- as far as anything on this side can know.
+ *
+ * `sent` is the only outcome that stamps `invitedAt`, because it is the only one the OS
+ * CONFIRMED (iOS's mail composer). `unconfirmed` is a composer or mail app that opened and
+ * reported nothing further -- Android's composer and every browser. `no-emails` is a list
+ * that is all phone numbers, which Send deliberately does not text: a group text puts every
+ * guest's number in front of every other guest.
+ */
+export interface InviteSendResult {
+  outcome: 'sent' | 'unconfirmed' | 'cancelled' | 'unavailable' | 'no-emails';
+  /** Addresses that went into BCC. */
+  emailed: number;
+  /** Selected guests with only a phone number, and therefore not emailed. */
+  phoneOnly: number;
+}
+
 export interface Invitee {
   id: InviteeId;
   /**

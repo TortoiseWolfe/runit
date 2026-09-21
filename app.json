@@ -12,7 +12,9 @@
       "bundleIdentifier": "com.turtlewolfe.runit",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "LSApplicationQueriesSchemes": ["spotify"]
+        "LSApplicationQueriesSchemes": [
+          "spotify"
+        ]
       },
       "associatedDomains": [
         "applinks:runit-app.pages.dev"
@@ -105,7 +107,8 @@
           "imageWidth": 180
         }
       ],
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      "expo-mail-composer"
     ],
     "experiments": {
       "typedRoutes": true

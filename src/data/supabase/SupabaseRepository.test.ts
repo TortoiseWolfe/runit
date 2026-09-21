@@ -5,6 +5,22 @@ import { SupabaseRepository } from './SupabaseRepository';
 import type { RunitClient } from './client';
 import { EntitlementError, JoinError, ScheduleError } from '../repository';
 
+/*
+ * THE MAIL COMPOSER, controllable. `invitees.send` opens it and stamps only on `sent`, and no
+ * lane here runs iOS's composer -- so its answer is set per test. `mock`-prefixed because jest
+ * hoists the factory above the imports and only lets it read names that begin that way.
+ */
+let mockComposeOutcome: 'sent' | 'unconfirmed' | 'cancelled' | 'unavailable' = 'sent';
+const mockComposed: { bcc: readonly string[] }[] = [];
+jest.mock('@/lib/share', () => ({
+  composeInviteEmail: async (m: { bcc: readonly string[] }) => {
+    mockComposed.push(m);
+    return mockComposeOutcome;
+  },
+  shareText: async () => false,
+  shareIcs: async () => false,
+}));
+
 /**
  * Scoped to WHAT DIFFERS from MemoryRepository, because that is the only place a test
  * of this adapter can learn something the in-memory suite does not already know: auth,
@@ -278,6 +294,60 @@ describe('sending feedback before joining anything (#81)', () => {
 
     expect(c.signInCalls).toBe(0);
     expect(c.ops.some((op) => op.kind === 'insert' && op.table === 'feedback')).toBe(true);
+  });
+});
+
+
+/*
+ * SEND ADDRESSES THE GUEST LIST, AND THE ADAPTER'S OWN JOB IS WHAT IT TELLS POSTGRES.
+ *
+ * The stamping rule is shared with MemoryRepository and pinned there. What only this file can
+ * see is the RPC: `mark_invited` must run on a confirmed send and on nothing else, and only for
+ * the guests who were actually in the email.
+ */
+describe('sending the guest list an email', () => {
+  const INVITEES = [
+    { id: 'inv-a', event_id: EVENT, email: 'a@x.test', phone: null, display_name: 'Ada', invited_at: null, joined_guest_id: null },
+    { id: 'inv-p', event_id: EVENT, email: null, phone: '+15555550100', display_name: 'Pat', invited_at: null, joined_guest_id: null },
+  ];
+  const seeded = () =>
+    ready((cl) => {
+      cl.seed('invitees', INVITEES);
+      cl.on((op) => (op.kind === 'rpc' && op.table === 'mark_invited' ? { data: null, error: null } : undefined));
+    });
+
+  beforeEach(() => {
+    mockComposed.length = 0;
+    mockComposeOutcome = 'sent';
+  });
+
+  it('reads the phone column, or a phone-only guest comes back with no number', async () => {
+    const c = seeded();
+    await join(c);
+    // FakeClient returns seeded rows whatever was asked for, so a missing column is invisible
+    // in every result. The recorded select string is the only place it shows.
+    const read = c.ops.find((o) => o.kind === 'select' && o.table === 'invitees');
+    expect(read?.columns).toContain('phone');
+  });
+
+  it('emails only the addresses, in BCC, and stamps only who was in it', async () => {
+    const c = seeded();
+    const repo = await join(c);
+    const res = await repo.invitees.send(['inv-a', 'inv-p']);
+
+    expect(res).toEqual({ outcome: 'sent', emailed: 1, phoneOnly: 1 });
+    expect(mockComposed[0]!.bcc).toEqual(['a@x.test']);
+    // Pat has only a phone and was not in that email, so she is not marked invited by it.
+    expect(c.find('rpc', 'mark_invited')[0]!.payload).toEqual({ p_event_id: EVENT, p_ids: ['inv-a'] });
+  });
+
+  it('tells Postgres nothing when the composer could not confirm it was sent', async () => {
+    mockComposeOutcome = 'unconfirmed';
+    const c = seeded();
+    const repo = await join(c);
+    const res = await repo.invitees.send(['inv-a']);
+    expect(res.outcome).toBe('unconfirmed');
+    expect(c.find('rpc', 'mark_invited')).toHaveLength(0);
   });
 });
 
