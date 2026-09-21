@@ -1476,6 +1476,13 @@ auto-increments. **The test that pins it tests the WIRING**: six cases cover the
 mocked with a build config does not carry. The old docblock claimed *"Exported so the test
 can read it"* -- there was no test.
 
+**AND THE FIRST WEB CASE WAS TESTED AGAINST AN ASSUMPTION.** It asserted a browser's
+`Platform.Version` is undefined. **react-native-web returns the string `"0.0.0"`**, found by
+sending a real report from the live site as a cold visitor (the #81 proof): the row landed with
+`os: "0.0.0"` and the sheet showed "web 0.0.0". A browser now reports no OS version at all.
+The live send is also the only thing that has proven #81 against real GoTrue -- `FakeClient`
+models `ensureSession`, it does not run it.
+
 **THE BROWSER GUEST ROUTE IS LIVE (#78), AND `pnpm deploy:web` IS THE COMMAND.** The app
 itself is served from the ROOT of `runit-app.pages.dev`; the bridge keeps `/i/CODE`. Measured
 end to end on 2026-09-21: the bridge's new filled button carries `/join?code=S7Y9RX`, the app
