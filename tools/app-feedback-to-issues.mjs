@@ -141,6 +141,26 @@ async function commitScreenshot(row) {
   const url = envLocal('EXPO_PUBLIC_SUPABASE_URL');
   const key = envLocal('SUPABASE_SERVICE_ROLE_KEY');
   if (!url || !key) return null;
+
+  /*
+   * REFUSE ANYTHING THAT IS NOT TWO UUIDS AND A KNOWN EXTENSION, before it reaches a URL.
+   *
+   * This string comes from a column a CLIENT writes, and the fetch below carries the
+   * SERVICE ROLE -- which reads every folder in every bucket, whatever RLS tells a client.
+   * Unchecked, `../event-photos/<event>/<photo>.jpg` would fetch a guest's private
+   * photograph and this tool would COMMIT IT TO THE REPOSITORY.
+   *
+   * The database now refuses to store such a path at all, in two places: a CHECK constraint
+   * on the shape and `feedback_guard` comparing the prefix to the reporter's own identity.
+   * This is here anyway, because rows written before those guards existed are still in the
+   * table, and because the thing on the other side of this interpolation is somebody else's
+   * photographs.
+   */
+  if (!/^[0-9a-fA-F-]{36}\/[0-9a-fA-F-]{36}\.(jpg|png|webp)$/.test(row.screenshot_path ?? '')) {
+    console.error(`  refusing a screenshot path that is not {uuid}/{uuid}.ext: ${row.id}`);
+    return null;
+  }
+
   try {
     const res = await fetch(
       `${url}/storage/v1/object/feedback/${row.screenshot_path}`,

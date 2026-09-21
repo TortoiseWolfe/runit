@@ -2393,6 +2393,56 @@ begin
                          case when sqlstate = '54023' then 'PASS' else 'FAIL' end, sqlstate);
   end;
 
+  -- A SCREENSHOT PATH CANNOT TRAVERSE OUT OF ITS BUCKET, and this is not theoretical:
+  -- `pnpm feedback:app` interpolates this column into a storage URL and fetches it as the
+  -- SERVICE ROLE, then commits the bytes to the repository. Free text here would let a
+  -- reporter name `../event-photos/<event>/<photo>.jpg` and have us publish a guest's
+  -- private photograph. Found by a security review of the commit that shipped it.
+  -- TWO GUARDS, AND THEY CATCH DIFFERENT THINGS -- so they are tested separately rather
+  -- than by one insert that any of them could refuse. A BEFORE trigger runs ahead of a
+  -- CHECK constraint, so a single case would only ever exercise whichever fires first.
+  --
+  -- ONE: climbing out by the PREFIX. The trigger sees `..` is not this identity.
+  begin
+    insert into public.feedback (auth_user_id, body, screenshot_path)
+    values (cuid, 'traversal', '../event-photos/' || ce2.event_id::text || '/x.jpg');
+    out := out || format('FAIL a screenshot path can climb out of the feedback bucket');
+  exception when others then
+    out := out || format('%s a screenshot path cannot climb out by its prefix (%s)',
+                         case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  -- TWO: climbing out from INSIDE a correct prefix, which the ownership check waves
+  -- through -- `split_part` on the first segment says this identity, and the rest of the
+  -- string is still a traversal. Only the shape constraint sees it.
+  begin
+    insert into public.feedback (auth_user_id, body, screenshot_path)
+    values (cuid, 'traversal 2', cuid::text || '/../../event-photos/x.jpg');
+    out := out || format('FAIL a screenshot path can climb out from inside its own prefix');
+  exception when others then
+    out := out || format('%s nor from inside its own prefix (%s)',
+                         case when sqlstate = '23514' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  -- AND THE SHAPE ALONE IS NOT ENOUGH. A well-formed path under SOMEBODY ELSE'S identity
+  -- passes the CHECK constraint and is still a read of their folder, because the service
+  -- role is allowed everywhere regardless of what RLS tells a client.
+  begin
+    insert into public.feedback (auth_user_id, body, screenshot_path)
+    values (cuid, 'not mine', nuid::text || '/' || gen_random_uuid()::text || '.jpg');
+    out := out || format('FAIL a well-formed path under another identity was accepted');
+  exception when others then
+    out := out || format('%s and cannot name a well-formed path that is not theirs (%s)',
+                         case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  -- The honest one still works.
+  insert into public.feedback (auth_user_id, body, screenshot_path)
+  values (cuid, 'with a picture', cuid::text || '/' || gen_random_uuid()::text || '.jpg');
+  get diagnostics n = row_count;
+  out := out || format('%s and their own well-formed path is accepted (%s rows, want 1)',
+                       case when n = 1 then 'PASS' else 'FAIL' end, n);
+
   -- A PICTURE GOES UNDER YOUR OWN PREFIX AND NOBODY ELSE'S (#77). The path is
   -- `{auth_user_id}/{uuid}.jpg`, the same shape `event-photos` uses with the event id, and
   -- it is the only thing an INSERT can check -- there is no row to join to yet.

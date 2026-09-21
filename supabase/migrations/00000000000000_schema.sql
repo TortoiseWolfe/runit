@@ -3277,7 +3277,20 @@ create table public.feedback (
   -- WHERE THE PICTURE LANDED, if they attached one. Nullable, and most reports have none:
   -- a sentence is worth filing on its own, and demanding a screenshot would turn a
   -- ten-second report into a task. `{auth_user_id}/{uuid}.jpg` in the `feedback` bucket.
-  screenshot_path text,
+  --
+  -- THE SHAPE IS CONSTRAINED BECAUSE A SERVICE ROLE READS IT. `pnpm feedback:app`
+  -- interpolates this string into a storage URL and fetches it as the SERVICE ROLE, then
+  -- commits the bytes to the repository. Left as free text, a reporter could write
+  -- `../event-photos/<event>/<photo>.jpg` and have us fetch a guest's private photograph
+  -- and publish it -- "photographs of identifiable people, invisible and permanent", from
+  -- the other direction.
+  --
+  -- The storage policy constrains where bytes may be WRITTEN. It says nothing about what
+  -- string lands in this column, and those are different questions. Two uuids and a known
+  -- extension: no dots, no slashes beyond the one, nothing to traverse with.
+  screenshot_path text
+    check (screenshot_path is null or screenshot_path ~
+      '^[0-9a-fA-F-]{36}/[0-9a-fA-F-]{36}\.(jpg|png|webp)$'),
   created_at   timestamptz not null default now()
 );
 
@@ -3297,7 +3310,7 @@ create policy feedback_insert_self on public.feedback
 -- happened next; a cap of one would silence the most useful reporter in the product. The
 -- number is high enough to never be met by somebody acting in good faith and low enough that
 -- filling the tracker takes longer than it is worth.
-create or replace function public.feedback_rate_limit() returns trigger
+create or replace function public.feedback_guard() returns trigger
 language plpgsql security definer set search_path = public as $$
 declare n int;
 begin
@@ -3307,14 +3320,25 @@ begin
   if n >= 6 then
     raise exception 'feedback_too_often' using errcode = '54023';
   end if;
+
+  -- THE PICTURE MUST BE UNDER THE REPORTER'S OWN PREFIX, and the CHECK constraint above
+  -- cannot say this: it can police the SHAPE but it cannot compare one column to another's
+  -- meaning. The shape alone would still let somebody name a well-formed path belonging to
+  -- a different identity, and `feedback:app` fetches with the service role -- which is
+  -- allowed to read every folder in the bucket regardless of what RLS tells a client.
+  if new.screenshot_path is not null
+     and split_part(new.screenshot_path, '/', 1) <> new.auth_user_id::text then
+    raise exception 'feedback_screenshot_not_yours' using errcode = '42501';
+  end if;
+
   return new;
 end $$;
 
-create trigger feedback_rate_limit
+create trigger feedback_guard
   before insert on public.feedback
-  for each row execute function public.feedback_rate_limit();
+  for each row execute function public.feedback_guard();
 
-revoke execute on function public.feedback_rate_limit() from public, anon, authenticated;
+revoke execute on function public.feedback_guard() from public, anon, authenticated;
 
 -- ========================================================================
 -- A REPORT CAN CARRY A PICTURE -- #77
