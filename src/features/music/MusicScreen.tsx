@@ -4,6 +4,7 @@ import {
 } from 'react-native';
 
 import { EventHeader } from '@/features/chat/EventHeader';
+import { ReportLink } from '@/components/ui/ReportLink';
 import { ReportSheet } from '@/features/moderation/ReportSheet';
 import { orderedForRequest, songKey } from '@/domain/songKey';
 import { MIN_QUERY, searchSongs, type SongMatch } from '@/lib/musicSearch';
@@ -301,6 +302,9 @@ export function MusicScreen() {
             onReport={setReporting}
           />
         ))}
+
+        {/* #77. The end of the tab where a guest notices a song request vanished. */}
+        <ReportLink />
       </ScrollView>
 
       <ReportSheet

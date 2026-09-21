@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-import { open } from './helpers';
+import { joinAsGuest, open } from './helpers';
 
 /**
  * THE CHANNEL THAT REPLACES TESTFLIGHT'S AT LAUNCH -- #77.
@@ -66,6 +66,39 @@ test.describe('a customer with no GitHub account can still tell us something', (
     // the second thing, and the second thing is usually the better report.
     await expect(page.getByTestId('toast')).toContainText(/thanks/i);
     await expect(page.getByTestId('feedback-sheet')).toHaveCount(0);
+  });
+
+  test('a guest already inside can reach it too, from where things visibly break', async ({
+    page,
+  }, info) => {
+    const scheme = info.project.name as 'dark' | 'light';
+    await joinAsGuest(page, scheme, 'Ada');
+
+    // THE GAP THE FIRST DRAFT LEFT. The join screen serves the person who cannot get in;
+    // a guest whose photo did not upload is already through the door and never sees that
+    // screen again. Photos and Music are the two tabs where a guest NOTICES.
+    await page.getByTestId('tab-photos').click();
+    await expect(page.getByTestId('open-feedback')).toBeVisible();
+
+    await page.getByTestId('tab-music').click();
+    await expect(page.getByTestId('open-feedback')).toBeVisible();
+
+    // Same sheet, not a second copy of the form -- two copies would be two places the
+    // "here is what we are sending" sentence lives, and they would drift.
+    await page.getByTestId('open-feedback').click();
+    await expect(page.getByTestId('feedback-facts')).toContainText(/no email/i);
+  });
+
+  test('and the chat tab keeps saying why a guest cannot type there', async ({ page }, info) => {
+    const scheme = info.project.name as 'dark' | 'light';
+    await joinAsGuest(page, scheme, 'Ada');
+
+    // THE ASSERTION THAT CAUGHT THE FIRST ATTEMPT. The report control went in the chat
+    // footer and displaced this line, which is what tells a guest why there is no compose
+    // box. `guest-chat.spec.ts` holds it too; this holds the pair -- the control is
+    // elsewhere AND that line survived.
+    await expect(page.getByText('Announcements only · hosts post here')).toBeVisible();
+    await expect(page.getByTestId('open-feedback')).toHaveCount(0);
   });
 
   test('cancelling sends nothing and keeps them in the party', async ({ page }, info) => {

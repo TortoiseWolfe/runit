@@ -3,6 +3,7 @@ import { Image, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, Vi
 
 import { EventHeader } from '@/features/chat/EventHeader';
 import { PhotoViewer } from './PhotoViewer';
+import { ReportLink } from '@/components/ui/ReportLink';
 import { ReportSheet } from '@/features/moderation/ReportSheet';
 import { usePhotoActions } from '@/state/actions';
 import {
@@ -383,6 +384,9 @@ export function PhotosScreen() {
             Photos you add appear here once a host approves them.
           </Text>
         ) : null}
+
+        {/* #77. The end of the tab where a guest notices a photo did not arrive. */}
+        <ReportLink />
       </ScrollView>
 
       <PhotoViewer

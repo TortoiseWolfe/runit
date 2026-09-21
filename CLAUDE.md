@@ -1006,6 +1006,21 @@ leaves TestFlight, because that feedback exists only for beta builds. After laun
 customer's only route to us is a support URL on a static page, which nobody standing in a
 party is going to open.
 
+**TWO WAYS IN, AND THEY SERVE DIFFERENT PEOPLE.** The join screen's copy is for somebody who
+CANNOT GET IN -- the report this product has most needed. `ReportLink` at the end of the
+**Photos and Music tabs** is for a guest who is already through the door and whose photo did
+not appear or whose song request vanished. Not Chat: that is the one tab where a guest expects
+to be a reader, so a broken thing there looks like a quiet evening. Not the chat FOOTER, which
+was tried and displaced *"Announcements only · hosts post here"* -- the line telling a guest
+why there is no compose box, held by `guest-chat.spec.ts`. **A control that has to take
+something's place is in the wrong place.**
+
+**THE GUTTER GATE MEASURES THE CONTROL'S OWN BOX, and padding will never satisfy it.**
+`ReportLink` failed it twice with the same message: padding on the Text leaves the `<button>`
+full width, and padding on the Pressable is INSIDE that box, so it is still full width and
+still starts at x=0. It takes `marginHorizontal` plus `alignSelf: 'flex-start'`. The first
+version carried a comment naming this exact trap and then fixed the wrong element, twice.
+
 **THE CONTROL IS ON THE JOIN SCREEN, NOT INSIDE THE PARTY, and that placement is the whole
 point.** The person most worth hearing from is the one who CANNOT GET IN -- they never reach a
 tab. "The code would not take" is exactly the report this product has been missing since
