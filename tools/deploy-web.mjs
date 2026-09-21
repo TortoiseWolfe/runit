@@ -24,7 +24,15 @@
  *    and for `assetlinks.json`, under three green 200s. Every real directory is passed
  *    through explicitly before the catch-all; `web/_redirects` carries the order.
  *
- * 3. **The app must be the GUEST build.** `dist-live` carries `EXPO_PUBLIC_FIDELITY=1` and
+ * 3. **A deploy from any branch but `main` is a PREVIEW, and it says "Deployment complete!"**
+ *    wrangler reads the branch from git. From a feature branch it publishes to
+ *    `<hash>.runit-app.pages.dev` and leaves `runit-app.pages.dev` exactly as it was --
+ *    measured on 2026-09-21, when a new Android link went "live" and the production page
+ *    kept serving the old APK through six cache-busted fetches. So this refuses to run off
+ *    `main`, and passes `--branch=main` so the environment is stated rather than inferred.
+ *    Deploying only from `main` also means the live site is always something that was merged.
+ *
+ * 4. **The app must be the GUEST build.** `dist-live` carries `EXPO_PUBLIC_FIDELITY=1` and
  *    would hand a guest a synthetic 1x1 photo, four fixture songs and a fake scan button.
  *    `audit:guest-build` is run here rather than trusted to have been run.
  */
@@ -41,6 +49,15 @@ const PROJECT = 'runit-app';
 const DIST = join(ROOT, 'dist-guest');
 const WEB = join(ROOT, 'web');
 const DRY = process.argv.includes('--dry');
+
+// Trap 3. Checked first, because every other step is wasted if the result is a preview.
+const branch = execFileSync('git', ['-C', ROOT, 'branch', '--show-current']).toString().trim();
+if (branch !== 'main' && !DRY) {
+  console.error(red(`REFUSED: on branch "${branch}", not main.`));
+  console.error('  A deploy from here is a PREVIEW. It reports "Deployment complete!" and changes');
+  console.error('  nothing a guest sees. Merge first, then deploy from main.');
+  process.exit(1);
+}
 
 if (!existsSync(DIST)) {
   console.error(red('FAIL: no dist-guest/. Build it first, against PRODUCTION:'));
@@ -86,7 +103,7 @@ if (DRY) {
 }
 
 execFileSync('npx', ['--yes', 'wrangler@latest', 'pages', 'deploy', stage,
-  `--project-name=${PROJECT}`, '--commit-dirty=true'], { stdio: 'inherit' });
+  `--project-name=${PROJECT}`, '--branch=main', '--commit-dirty=true'], { stdio: 'inherit' });
 
 rmSync(stage, { recursive: true, force: true });
 console.log(green('\nOK: deployed. Verify with `pnpm verify:links` (lane G).'));
