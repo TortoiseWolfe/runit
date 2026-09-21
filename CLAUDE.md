@@ -114,6 +114,7 @@ pnpm dns:plan                   # what our DNS intent would change. Writes NOTHI
 pnpm dns:apply                  # write it
 pnpm export:web && pnpm shots   # Lane B: screenshots at 402x874 + colour gate
 pnpm test:e2e                   # Lane B: 442 Playwright journeys, dark + light
+pnpm deploy:web                 # push web/ + the guest app to Cloudflare Pages (direct upload)
 pnpm verify:links               # Lane G: is the invitation host OURS, and does it serve JSON
 pnpm qr:poster                  # regenerate the scan target from the app's own EventQr
 pnpm scan:device                # Lane C: witness expo-camera reading that QR off a real lens
@@ -1406,7 +1407,45 @@ that lives in a button handler is bypassed by the second caller.
   `pnpm verify:links` (lane G) is the one that can tell, because it reads the BODY back and
   looks for our own appID and App Store id in it. `pages.dev` names are global and
   first-come; an unclaimed one does not resolve at all, so probe before choosing.
-- **THE INVITATION HOST IS DEPLOYED (#52).** `runit-app.pages.dev` went up on 2026-09-07 by
+- **THE BROWSER GUEST ROUTE IS LIVE (#78), AND `pnpm deploy:web` IS THE COMMAND.** The app
+itself is served from the ROOT of `runit-app.pages.dev`; the bridge keeps `/i/CODE`. Measured
+end to end on 2026-09-21: the bridge's new filled button carries `/join?code=S7Y9RX`, the app
+boots on the live host, and the screen names **Kayden & Kason's Birthday** with its real date
+and venue -- which can only come from `event_preview` against production, since that function
+is granted to `authenticated` only. Zero failed requests, zero console errors. A guest who
+will not install anything can now see the party.
+
+**THE HIERARCHY ON THE BRIDGE INVERTED, against that page's own earlier rule that one route
+is shown and not two.** That rule was written when the second button was a dead end. This one
+is not: it is the only route that works for everybody tonight, and it matters most on iPhone,
+where the alternative asks a guest to hand their Apple ID to the host and wait for an email
+from Apple that never mentions parties. The install is still complete, as the richer option
+rather than the only one.
+
+**THREE DEPLOY TRAPS, ALL MEASURED AGAINST THE LIVE SITE AFTER A GREEN-LOOKING DEPLOY.**
+
+**A `_redirects` RULE BEATS A REAL STATIC FILE AT THE SAME PATH** -- the opposite of the
+assumption, and it is silent. A bare `/*  /  200` served the app's HTML shell for
+`/_expo/static/js/web/entry-*.js` (**1172 bytes of HTML where a 2.8MB bundle belongs**) and
+for `/.well-known/assetlinks.json`, the file Android checks at INSTALL time to decide whether
+this app may open an https link. Every path answered **200**. The app booted to nothing and
+the Android association was dead, under three green status codes. Every real directory is
+passed through explicitly before the catch-all now, and `/i/*` stays first or the app's own
+`/i/[code]` route renders to somebody who has not installed it.
+
+**CLOUDFLARE PAGES SILENTLY SKIPS ANY PATH CONTAINING `node_modules`.** expo writes 18 router
+assets to `assets/node_modules/expo-router/assets/` and wrangler uploaded **none** of them,
+reporting *"Uploaded 4 files"* against 26 staged and saying nothing about the rest. The
+bundle references them by absolute path and the unmatched-route screen that uses them IS
+reachable, because the catch-all renders the app for every unknown path. `deploy-web.mjs`
+stages them as `assets/_nm/` and `_redirects` maps the requested name onto it.
+
+**COUNT THE FILES WRANGLER SAYS IT UPLOADED.** Both of the above produced a cheerful success
+line. The deploy script prints its staged count for exactly that reason, and it runs
+`audit:guest-build` rather than trusting that somebody did -- `dist-live` would hand a guest a
+synthetic 1x1 photo, four fixture songs and a fake scan button.
+
+**THE INVITATION HOST IS DEPLOYED (#52).** `runit-app.pages.dev` went up on 2026-09-07 by
 DIRECT UPLOAD -- `wrangler pages deploy web --project-name=runit-app` -- not git integration,
 so **a push to `main` does not redeploy it**; re-run that command when `web/` changes. Lane G
 asserts it now instead of skipping, which it had done on every run since the repo began.

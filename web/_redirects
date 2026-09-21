@@ -7,4 +7,36 @@
 # -- `/i/index.html` answers 308 to `/i/` -- and a rewrite whose target redirects does not
 # serve, so `/i/SR1017` 404'd on the first deploy with the file spelled out. Measured, not
 # guessed: `/i/` returns 200 text/html and `/i/index.html` returns 308.
-/i/*  /i/  200
+
+# THE APP ITSELF, AT THE ROOT OF THIS PROJECT (#78). `expo export` writes ABSOLUTE asset
+# paths (`/_expo/static/js/web/entry-*.js`), so the bundle can only be served from a root --
+# putting it under `/app/` would need `experiments.baseUrl` in app.json, which is shared with
+# the native build and with lane B's harness exports. The root was a 404 before this, so
+# nothing was displaced. Measured, not assumed.
+#
+# A BARE `/*  /  200` BREAKS THE SITE, and this was measured rather than reasoned about. On
+# Cloudflare Pages a `_redirects` rule takes precedence over a real static file at the same
+# path -- the opposite of the assumption -- so the catch-all served the app's HTML shell for
+# `/_expo/static/js/web/entry-*.js` (1172 bytes of HTML where a 2.8MB bundle should be) and
+# for `/.well-known/assetlinks.json`, which is the file Android checks at INSTALL time to
+# decide whether this app may open an https link. The app booted to nothing and the
+# association was silently dead, under three green 200s.
+#
+# So every real directory is passed through FIRST. A rule mapping a path to itself resolves
+# to the static asset and stops the list. Order is top to bottom, first match wins:
+#   `/i/*` before everything, or the app's own `/i/[code]` route renders to somebody who has
+#   not installed it -- the opposite of what that page exists for.
+/i/*             /i/                        200
+/_expo/*         /_expo/:splat              200
+# CLOUDFLARE PAGES SILENTLY SKIPS ANY PATH CONTAINING `node_modules`, and expo puts 18
+# router assets under `assets/node_modules/expo-router/assets/`. They never left the machine
+# on the first deploy -- wrangler reported "Uploaded 4 files" against 26 staged and said
+# nothing about the other 18. The bundle references them by absolute path, and the
+# unmatched-route screen that uses them IS reachable because the catch-all below renders the
+# app for every unknown path. `tools/deploy-web.mjs` stages them as `assets/_nm/`; this maps
+# the name the bundle asks for onto the name Cloudflare will accept. Must precede `/assets/*`.
+/assets/node_modules/*  /assets/_nm/:splat  200
+/assets/*        /assets/:splat             200
+/.well-known/*   /.well-known/:splat        200
+/metadata.json   /metadata.json             200
+/*               /                          200

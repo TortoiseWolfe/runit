@@ -193,7 +193,30 @@
     opens the app with your code already filled in.</p>
   <a class="cta secondary" id="open" href="#" hidden>Open RunIt &rarr;</a>
 
-  <p class="rule" id="rule">Don't have it yet?</p>
+  <!-- THE BROWSER ROUTE, AND IT IS THE FILLED BUTTON NOW (#78).
+
+       The party on 2026-09-11 produced ZERO anonymous sign-ins: not zero joins, zero
+       sessions, which happen before anything a person can do. Forty seats, a live install
+       page, and nobody opened the app. The install was the whole funnel and the install is
+       where they stopped.
+
+       This is the one route that works for everybody tonight, on any phone, in one tap. It
+       matters most on iPhone, where the alternative below asks a guest to hand their Apple
+       ID to the host and wait for an email from Apple that does not mention parties.
+
+       SO THE HIERARCHY INVERTED, deliberately, against this page's own earlier rule that
+       one route is shown and not two. That rule was written when the second button was a
+       dead end; this one is not. The install is still here and still complete -- it is now
+       the richer option rather than the only one, which is what it actually is.
+
+       Root-relative, and that is load-bearing: the app is served from the ROOT of this same
+       Pages project, so the link is same-origin and carries the code straight into the join
+       screen's `?code=` param. -->
+  <p class="route" id="webRoute" style="margin-bottom:8px">No installing. Opens the party
+    right here, in this browser.</p>
+  <a class="cta" id="web" href="/join">Join in your browser &rarr;</a>
+
+  <p class="rule" id="rule">Want the app as well?</p>
 
   <ol class="steps">
     <li id="stepInstall">
@@ -206,10 +229,10 @@
            build declares no https intent filter at all. So this must be repointed at a build
            that has one, in the same deploy as any change to the association file. -->
       <p style="margin:10px 0 0">
-        <a class="cta" id="android" href="https://expo.dev/artifacts/eas/Z_PdJ-6Wjp3Gg4LoCkUf2OPunjOeN_oGgUfsoIQQnOY.apk">Android &middot; install now</a>
+        <a class="cta secondary" id="android" href="https://expo.dev/artifacts/eas/Z_PdJ-6Wjp3Gg4LoCkUf2OPunjOeN_oGgUfsoIQQnOY.apk">Android &middot; install now</a>
       </p>
       <p style="margin:10px 0 0">
-        <a class="cta" id="ios" href="#ask">iPhone &middot; how to get it</a>
+        <a class="cta secondary" id="ios" href="#ask">iPhone &middot; how to get it</a>
       </p>
     </li>
     <li>
@@ -235,7 +258,7 @@
        Saying so plainly is the difference between an accepted invitation and a deleted one. -->
   <div id="ask" hidden>
     <p class="rule">iPhone</p>
-    <p class="route">Apple does not let a private app install itself. The host has to add your
+    <p class="route">The browser route above works on iPhone today and needs none of this. For the app itself: Apple does not let a private app install itself. The host has to add your
       Apple&nbsp;ID by hand first, and then Apple emails <em>you</em> an invitation to join a
       developer team &mdash; that email is the real one, even though it does not mention
       parties. Accept it, install <b>TestFlight</b> from the App&nbsp;Store, and RunIt appears
@@ -267,10 +290,13 @@
     el('open').setAttribute('href', 'runit://join?code=' + encodeURIComponent(code));
     el('open').hidden = false;
     el('openRoute').hidden = false;
+    // Same code, same origin, no install. `?code=` is what JoinScreen reads first.
+    el('web').setAttribute('href', '/join?code=' + encodeURIComponent(code));
   } else {
     // No code in the URL means somebody reached /i/ directly. Do not offer to "open the app
     // with your code" when there is no code; the install steps still stand on their own.
     el('rule').textContent = 'Getting started';
+    el('webRoute').textContent = 'No installing. Opens RunIt right here, in this browser.';
     el('codeHint').textContent = 'The host gives you a six-character code for their event.';
     // A long dash beside a Copy button is furniture. Hide the box rather than offer a
     // control that can only refuse.
