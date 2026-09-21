@@ -750,8 +750,9 @@ adb server on the Windows side owns 5037. The symptoms read like the libusb hang
 use`** while `pgrep adb` in WSL finds nothing. `ANDROID_ADB_SERVER_PORT=5038` did NOT rescue it
 here -- `start-server` still hung, and never wrote to the log. Close Android Studio / any
 Windows `adb.exe` first (`adb.exe kill-server` from Windows), then retry. Lane C was skipped
-for that build because of this; the APK was checked with `keytool` and `aapt2` instead, which
-need no device.
+for that build because of this; the APK was checked with `apksigner` and `aapt2` instead, which
+need no device -- see CHECKING AN APK WITHOUT A DEVICE below, because two of the obvious tools
+give confident wrong answers.
 
 **`adb` hangs on WSL2 without `ADB_LIBUSB=0`.** `adb start-server` and even
 `adb nodaemon server` produce no output at all and never return, because adb
@@ -1428,6 +1429,36 @@ will not open, at the top of the funnel. Lane G HEADs the link on every board no
 the day it dies; it cannot warn ahead, because that needs the build id and an EAS token and
 the lane is credential-free on purpose. **So rebuild and repoint inside two weeks**, every two
 weeks, until #82's durable fix exists.
+
+**CHECKING AN APK WITHOUT A DEVICE, AND TWO TOOLS THAT LIE ABOUT IT** (2026-09-21, build
+`d8e22e85`). With adb unavailable, the APK was verified from its bytes -- and two checks
+returned a confident wrong answer before the right tool was used.
+
+**`keytool -printcert -jarfile` READS ONLY v1 (JAR) SIGNATURES, and an EAS APK is v2 only.**
+`apksigner verify --verbose` reports v1 `false`, v2 `true`. So keytool prints nothing, and a
+comparison against `assetlinks.json` reports MISMATCH over an empty string -- which would have
+sent somebody to rotate a keystore that was fine. Use
+`$ANDROID_HOME/build-tools/<v>/apksigner verify --print-certs`. The fingerprint MATCHED.
+
+**HERMES STORES ANY STRING WITH A NON-ASCII CHARACTER AS UTF-16**, so `grep` on
+`assets/index.android.bundle` misses it. Every copy string ending in `→` read as ABSENT --
+"Something not right? Tell us →", "Your parties live on this device →" -- while the pure-ASCII
+ones matched. Count both encodings (`s.encode('ascii')` and `s.encode('utf-16-le')`). All six
+feature strings were present.
+
+**HERMES KEEPS DEAD-BRANCH STRING LITERALS, so `audit:guest-build`'s markers do not transfer to
+a native bundle.** `scheme-probe` is present in the Android bundle with `EXPO_PUBLIC_FIDELITY`
+unset -- terser drops the dead JSX on web and Hermes does not. The build env is the real
+evidence there: `eas.json`'s `preview.env` names no FIDELITY, and `EXPO_PUBLIC_FIDELITY` itself
+appears zero times.
+
+**A PAGES DEPLOY FROM ANY BRANCH BUT `main` IS A PREVIEW, AND SAYS "Deployment complete!"**
+wrangler reads the branch from git. From a feature branch it publishes to
+`<hash>.runit-app.pages.dev` and leaves the production alias as it was: a new Android link went
+"live" and `runit-app.pages.dev` served the old APK through six cache-busted fetches.
+`wrangler pages deployment list` is where it shows -- `Environment: Preview`. `deploy:web` now
+refuses off `main` and passes `--branch=main`. That makes FOUR silent successes found in one
+deploy script; count the files, read the environment, and fetch the live page afterwards.
 
 **THE FREE PLAN'S QUOTA IS PER PLATFORM, and that is why Android could ship when iOS could
 not.** `eas account:usage turtlewolfe --json` is the read -- 15 iOS and 15 Android a cycle,
