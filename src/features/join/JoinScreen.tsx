@@ -13,7 +13,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 
 import { Screen } from "@/components/ui/Screen";
 import { Toast } from "@/components/ui/Toast";
-import { useEvent, useLoadMyEvents, useLookUpInvite, usePreview } from "@/state/hooks";
+import { useAccount, useEvent, useLoadMyEvents, useLookUpInvite, usePreview } from "@/state/hooks";
 import { useJoinActions } from "@/state/actions";
 import { useToast } from "@/state/ToastProvider";
 import { icsFilename, icsFor } from "@/lib/invite";
@@ -43,6 +43,8 @@ import {
  */
 export function JoinScreen() {
   const { tokens, fade, depth, depthCss } = useTheme();
+  /* #80. Null for nearly everyone here -- see the sign-in link at the bottom of this file. */
+  const accountEmail = useAccount();
   const router = useRouter();
   const event = useEvent();
   const preview = usePreview();
@@ -506,17 +508,41 @@ export function JoinScreen() {
               </Text>
             </Pressable>
 
-            <Pressable
-              onPress={() => router.push("/signin")}
-              accessibilityRole="button"
-              accessibilityLabel="Sign in to an event you already host"
-              hitSlop={10}
-              testID="join-signin"
-            >
-              <Text style={[s.createLink, { color: alpha(tokens.baseContent, fade.soft) }]}>
-                Already running one? Sign in →
-              </Text>
-            </Pressable>
+            {/* AND IT STOPS BEING OFFERED ONCE YOU ARE IN (#80). `AccountRow` renders a few
+                lines above this and draws the address you are signed in as, with Sign out
+                beside it -- so an unconditional "Sign in" link underneath was not confusing,
+                it was false. `MyEventsList` and `AccountRow` both self-hide and these three
+                links did not, which is the whole of the bug.
+
+                Found by the owner opening the app and asking why their own parties were
+                listed "when no one is signed in". Both halves of that question are this: you
+                ARE signed in, anonymously, and this link is what says otherwise.
+
+                NOT hidden when the list above is non-empty, which was the tempting wider
+                condition. A host holding events on THIS phone and no address is exactly who
+                still needs this -- it is how those events survive a new phone -- and hiding
+                it there would take the way back from the person the link was written for.
+                The words are wrong for her rather than the link; that half is still open on
+                #80 because it is a copy decision, not a code one.
+
+                MUTATION-CHECKED, and it is pinned by tests that already existed: widening
+                this to `&& myEvents.length === 0` turns THREE journeys red, including "the
+                way in is a quiet link on the join screen, and it leads somewhere" -- because
+                the default world lists an event, so the wider condition deletes the only
+                route to the sign-in screen in the entire app. */}
+            {!accountEmail && (
+              <Pressable
+                onPress={() => router.push("/signin")}
+                accessibilityRole="button"
+                accessibilityLabel="Sign in to an event you already host"
+                hitSlop={10}
+                testID="join-signin"
+              >
+                <Text style={[s.createLink, { color: alpha(tokens.baseContent, fade.soft) }]}>
+                  Already running one? Sign in →
+                </Text>
+              </Pressable>
+            )}
           </View>
 
           <Pressable

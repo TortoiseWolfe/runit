@@ -1990,6 +1990,17 @@ the state where three buttons are dead", and only a journey-level look sees that
   the run-of-show `accessibilityHint`, is NOT asserted and cannot be: react-native-web does
   not forward `accessibilityHint` at all, so it never reaches the DOM. Same class as
   `hitSlop`; stated in the spec rather than faked.
+- **EXPO-ROUTER KEEPS A POPPED SCREEN MOUNTED AND HIDES IT WITH CSS, so `toHaveCount` COUNTS
+  TWO (#80).** After Sign in -> back -> Sign in there are two `/join` screens in the DOM at
+  once: measured, two `account-row`, two `join-signin`, two `join-submit`, one of each with a
+  hidden ancestor. A person sees one. So `expect(...).toHaveCount(0)` FAILS over the stale
+  copy even after a perfectly correct fix, and `toBeVisible()` on a plain testID raises a
+  strict-mode violation instead -- which is how this was found. **This is the `hitSlop`
+  shape**: a lane reporting failure at a fixed app, which is how an assertion gets weakened
+  until it proves nothing. Assert `[data-testid="x"]:visible` and a COUNT, which is the
+  honest question anyway when the claim is about what somebody can see. Driving straight to
+  the screen shows only one, so a spec can pass for a year and then break when a navigation
+  step is added in front of it.
 - **`aria-disabled` is the gate.** react-native-web renders a disabled `Pressable` that
   way, so `expect(page.locator('[aria-disabled="true"]')).toHaveCount(0)` is a DOM fact
   about a whole screen rather than an assertion per control

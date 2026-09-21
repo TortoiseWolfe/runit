@@ -94,6 +94,66 @@ test.describe('a host signs in with an emailed code', () => {
     await expect(page.getByTestId('join-submit')).toBeVisible();
   });
 
+  /*
+   * AND THE WAY IN STOPS BEING OFFERED ONCE YOU ARE IN (#80).
+   *
+   * `MyEventsList` and `AccountRow` both self-hide; the three links under them were
+   * unconditional. So a host who had signed in saw her address and a Sign out control, and
+   * directly beneath them a link offering to sign her in. Not confusing -- false.
+   *
+   * The owner found this by opening the app and asking why their own parties were listed
+   * "when no one is signed in". Both halves of that question are this defect: you ARE signed
+   * in, and the screen's own copy is what says otherwise.
+   *
+   * ASSERTED ON `:visible`, NOT ON COUNT, AND THAT IS LOAD-BEARING. expo-router keeps a
+   * popped screen MOUNTED and hides it with CSS, so after Sign in -> back -> Sign in there
+   * are two `/join` screens in the DOM and `toHaveCount(0)` fails over the stale one even
+   * after a perfectly correct fix. Measured: two `account-row`, two `join-signin`, two
+   * `join-submit`, one of each hidden. This is the `hitSlop` shape -- an assertion that
+   * keeps reporting failure at a fixed app -- and `:visible` is the honest question anyway,
+   * because the claim is about what a person can see.
+   *
+   * The back-and-forth is kept rather than avoided: tapping Sign in, changing your mind and
+   * tapping it again is an ordinary thing to do, and it is what surfaced the stale screen.
+   */
+  test('the way in stops being offered once you are in', async ({ page }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await open(page, scheme, '/signin', 'host-signin');
+
+    // Before: the link is the only route to this screen, so it must be here.
+    await page.click('[data-testid="signin-back"]');
+    await ready(page, scheme);
+    await expect(page.locator('[data-testid="join-signin"]:visible')).toHaveCount(1);
+
+    await page.click('[data-testid="join-signin"]');
+    await page.fill('[data-testid="signin-email"]', 'ruth@example.com');
+    await page.click('[data-testid="signin-send"]');
+    await page.fill('[data-testid="signin-code"]', CODE);
+    await page.click('[data-testid="signin-verify"]');
+    await expect(page).toHaveURL(/\/join$/);
+
+    // After: the account row answers who you are and how to leave, so the link has no
+    // meaning left. Asserting the row too is what stops this passing on a screen that
+    // simply failed to render.
+    await expect(page.locator('[data-testid="account-row"]:visible')).toHaveCount(1);
+    await expect(page.locator('[data-testid="account-email"]:visible')).toHaveText(
+      'ruth@example.com',
+    );
+    await expect(page.locator('[data-testid="join-signin"]:visible')).toHaveCount(0);
+  });
+
+  /*
+   * THE OTHER DIRECTION, WHICH IS WHAT STOPS THE FIX FROM BEING "NEVER DRAW IT". Without
+   * this, deleting the link outright passes the test above -- and deletes the only route a
+   * host on a new phone has back to her own parties.
+   */
+  test('and is still offered to somebody who has not', async ({ page }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await open(page, scheme);
+    await expect(page.locator('[data-testid="account-row"]:visible')).toHaveCount(0);
+    await expect(page.locator('[data-testid="join-signin"]:visible')).toHaveCount(1);
+  });
+
   /**
    * A code is issued FOR AN ADDRESS. GoTrue refuses one presented against a different one,
    * and `MemoryRepository.pendingEmail` models that refusal -- so a screen that let the
