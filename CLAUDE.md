@@ -741,6 +741,18 @@ after navigation, so a screenshot can show the previous screen while the app has
 already moved on. Confirm state with `uiautomator dump` — it reads the live
 hierarchy — and treat a screenshot as illustration, not proof.
 
+**AND `ADB_LIBUSB=0` IS NOT ENOUGH WHEN WINDOWS IS RUNNING ITS OWN adb** (2026-09-21).
+`.wslconfig` sets `networkingMode=mirrored`, so WSL and Windows share ONE port space -- and an
+adb server on the Windows side owns 5037. The symptoms read like the libusb hang and are not:
+`adb devices` prints *"adb server version (40) doesn't match this client (41); killing..."*
+(the Linux client talking to the WINDOWS server), then *"ADB server didn't ACK"*, and
+`/tmp/adb.1000.log` ends in **`could not install *smartsocket* listener: Address already in
+use`** while `pgrep adb` in WSL finds nothing. `ANDROID_ADB_SERVER_PORT=5038` did NOT rescue it
+here -- `start-server` still hung, and never wrote to the log. Close Android Studio / any
+Windows `adb.exe` first (`adb.exe kill-server` from Windows), then retry. Lane C was skipped
+for that build because of this; the APK was checked with `keytool` and `aapt2` instead, which
+need no device.
+
 **`adb` hangs on WSL2 without `ADB_LIBUSB=0`.** `adb start-server` and even
 `adb nodaemon server` produce no output at all and never return, because adb
 blocks enumerating USB. Export `ADB_LIBUSB=0` and it starts instantly. This costs
