@@ -143,6 +143,46 @@ test.describe('a host signs in with an emailed code', () => {
   });
 
   /*
+   * AND IT SAYS TWO DIFFERENT THINGS, CHOSEN BY WHAT IS ON SCREEN (#80).
+   *
+   * One line served two audiences and was right for one. With nothing listed -- a guest, or
+   * a host on a new phone -- "Already running one? Sign in" is exactly right, and this link
+   * is the only route to /signin in the app. With her parties listed directly above it, the
+   * same words contradict the list, and the fact that actually matters goes unsaid: the
+   * parties are tied to the DEVICE, not to the person. Lose the phone and that list is empty
+   * on the next one.
+   *
+   * The owner found it by opening the app and asking why their own events were showing
+   * "when no one is signed in".
+   *
+   * BOTH DIRECTIONS, because a rule that swaps text passes trivially against text that was
+   * deleted -- and because forcing either branch has to fail, or half the rule is untested.
+   */
+  test('names the device when there are parties listed above it', async ({ page }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await open(page, scheme, '/join?hosting=1');
+
+    // `?hosting=1` is a host holding two events and no address -- the owner's own state.
+    await expect(page.locator('[data-testid="my-events"]:visible')).toHaveCount(1);
+    await expect(page.locator('[data-testid="join-signin"]:visible')).toHaveText(
+      'Your parties live on this device →',
+    );
+  });
+
+  test('and offers the way in when there is nothing listed', async ({ page }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await open(page, scheme, '/join?fresh=1');
+
+    // `?fresh=1` is an event made twenty minutes ago with nothing else -- and it is the
+    // CURRENT event, so `hideCurrent` empties the list. That is the case the copy must not
+    // get wrong: `useMyEvents()` is non-empty here while the screen shows no list at all.
+    await expect(page.locator('[data-testid="my-events"]:visible')).toHaveCount(0);
+    await expect(page.locator('[data-testid="join-signin"]:visible')).toHaveText(
+      'Already running one? Sign in →',
+    );
+  });
+
+  /*
    * THE OTHER DIRECTION, WHICH IS WHAT STOPS THE FIX FROM BEING "NEVER DRAW IT". Without
    * this, deleting the link outright passes the test above -- and deletes the only route a
    * host on a new phone has back to her own parties.

@@ -1231,6 +1231,28 @@ that lives in a button handler is bypassed by the second caller.
   holding a phone. `loadBlocks` is the pattern it now copies: a null identity is a real state
   with an empty answer, not a fallback. **The guard needs BOTH tests** -- "does not ask when
   nobody has signed in" alone passes if you delete the call entirely.
+- **A HOST'S PARTIES ARE TIED TO THE DEVICE, NOT TO HER, AND UNTIL #80 NO SCREEN SAID SO.**
+  `create_event` writes `auth.uid()` into the `hosts` row, and that uid is an anonymous
+  identity living in the iOS Keychain or one browser profile's storage. Replace the phone and
+  the list is empty on the next one: the events survive, but only the six-character code or
+  the recovery key finds them, because signing in with an address that was never attached
+  lands on an identity holding no seats. **This is why the sign-in link now says two things.**
+  With her list above it: *"Your parties live on this device →"*. With nothing listed -- a
+  guest, or a host on a phone that does not know her -- *"Already running one? Sign in →"*,
+  unchanged, because that is who those words were written for and this is the only route to
+  `/signin` in the app. Two wordings were rejected for reasons worth keeping: *"keep these"*
+  points at nothing in the empty state, and *"add an email to export them"* promises a copy
+  where none is made -- `PhotosScreen` already uses **Save** for putting bytes on a phone, and
+  this moves no bytes at all. A word promising a file that does not exist is #69's defect in
+  miniature.
+- **`useMyOtherEvents()` IS THE ONE PLACE THAT FILTER LIVES, and the join screen proves why.**
+  `MyEventsList` takes `hideCurrent`, so what it RENDERS is `mine` minus the event you are
+  standing in -- which is not `useMyEvents()`. The link's copy keys on the rendered list, and
+  `?fresh=1` is the case that separates them: ONE event in `mine`, nothing on screen, because
+  the only event is the current one. Keying on the raw list makes the copy claim a list nobody
+  can see. Mutation-checked, and it is a normal journey rather than a special case -- swapping
+  the hook for `useMyEvents()` turns `and offers the way in when there is nothing listed` red.
+  Same doctrine as `whenAndWhere`: if you need this list, call it, do not rebuild it.
 - **AND THE FIXTURE DISAGREED WITH GOTRUE ABOUT WHAT `getUser()` ANSWERS, which is the fourth
   time that class has bitten.** `FakeClient.verifyOtp` set `session` and left `user` null, so
   a client that had just signed in still reported no identity -- a state real GoTrue cannot

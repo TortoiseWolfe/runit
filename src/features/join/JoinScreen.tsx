@@ -13,7 +13,14 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 
 import { Screen } from "@/components/ui/Screen";
 import { Toast } from "@/components/ui/Toast";
-import { useAccount, useEvent, useLoadMyEvents, useLookUpInvite, usePreview } from "@/state/hooks";
+import {
+  useAccount,
+  useEvent,
+  useLoadMyEvents,
+  useLookUpInvite,
+  useMyOtherEvents,
+  usePreview,
+} from "@/state/hooks";
 import { useJoinActions } from "@/state/actions";
 import { useToast } from "@/state/ToastProvider";
 import { icsFilename, icsFor } from "@/lib/invite";
@@ -45,6 +52,14 @@ export function JoinScreen() {
   const { tokens, fade, depth, depthCss } = useTheme();
   /* #80. Null for nearly everyone here -- see the sign-in link at the bottom of this file. */
   const accountEmail = useAccount();
+  /*
+   * WHAT `<MyEventsList hideCurrent />` BELOW ACTUALLY DRAWS, which is not `useMyEvents()`.
+   * The sign-in link chooses its words by whether that list is there, so it has to ask the
+   * same question the list asks -- `useMyOtherEvents` is the one place that rule lives.
+   * `?fresh=1` is the case that separates them: one event in `mine`, nothing on screen,
+   * because the only event is the one you are standing in.
+   */
+  const listedAbove = useMyOtherEvents().length > 0;
   const router = useRouter();
   const event = useEvent();
   const preview = usePreview();
@@ -534,12 +549,41 @@ export function JoinScreen() {
               <Pressable
                 onPress={() => router.push("/signin")}
                 accessibilityRole="button"
-                accessibilityLabel="Sign in to an event you already host"
+                /* The label moves with the words rather than staying put. react-native-web
+                   forwards `aria-label`, so this one IS reachable -- unlike
+                   `accessibilityHint`, which it drops -- and "Sign in to an event you
+                   already host" is wrong beside her own list for the same reason the
+                   visible copy was. */
+                accessibilityLabel={
+                  listedAbove
+                    ? "Add an email so your parties are not tied to this device"
+                    : "Sign in to an event you already host"
+                }
                 hitSlop={10}
                 testID="join-signin"
               >
                 <Text style={[s.createLink, { color: alpha(tokens.baseContent, fade.soft) }]}>
-                  Already running one? Sign in →
+                  {/* TWO AUDIENCES, ONE LINK, AND THE WORDS ARE WHAT SEPARATE THEM (#80).
+
+                      Nothing listed: a guest, or a host on a phone that does not know her.
+                      "Already running one? Sign in" is exactly right for her, and this is
+                      the only route to /signin in the app.
+
+                      Her parties listed: the words contradicted the list directly above
+                      them, and the fact that matters went unsaid -- the parties are tied to
+                      the DEVICE, not to her. Lose the phone and the list is empty on the
+                      next one; the events survive, but only the six-character code or the
+                      recovery key finds them.
+
+                      "Keep these" was rejected because "these" points at nothing in the
+                      first state. "Add an email to export them" was rejected because
+                      PhotosScreen already uses Save for putting a copy on your phone, and
+                      this copies nothing at all -- it is about which identity holds the
+                      seat. A word that promises a file where there is none is the class of
+                      defect #69 was. */}
+                  {listedAbove
+                    ? "Your parties live on this device →"
+                    : "Already running one? Sign in →"}
                 </Text>
               </Pressable>
             )}

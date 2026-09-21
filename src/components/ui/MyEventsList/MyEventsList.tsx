@@ -2,7 +2,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useRouter } from 'expo-router';
 
-import { useEvent, useMyEvents } from '@/state/hooks';
+import { useEvent, useMyEvents, useMyOtherEvents } from '@/state/hooks';
 import { useSessionActions } from '@/state/actions';
 import { formatEventDate } from '@/lib/format';
 import { alpha, eyebrow, radius, useTheme, weight } from '@/theme';
@@ -55,10 +55,16 @@ export function MyEventsList({
   const { tokens, fade } = useTheme();
   const router = useRouter();
   const all = useMyEvents();
+  // The filtered view lives in `useMyOtherEvents` now, because the join screen's sign-in
+  // link reads the same rule to choose its words (#80). This component consumes it rather
+  // than owning it, so the two cannot drift.
+  const others = useMyOtherEvents();
+  // Still needed below: a row for the event you are standing in is marked, not hidden,
+  // when `hideCurrent` is false (the host console).
   const current = useEvent();
   const { openEvent } = useSessionActions();
 
-  const events = hideCurrent ? all.filter((e) => e.id !== current?.id) : all;
+  const events = hideCurrent ? others : all;
 
   /**
    * OPENING A GUEST ROW HAS TO TAKE YOU INTO THE PARTY (#76).
