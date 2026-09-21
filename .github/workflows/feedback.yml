@@ -1,0 +1,61 @@
+# A TESTER'S REPORT BECOMES AN ISSUE WITHIN THE HOUR, WITHOUT ANYBODY RUNNING A COMMAND.
+#
+# The app writes a `public.feedback` row when somebody taps "Something not right?". Until
+# 2026-09-21 that row became a GitHub issue only when a person ran `pnpm feedback:app` by hand
+# with a token passed inline -- so a report from a tester sat invisible until somebody
+# remembered, and "feedback should guide future sessions" depended on a session happening to
+# start. The owner chose this over the laptop-only design `app-feedback-to-issues.mjs` began
+# with, knowing the cost below.
+#
+# THE ONE STORED CREDENTIAL IS NARROW, AND REVOCABLE ON ITS OWN. `SUPABASE_FEEDBACK_KEY` is a
+# dedicated `sb_secret_` key named `github_feedback_action`, made for this and nothing else. It
+# is scoped to ONE Supabase project. Revoke it in the dashboard's API keys page and exactly this
+# job stops; the Edge Functions use a different key. The legacy account-wide token that the
+# laptop fallback uses is NEVER stored here -- it reads and writes every project on the account.
+#
+# THE GITHUB TOKEN IS THE RUN'S OWN, scoped to this repository and expiring with the run. No
+# token that can reach GitHub sits on a Supabase server, which is the rule the tool's header
+# states and this keeps.
+#
+# NOT A GATE. It exits zero when nothing has been reported, and a report is never a failure --
+# a red board must not mean "a customer found a bug". It DOES fail when it cannot read the
+# table, because an hourly job that silently reads nothing is how a whole channel dies unseen.
+name: feedback
+
+on:
+  schedule:
+    # :17, not :00 -- scheduled runs at the top of the hour are the ones GitHub delays most.
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+# Serialised, because dedupe reads the issues list: two overlapping runs could each decide
+# the same row was new and file it twice.
+concurrency:
+  group: feedback
+  cancel-in-progress: false
+
+permissions:
+  issues: write     # file the issue, create the `from-a-customer` label once
+  contents: write   # commit the screenshot to design/feedback/ -- a signed URL decays
+
+jobs:
+  file:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      # The repo's one declared Node, the same file every other runtime here obeys.
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      # No install: the tool uses Node built-ins and fetch, so there is no dependency surface
+      # in a job holding a database credential.
+      - name: File new customer reports as issues
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Not a secret -- it ships inside every build of the app.
+          EXPO_PUBLIC_SUPABASE_URL: https://qwusbxallkbzfladvgfx.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_FEEDBACK_KEY }}
+        run: node tools/app-feedback-to-issues.mjs
