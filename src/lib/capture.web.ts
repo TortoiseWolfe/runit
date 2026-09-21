@@ -88,8 +88,15 @@ export async function shrink(
   return { blob: out, width, height };
 }
 
-/** The real browser implementation of the two seams above. */
-const browserDeps = {
+/**
+ * The real browser implementation of the two seams above.
+ *
+ * EXPORTED because `pickScreenshot.web.ts` needs the same pair (#78). A second copy would be
+ * a second copy of the `imageOrientation: 'from-image'` line below, and the one that drifted
+ * would land every portrait screenshot sideways -- silently, and only on web, which is
+ * exactly the failure that line exists to prevent.
+ */
+export const browserDeps = {
   decode: (blob: Blob) =>
     // `imageOrientation: 'from-image'` is load-bearing on a phone: an <img> applies EXIF
     // orientation and a raw canvas draw does not, so without it every portrait upload
