@@ -1677,6 +1677,23 @@ export class SupabaseRepository implements RunitRepository {
       const said = body.trim();
       if (!said) throw new JoinError('needs_a_name');
 
+      /*
+       * GET A SESSION FIRST, because the person this matters most for has none (#81).
+       *
+       * The join screen's "Something not right? Tell us" is there for somebody who CANNOT
+       * GET IN. Sign-in is lazy -- `signInAnonymously()` sits on the join path -- so they
+       * have never been signed in, and `getUser()` below found nobody and threw
+       * `session_unavailable`. The report was lost for the one person it existed for.
+       *
+       * The same idiom `event.preview` already argues for (#15): opening an invitation link
+       * mints an anonymous user before anyone has joined anything. The cost is identical --
+       * one `auth.users` row for a report from somebody who never joins -- and
+       * `feedback_guard` still caps an identity at six an hour, so it is not a way to spend
+       * rows for free. A guest who already holds a session keeps it: `ensureSession` signs in
+       * only when there is nobody.
+       */
+      await this.ensureSession();
+
       // AN INSERT, NOT AN RPC. There is nothing for a definer function to decide: the
       // policy's `with check (auth_user_id = auth.uid())` is the whole authorisation, and
       // the cap is a trigger. A function here would be machinery around a single row.
