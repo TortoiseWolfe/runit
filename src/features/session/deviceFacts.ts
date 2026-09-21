@@ -56,7 +56,15 @@ export function factsFrom(env: FactsEnv): Record<string, string> {
   };
   // Omitted rather than stringified. `String(undefined)` is how a report came to read
   // "web undefined".
-  if (env.osVersion !== undefined && env.osVersion !== null) facts.os = String(env.osVersion);
+  //
+  // AND NEVER FROM A BROWSER, because react-native-web's `Platform.Version` is the string
+  // "0.0.0" -- not undefined, which is what this first assumed. Measured by sending a real
+  // report from the live site: the row landed with `os: "0.0.0"`. A browser has no OS version
+  // this can honestly report, and the user agent that would carry one is the fingerprint
+  // the "nothing identifying" rule exists to keep out.
+  if (!web && env.osVersion !== undefined && env.osVersion !== null) {
+    facts.os = String(env.osVersion);
+  }
   return facts;
 }
 

@@ -58,6 +58,21 @@ describe('a browser report says it came from a browser', () => {
     expect(f.build).toBe('web');
     expect(JSON.stringify(f)).not.toContain('undefined');
   });
+
+  /*
+   * AND THE VALUE react-native-web ACTUALLY RETURNS IS "0.0.0", NOT UNDEFINED.
+   *
+   * The case above assumed a browser has no `Platform.Version`. It does: react-native-web
+   * returns the string "0.0.0", measured by sending a real report from the live site on
+   * 2026-09-21. The row landed with `os: "0.0.0"` and the sheet showed "web 0.0.0" to the
+   * person reading it. The test above passed against an assumption and the product did not.
+   * A browser has no OS version this can honestly report, so it reports none.
+   */
+  it('reports no OS version from a browser, including the 0.0.0 react-native-web returns', () => {
+    const f = live({ os: 'web', osVersion: '0.0.0', appVersion: '0.1.0', buildVersion: null });
+    expect(f.os).toBeUndefined();
+    expect(factLine(f)).toBe('web · app 0.1.0 (web) · America/New_York');
+  });
 });
 
 describe('the one line printed above the Send button', () => {
