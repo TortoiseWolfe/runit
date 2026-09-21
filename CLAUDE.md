@@ -1065,6 +1065,22 @@ and this bucket is private so a raw link is worse than useless. It also distingu
 CAUSES the way the sibling does -- "no picture" and "a picture we could not fetch" are
 different facts.
 
+**`screenshot_path` IS GUARDED IN TWO PLACES BECAUSE A SERVICE ROLE READS IT, and it shipped
+unguarded for one commit.** `feedback:app` interpolates that column into a storage URL and
+fetches it as the SERVICE ROLE -- which reads every folder in every bucket, whatever RLS tells
+a client -- then COMMITS THE BYTES TO THE REPOSITORY. As free text, a reporter could write
+`../event-photos/<event>/<photo>.jpg` and have us publish a guest's private photograph.
+
+**THE STORAGE POLICY DOES NOT COVER THIS, and that is the lesson.** It constrains where bytes
+may be WRITTEN; this is a string in a different table, and they are different questions. Two
+guards, because neither catches the other's case: a CHECK constraint on the SHAPE (two uuids
+and a known extension) catches a traversal from inside a correct prefix, and `feedback_guard`
+comparing the first segment to `auth_user_id` catches a well-formed path belonging to somebody
+else. **A BEFORE trigger runs ahead of a CHECK**, so one test case would only ever exercise
+whichever fires first -- lane E tests each against the case only it can catch, and each
+mutation kills exactly its own assertion. The tool refuses the same shape again before
+interpolating, for rows written before the guards existed.
+
 **The bucket is private and insert-only under `{auth_user_id}/`**, the shape `event-photos`
 uses with the event id. No select for any client role: a folder any authenticated caller could
 list is every screenshot anybody ever sent us. Three lane E assertions, and the prefix check

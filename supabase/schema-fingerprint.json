@@ -1,7 +1,7 @@
 {
   "capturedFrom": "a LOCAL build of supabase/migrations/, verified group-for-group against the LIVE project qwusbxallkbzfladvgfx",
   "capturedAt": "2026-09-20",
-  "verifiedAgainst": "Re-captured after #77's screenshot slice added `public.feedback.screenshot_path`, the private `feedback` storage bucket and its `feedback_insert_self` policy (columns 137->138, policies 38->39). PRODUCTION WAS RE-CHECKED: column, bucket and policy all read back as present, then `schema-fingerprint.sql` run against BOTH sides with all six groups identical. The bucket ROW is not hashed here -- this file covers columns, functions, indexes, policies, triggers and the tier_limits seed -- so the bucket's existence is verified by reading it back, which is the same answer as for a default, a constraint and a function body: read the thing, do not watch the hash.",
+  "verifiedAgainst": "Re-captured after the path-traversal fix on `public.feedback.screenshot_path`: a CHECK constraint on the shape and `feedback_rate_limit` renamed to `feedback_guard` with an ownership check added (functions and triggers hashes move; counts unchanged at 43 and 20). PRODUCTION WAS RE-CHECKED -- constraint, trigger and function all read back present, the old function dropped, zero existing rows carried a path, then `schema-fingerprint.sql` run against BOTH sides with all six groups identical. AND NOTE WHAT THIS FILE STILL CANNOT SEE: the CHECK CONSTRAINT itself. Constraints are not one of the six groups, which #68 measured and this change proves again -- only the function and trigger hashes moved. The constraint's existence is verified by reading `pg_constraint`.",
   "howToRefresh": "pnpm schema:fingerprint --write, and only after re-checking production. See docs/lane-e.md and issue #49.",
   "schema": {
     "columns": {
@@ -10,7 +10,7 @@
     },
     "functions": {
       "n": 43,
-      "fingerprint": "91e0da2ece911c8aa63bf72f9959cc28"
+      "fingerprint": "3c2e4c3c8f7b74cadf89387744bda522"
     },
     "indexes": {
       "n": 37,
@@ -26,7 +26,7 @@
     },
     "triggers": {
       "n": 20,
-      "fingerprint": "19dceb0342acd2fee5c768f78b8cd82d"
+      "fingerprint": "eb35a8cc692d9b099c7a71c91bf89923"
     }
   }
 }
