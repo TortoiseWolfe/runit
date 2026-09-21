@@ -159,10 +159,21 @@ export function shareMessage(
 
   const lines = [`You're invited to ${event.name}.`];
   if (when) lines.push(when);
+  /*
+   * STEP ONE STOPPED BEING AN INSTALL WHEN #78 SHIPPED, and this line was still asking for
+   * one. "Get RunIt" is the sentence that lost a party: S7Y9RX went out with forty seats and
+   * produced ZERO anonymous sign-ins, and an install is where the funnel ended. The same
+   * link now opens the party in a browser -- the bridge page leads with that button -- so an
+   * invitation that says "get the app" is understating what a tap actually does, to exactly
+   * the people who were never going to install anything.
+   *
+   * "Open the party" is true on both routes: the link lands on the bridge, which offers the
+   * browser first and the app underneath. Nothing about the URL changed.
+   */
   lines.push(
     '',
-    `1. Get RunIt:  ${joinLink(event.code)}`,
-    '2. Open it and tap Join',
+    `1. Open the party:  ${joinLink(event.code)}`,
+    '2. Pick a nickname. No app needed.',
     `3. Your code is  ${code}`,
     '',
     'No account, no phone number.',
