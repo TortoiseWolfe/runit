@@ -49,15 +49,22 @@ describe('the share message', () => {
     expect(m.startsWith("You're invited to Sam & Riley's Wedding.")).toBe(true);
   });
 
-  it('gives the steps in the order a person walks them: get it, open it, then the code', () => {
-    // The failure this exists to prevent: a guest installs, opens the app cold, and meets an
-    // empty field having never been told what a code is. There is no deferred deep link on
-    // this distribution -- the code cannot survive the install, so the message has to carry
-    // it somewhere a person can still read afterwards.
+  it('gives the steps in the order a person walks them, and step one is no longer an install', () => {
+    // The failure this exists to prevent: a guest arrives at the app cold and meets an empty
+    // field having never been told what a code is. There is no deferred deep link on this
+    // distribution -- the code cannot survive an install -- so the message carries it
+    // somewhere a person can still read afterwards, whichever route they took.
+    //
+    // #78 CHANGED WHAT STEP ONE PROMISES. "Get RunIt" asked for an install, and an install
+    // is where S7Y9RX's forty guests stopped: that party produced ZERO anonymous sign-ins.
+    // The same link now opens the party in a browser. The URL did not change; what it is
+    // worth to somebody who will not install anything did.
     const m = shareMessage(EVENT);
-    expect(m.indexOf('1. Get RunIt')).toBeLessThan(m.indexOf('2. Open it'));
-    expect(m.indexOf('2. Open it')).toBeLessThan(m.indexOf('3. Your code is'));
-    expect(m).toContain(`1. Get RunIt:  ${INVITE_ORIGIN}/i/SR1017`);
+    expect(m.indexOf('1. Open the party')).toBeLessThan(m.indexOf('2. Pick a nickname'));
+    expect(m.indexOf('2. Pick a nickname')).toBeLessThan(m.indexOf('3. Your code is'));
+    expect(m).toContain(`1. Open the party:  ${INVITE_ORIGIN}/i/SR1017`);
+    // The sentence that cost a party. It must not come back.
+    expect(m).not.toContain('Get RunIt');
     expect(m).toContain('3. Your code is  SR1017');
   });
 
