@@ -123,7 +123,46 @@ function titleFor(body) {
   return `Customer: ${short}`;
 }
 
-function issueBody(row) {
+/**
+ * COMMIT THE PICTURE, DO NOT LINK TO IT -- and this is the sibling tool's hardest-won rule.
+ * `feedback-to-issues.mjs` says it outright: a signed URL "expires after a short while", so
+ * an issue whose only evidence is one decays into a description of a picture nobody can see.
+ * The bucket is private, so a raw link would be worse than useless.
+ *
+ * `design/feedback/` is the same destination and the same side of the .gitignore rule that
+ * `design/device/` sits on: irreproducible evidence off a real device is committed.
+ *
+ * A FAILURE HERE DOES NOT STOP THE ISSUE. The sentence is the report; the picture is evidence
+ * for it, and filing nothing because an image could not be fetched would throw away the thing
+ * we actually asked for. Returns null and the body says which of the two happened.
+ */
+async function commitScreenshot(row) {
+  const { envLocal } = await import('./lib/env.mjs');
+  const url = envLocal('EXPO_PUBLIC_SUPABASE_URL');
+  const key = envLocal('SUPABASE_SERVICE_ROLE_KEY');
+  if (!url || !key) return null;
+  try {
+    const res = await fetch(
+      `${url}/storage/v1/object/feedback/${row.screenshot_path}`,
+      { headers: { Authorization: `Bearer ${key}`, apikey: key } },
+    );
+    if (!res.ok) return null;
+    const bytes = Buffer.from(await res.arrayBuffer());
+    const path = `design/feedback/app-${row.id}.jpg`;
+    await gh(`/repos/${OWNER}/${REPO}/contents/${path}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        message: `Screenshot from a customer report (${row.id})`,
+        content: bytes.toString('base64'),
+      }),
+    });
+    return `https://github.com/${OWNER}/${REPO}/blob/main/${path}`;
+  } catch {
+    return null;
+  }
+}
+
+function issueBody(row, shotLink) {
   const ctx = row.context ?? {};
   const facts = [
     ['Platform', [ctx.platform, ctx.os].filter(Boolean).join(' ')],
@@ -143,6 +182,15 @@ function issueBody(row) {
     '|---|---|',
     ...facts.map(([k, v]) => `| ${k} | ${v} |`),
     '',
+    // TWO CAUSES, NOT ONE -- the distinction the sibling tool draws and for the same
+    // reason. "No picture" and "a picture we could not fetch" are different facts, and
+    // asserting the first over the second states a cause that was never established.
+    ...(row.screenshot_path
+      ? shotLink
+        ? ['', `Screenshot: ${shotLink}`]
+        : ['', 'They attached a screenshot and it could not be fetched from storage.']
+      : []),
+    '',
     'Filed by `pnpm feedback:app` from `public.feedback`. The reporter has no GitHub',
     'account and cannot see this issue; there is no reply path back to them, by design --',
     'nothing identifying was collected.',
@@ -154,7 +202,8 @@ function issueBody(row) {
 /* --------------------------------------------------------------------------- run */
 
 const rows = await sql(`
-  select f.id::text, f.body, f.context, f.created_at::text, e.code as event_code
+  select f.id::text, f.body, f.context, f.screenshot_path, f.created_at::text,
+         e.code as event_code
     from public.feedback f
     left join public.events e on e.id = f.event_id
    order by f.created_at
@@ -197,9 +246,10 @@ for (const row of fresh) {
     console.log(`  would file: ${title}`);
     continue;
   }
+  const shotLink = row.screenshot_path ? await commitScreenshot(row) : null;
   const issue = await gh(`/repos/${OWNER}/${REPO}/issues`, {
     method: 'POST',
-    body: JSON.stringify({ title, body: issueBody(row), labels: [LABEL] }),
+    body: JSON.stringify({ title, body: issueBody(row, shotLink), labels: [LABEL] }),
   });
   console.log(`  #${issue.number}  ${title}`);
 }

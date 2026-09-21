@@ -1,12 +1,12 @@
 {
   "capturedFrom": "a LOCAL build of supabase/migrations/, verified group-for-group against the LIVE project qwusbxallkbzfladvgfx",
   "capturedAt": "2026-09-20",
-  "verifiedAgainst": "Re-captured after #77 added `public.feedback`, its insert-only policy and its rate-limit trigger (columns 131->137, functions 42->43, indexes 36->37, policies 37->38, triggers 19->20). PRODUCTION WAS RE-CHECKED: applied to qwusbxallkbzfladvgfx first, the table, policy, trigger and `relrowsecurity` read back, then `schema-fingerprint.sql` run against BOTH sides with all six groups identical. NOTE THAT FIVE GROUPS MOVED HERE AND ZERO MOVED FOR THE CHANGE BEFORE IT: #73's `photo_moderation` default flip is invisible to this file, which hashes `table.column type null=...` and not the default. A new TABLE is the case this gate sees clearly; a default, a constraint, and a function's return type or body are the three it does not. Verify a deploy by reading the thing back.",
+  "verifiedAgainst": "Re-captured after #77's screenshot slice added `public.feedback.screenshot_path`, the private `feedback` storage bucket and its `feedback_insert_self` policy (columns 137->138, policies 38->39). PRODUCTION WAS RE-CHECKED: column, bucket and policy all read back as present, then `schema-fingerprint.sql` run against BOTH sides with all six groups identical. The bucket ROW is not hashed here -- this file covers columns, functions, indexes, policies, triggers and the tier_limits seed -- so the bucket's existence is verified by reading it back, which is the same answer as for a default, a constraint and a function body: read the thing, do not watch the hash.",
   "howToRefresh": "pnpm schema:fingerprint --write, and only after re-checking production. See docs/lane-e.md and issue #49.",
   "schema": {
     "columns": {
-      "n": 137,
-      "fingerprint": "2c9e6382030c704e0cbaa8f4c2398775"
+      "n": 138,
+      "fingerprint": "e75e58508e37e44a2946e2f472f10e11"
     },
     "functions": {
       "n": 43,
@@ -17,8 +17,8 @@
       "fingerprint": "dbe5aab1e9c70ad305c6ff4899bcccbd"
     },
     "policies": {
-      "n": 38,
-      "fingerprint": "953ed49bda22f1553d5afe783e6ae60c"
+      "n": 39,
+      "fingerprint": "b2996912da5232f8c350e8448a079d0b"
     },
     "tier_limits": {
       "n": 4,

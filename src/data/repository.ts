@@ -537,7 +537,20 @@ export interface RunitRepository {
      *
      * Rejects with `JoinError('reported_too_often')` when the per-identity cap refuses it.
      */
-    send(input: { body: string; context?: Record<string, unknown> }): Promise<void>;
+    send(input: {
+      body: string;
+      context?: Record<string, unknown>;
+      /**
+       * A local URI for a picture they CHOSE, from `pickScreenshot()` -- never a captured
+       * view. Optional, and most reports have none: a sentence is worth filing on its own,
+       * and demanding a screenshot turns a ten-second report into a task.
+       *
+       * A URI rather than bytes, which is the currency `photos.upload` already takes and
+       * for the same reason: an adapter can `fetch(uri).blob()`, and a camera is a device
+       * concern that has no business behind this seam.
+       */
+      screenshotUri?: string | null;
+    }): Promise<void>;
   };
 
   /**

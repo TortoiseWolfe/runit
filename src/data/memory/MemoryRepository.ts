@@ -1001,15 +1001,27 @@ export class MemoryRepository implements RunitRepository {
    * about feedback is that the screen HANDED IT OVER -- there is no tracker here and no
    * GitHub, and inventing an issue number would be the fixture being kinder than the world.
    */
-  private sentFeedback: { body: string; context?: Record<string, unknown> }[] = [];
+  private sentFeedback: {
+    body: string;
+    context?: Record<string, unknown>;
+    screenshotUri?: string | null;
+  }[] = [];
 
   /** What `feedback.send` received, for the tests that prove the screen reached the seam. */
-  feedbackSent(): { body: string; context?: Record<string, unknown> }[] {
+  feedbackSent(): {
+    body: string;
+    context?: Record<string, unknown>;
+    screenshotUri?: string | null;
+  }[] {
     return [...this.sentFeedback];
   }
 
   feedback = {
-    send: async (input: { body: string; context?: Record<string, unknown> }) => {
+    send: async (input: {
+      body: string;
+      context?: Record<string, unknown>;
+      screenshotUri?: string | null;
+    }) => {
       const body = input.body.trim();
       // THE SAME TWO RULES THE DATABASE HAS, because a fixture kinder than the backend is
       // the one thing this adapter exists not to be -- #66's nameless guest and #18's
@@ -1017,7 +1029,11 @@ export class MemoryRepository implements RunitRepository {
       // with a 2000 cap, and the trigger refuses a seventh report in an hour.
       if (!body) throw new JoinError('needs_a_name');
       if (this.sentFeedback.length >= 6) throw new JoinError('reported_too_often');
-      this.sentFeedback.push({ body, context: input.context });
+      // THE URI IS KEPT, NOT UPLOADED. There is no bucket here, and a fixture that
+      // invented a storage path would be claiming something happened that did not -- the
+      // one thing this adapter exists not to do. A journey can prove the screen HANDED IT
+      // OVER, which is the honest claim.
+      this.sentFeedback.push({ body, context: input.context, screenshotUri: input.screenshotUri ?? null });
     },
   };
 

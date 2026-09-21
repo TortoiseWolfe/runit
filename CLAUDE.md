@@ -1046,10 +1046,29 @@ event code. Not the nickname, not an address, not another guest's name -- the ru
 much here. The sheet PRINTS what it is about to send, because a report that quietly harvests
 is a different product from one that says so.
 
-**SCREENSHOTS ARE NOT BUILT YET, and the design is decided: the image PICKER, never a view
-capture.** `expo-image-picker` is already a dependency. A silent capture would send other
-guests' photographs and names to a repository without the reporter seeing what left their
-phone; the picker means they choose, and can crop first.
+**A REPORT CAN CARRY A PICTURE, AND THE PICKER IS THE PRIVACY DESIGN.** `pickScreenshot()`
+opens the LIBRARY, never the camera and never a view capture -- somebody reporting a bug has
+already taken the screenshot, and a silent capture would send other guests' photographs and
+names to a repository without the reporter seeing what left their phone. `allowsEditing: true`
+here and `false` in `capturePhoto`: there a crop between the shutter and the photo is a
+different product, here it is the redaction step and the whole reason this is the picker.
+
+**BYTES FIRST, ROW SECOND -- the opposite of the deletion rule, for the same reason.**
+Whichever can strand the other goes second: a row naming an object that failed to upload points
+at nothing, while an object with no row is litter the sweep ignores. **And a failed upload does
+not lose the words** -- the sentence is the report, the picture is evidence for it, so the
+upload is wrapped and swallowed.
+
+**`pnpm feedback:app` COMMITS THE PICTURE rather than linking to it**, which is the sibling
+tool's hardest-won rule: a signed URL decays into a description of a picture nobody can see,
+and this bucket is private so a raw link is worse than useless. It also distinguishes TWO
+CAUSES the way the sibling does -- "no picture" and "a picture we could not fetch" are
+different facts.
+
+**The bucket is private and insert-only under `{auth_user_id}/`**, the shape `event-photos`
+uses with the event id. No select for any client role: a folder any authenticated caller could
+list is every screenshot anybody ever sent us. Three lane E assertions, and the prefix check
+is mutation-pinned.
 
 ## The tester channel
 

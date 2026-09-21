@@ -101,6 +101,31 @@ test.describe('a customer with no GitHub account can still tell us something', (
     await expect(page.getByTestId('open-feedback')).toHaveCount(0);
   });
 
+  test('a picture is offered, optional, and says so', async ({ page }, info) => {
+    await open(page, info.project.name as 'dark' | 'light');
+    await page.getByTestId('open-feedback').click();
+
+    // OPTIONAL IN THE LABEL, because demanding a screenshot turns a ten-second report into
+    // a task and a sentence on its own is worth filing.
+    await expect(page.getByTestId('feedback-attach')).toContainText(/optional/i);
+    // And the sentence above the button does NOT yet mention a picture, because there is
+    // none -- it describes what will actually be sent, not what could be.
+    await expect(page.getByTestId('feedback-facts')).not.toContainText(/the picture you chose/);
+  });
+
+  test('once one is attached, the sheet says the picture is going too', async ({ page }, info) => {
+    await open(page, info.project.name as 'dark' | 'light');
+    await page.getByTestId('open-feedback').click();
+    await page.getByTestId('feedback-attach').click();
+
+    // THE CONTROL CHANGES ITS OWN LABEL, so somebody can tell a picture went on without
+    // having to remember whether they tapped it.
+    await expect(page.getByTestId('feedback-attach')).toContainText(/attached/i);
+    // AND THE "WHAT WE ARE SENDING" SENTENCE FOLLOWS IT. A report that quietly adds a file
+    // to what it described earlier is the harvesting this sheet exists not to do.
+    await expect(page.getByTestId('feedback-facts')).toContainText(/the picture you chose/);
+  });
+
   test('cancelling sends nothing and keeps them in the party', async ({ page }, info) => {
     await open(page, info.project.name as 'dark' | 'light');
     await page.getByTestId('open-feedback').click();
