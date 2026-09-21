@@ -225,6 +225,15 @@ export class FakeClient {
       // says so rather than pretending -- that is lane H's.
       const user = { id: this.user?.id ?? 'auth-user' };
       this.session = { user };
+      /*
+       * AND `getUser()` MUST ANSWER AFTERWARDS. supabase-js resolves `getUser()` against the
+       * current session, so a verified code leaves an identity readable -- this fixture set
+       * `session` and left `user` null, which is the FIXTURE BEING DIFFERENT FROM THE
+       * BACKEND, the one thing it exists not to be (#66, the nameless guest, the sign-in
+       * mode). #79 found it: adding `loadMine`'s no-identity guard turned a passing test red
+       * over a state real GoTrue cannot produce.
+       */
+      this.user = user;
       return { data: { user, session: this.session }, error: null };
     },
     signInAnonymously: async () => {
@@ -237,12 +246,18 @@ export class FakeClient {
         // behaviour, so both are corrected together.
         return { data: { user: null, session: null }, error };
       }
-      this.session = { user: { id: 'auth-user' } };
-      return { data: { user: { id: 'auth-user' }, session: this.session }, error: null };
+      // `is_anonymous` is the field host sign-in branches on, so the fixture must set it
+      // rather than leave a signed-in anonymous caller reading as an account.
+      this.user = { id: 'auth-user', is_anonymous: true };
+      this.session = { user: this.user };
+      return { data: { user: this.user, session: this.session }, error: null };
     },
     signOut: async () => {
       this.signOutCalls++;
       this.session = null;
+      // Both, for the reason above: leaving `user` set would report an identity to a client
+      // that has just signed out, which no real GoTrue does.
+      this.user = null;
       return { error: null };
     },
     // GoTrue's refresh ticker is a 30s interval that runs independently of the
