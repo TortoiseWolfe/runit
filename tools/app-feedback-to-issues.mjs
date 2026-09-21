@@ -27,8 +27,24 @@
  *   pnpm feedback:app --dry    # what it would file, writing nothing
  *
  * NEEDS A SERVICE-ROLE READ. `public.feedback` has NO select policy for any client role --
- * deliberately, because a queue a guest could read is a list of other people's complaints --
- * so this reads it through the Management API with the token that already applies SQL here.
+ * deliberately, because a queue a guest could read is a list of other people's complaints.
+ *
+ * TWO WAYS TO READ, AND THE NARROW ONE IS PREFERRED (2026-09-21).
+ *
+ * `.github/workflows/feedback.yml` runs this every hour, so a tester's report becomes an issue
+ * without anybody typing a command -- the owner's decision, over keeping it a laptop tool. It
+ * reads with `SUPABASE_SERVICE_ROLE_KEY`, which the workflow fills from the repo secret
+ * `SUPABASE_FEEDBACK_KEY`: a DEDICATED `sb_secret_` key named `github_feedback_action`,
+ * created for this and nothing else, so revoking it in the dashboard cuts off exactly this
+ * and leaves the Edge Functions' key alone. It is scoped to ONE project.
+ *
+ * The laptop fallback is the Management API with `SUPABASE_ACCESS_TOKEN`, which is the legacy
+ * token and reads and writes EVERY project on the account. That is acceptable passed for one
+ * invocation on a machine; it is not acceptable stored in CI, which is why the Action does not
+ * use it and why the project key is tried first.
+ *
+ * The GitHub side is unchanged: the Action's own `GITHUB_TOKEN`, scoped to this repository and
+ * expiring with the run. No token that can reach GitHub ever sits on a Supabase server.
  */
 import { execFileSync } from 'node:child_process';
 
@@ -221,13 +237,49 @@ function issueBody(row, shotLink) {
 
 /* --------------------------------------------------------------------------- run */
 
-const rows = await sql(`
-  select f.id::text, f.body, f.context, f.screenshot_path, f.created_at::text,
-         e.code as event_code
-    from public.feedback f
-    left join public.events e on e.id = f.event_id
-   order by f.created_at
-   limit 200`);
+/**
+ * The rows, through PostgREST with the project key when there is one -- the path CI takes --
+ * and through the Management API otherwise. Both return the same shape, so nothing below
+ * knows which ran. `events(code)` is the embedded foreign key `feedback.event_id` declares.
+ */
+async function reports() {
+  const { envLocal } = await import('./lib/env.mjs');
+  const url = envLocal('EXPO_PUBLIC_SUPABASE_URL');
+  const key = envLocal('SUPABASE_SERVICE_ROLE_KEY');
+  if (url && key) {
+    const res = await fetch(
+      `${url}/rest/v1/feedback?select=id,body,context,screenshot_path,created_at,events(code)` +
+        '&order=created_at.asc&limit=200',
+      { headers: { apikey: key, Authorization: `Bearer ${key}` } },
+    );
+    const text = await res.text();
+    if (!res.ok) {
+      // Loud rather than SKIPPED: with a key present, a refusal means the key was revoked or
+      // is wrong, and an hourly job that quietly measures nothing is the failure lane E spent
+      // a year being.
+      console.error(`${RED}FAIL${OFF}: could not read public.feedback with the project key (${res.status}).`);
+      console.error(`  ${text.slice(0, 200)}`);
+      process.exit(1);
+    }
+    return JSON.parse(text).map((r) => ({
+      id: String(r.id),
+      body: r.body,
+      context: r.context,
+      screenshot_path: r.screenshot_path,
+      created_at: String(r.created_at),
+      event_code: r.events?.code ?? null,
+    }));
+  }
+  return sql(`
+    select f.id::text, f.body, f.context, f.screenshot_path, f.created_at::text,
+           e.code as event_code
+      from public.feedback f
+      left join public.events e on e.id = f.event_id
+     order by f.created_at
+     limit 200`);
+}
+
+const rows = await reports();
 
 if (rows.length === 0) {
   console.log(`${GREEN}ok${OFF}: nothing has been reported.`);
