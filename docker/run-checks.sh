@@ -114,6 +114,16 @@ pnpm audit:brand
 step "rpc name audit  (an argument the function does not have is a 404, not a type error)"
 pnpm audit:rpc
 
+# ONE ENVIRONMENT VARIABLE separates the build lane H drives from the one a guest would open,
+# and it is inlined by Metro -- so by the time there is a bundle the decision is invisible.
+# `export:web:live` sets BOTH flags because lane H drives the shipping adapter THROUGH the
+# harness, which makes it the obvious script to copy for "the Supabase web build". Copying it
+# ships a synthetic 1x1 photo, four fixture songs, a fake scan button and a save that writes
+# nothing, to a person. Static, so it costs nothing; it reads the declarations, and the bundle
+# too when one happens to be on disk. #78.
+step "guest build audit  (the browser build a guest opens is not the harness build)"
+pnpm audit:guest-build
+
 step "tests"
 pnpm test
 

@@ -118,6 +118,9 @@ pnpm verify:links               # Lane G: is the invitation host OURS, and does 
 pnpm qr:poster                  # regenerate the scan target from the app's own EventQr
 pnpm scan:device                # Lane C: witness expo-camera reading that QR off a real lens
 pnpm export:web:live            # Lane H: build the export against SUPABASE, not the fixture
+pnpm export:web:guest           # the SHIPPABLE browser build: backend flag, NO harness flag
+pnpm audit:guest-build          # one env var separates a guest's build from the harness one
+pnpm prove:guest --key=<local>  # drive that build at a LOCAL stack and join a real event
 pnpm smoke:live                 # Lane H: drive the SHIPPING adapter against the live project
 pnpm feedback:sync              # TestFlight tester feedback -> GitHub issues
 pnpm render:canvas              # regenerate design/renders/ from the canvas
@@ -879,6 +882,44 @@ writes to production. It is a deliberate command with the standing of `pnpm andr
 measurement with a cost, run before a build rather than on every save. It skips loudly
 without credentials, in the same shape as lane E.
 
+**THE GUEST BUILD IS NOT THE HARNESS BUILD, AND ONE INLINED ENV VAR IS THE ONLY DIFFERENCE**
+(`pnpm audit:guest-build`, `pnpm prove:guest`, #78, `docs/guest-web.md`). A guest who will not
+install an app has no route into a party at all -- `web/i/index.html` is a bridge to an install
+and offers nothing else. The route is buildable today: `EXPO_PUBLIC_BACKEND=supabase` alone
+exports a working browser app, measured.
+
+**`export:web:live` SETS BOTH FLAGS AND IS THE ONE YOU WILL COPY**, because it is the only
+other script that talks to Supabase. `EXPO_PUBLIC_FIDELITY=1` is the harness switch, and four
+web halves branch on it: a synthetic 1x1 PNG for the camera roll (`capture.web.ts:113`), four
+fixture songs (`musicSearch.web.ts:67`), a fake scan button (`QrScanner.web.tsx:27`) and a save
+that reports success and writes nothing (`save.web.ts:19`). All correct in a harness, all wrong
+in front of a person. **Metro INLINES the flag**, so by the time there is a bundle the decision
+is invisible and no amount of reading it will say which build you have.
+
+**THE MARKERS WERE MEASURED IN BOTH DIRECTIONS AND THE FIRST GUESS WAS WRONG.** Matching the
+flag NAME passes on both bundles, because it is inlined away. What survives minification does
+discriminate: `qr-simulate` and `scheme-probe` are in `dist/` and absent from `dist-guest/`,
+while the honest copy *"Scanning needs the RunIt app on a phone"* is in both -- so it is the
+ABSENCE marker that catches the gate itself going stale. Six mutations, all dead.
+
+**AND THE FLAG CUTS THE OTHER WAY, WHICH IS WHERE THE LIVE DEFECT WAS.** Two web halves are
+keyed `!== '1'`, so they go dead when the harness flag is ABSENT -- the guest build.
+`musicSearch.web.ts` returning `[]` is honest and documented (no CORS on the iTunes endpoint).
+`pickScreenshot.web.ts` returning `null` was not: `FeedbackSheet.tsx:103` draws "Add a picture"
+unconditionally, so a browser visitor tapped a control and **nothing happened** -- the
+drawn-control-that-does-nothing failure `empty-world.spec.ts` exists to catch, invisible to
+every lane because lane B always runs WITH the flag. It has a real implementation now, reusing
+`shrink` so the bytes match the `image/jpeg` the uploader declares.
+
+**`prove:guest` IS THE LOCAL-STACK SIBLING OF LANE H, AND IT IS FREE.** `audit:guest-build` is
+static and proves the bundle is not the harness one; a build that exports cleanly and boots to
+a white screen passes it. This serves `dist-guest/`, seeds its own event through `create_event`
+and drives Chromium: it boots, it joins, **the screen names the event row from Postgres** (a
+name no fixture has, which is the clause a `MemoryRepository` bundle fails), the join minted a
+GoTrue session key, and no `scheme-probe` is in the DOM. It **refuses a non-loopback `--api`**
+because it creates an event -- lane H is the tool that writes to production, deliberately.
+No sweep: the local stack is disposable.
+
 **E — policy verification** (`pnpm verify:policies`). The only lane that can
 see row-level security behave. It runs `supabase/verify-policies.sql`, which seeds an
 event, a guest and a host inside a `DO` block, switches
@@ -1180,6 +1221,27 @@ that lives in a button handler is bypassed by the second caller.
   overlays anything — so a keyboard measurement taken against it silently "confirms"
   whatever you expected. `adb shell pm clear com.google.android.inputmethod.latin`
   resets it to docked. This is the same trap as `hw.keyboard = no`, one layer down.
+- **SIGN-IN IS LAZY, SO A COLD VISITOR IS `anon` -- AND ONE REQUEST ALWAYS 401s (#79).**
+  `signInAnonymously()` sits on the JOIN path (`SupabaseRepository.ts:1000`), not on boot, so
+  somebody who has just opened the app holds the `anon` role and nothing else. `loadMine` calls
+  `my_events()` unconditionally one line after reading the session, and that function is
+  correctly revoked from `anon` -- so every cold open fires `401 / 42501 permission denied`.
+  It is HANDLED (`sigMyEvents.set([])`, empty list, no crash) and it is still worth closing: it
+  is the only request the app makes before a guest types anything, so the next real console
+  error arrives into noise a reader has learned to scroll past. `loadBlocks` is the pattern --
+  a null identity is a real state with an empty answer. **A first draft of `prove:guest`
+  asserted a session on boot and failed; the tool was wrong about eagerness, not the app.**
+- **A `.web.ts` FILE IMPORTING A SIBLING MUST NAME `./x.web` EXPLICITLY, AND THE BARE FORM IS A
+  TRAP IN BOTH DIRECTIONS.** Metro resolves `./capture` to `capture.web.ts` inside a web bundle,
+  so the bare specifier RUNS correctly -- but tsc knows nothing of platform extensions and
+  resolves it to `capture.ts`, the native half. `pickScreenshot.web.ts` importing `shrink` that
+  way failed `pnpm typecheck` immediately, which is the GOOD outcome. The bad one is the same
+  divergence pointing the other way: tsc happy, and the web bundle getting a different module
+  than the types describe, which is `orderedForRequest` exactly (`undefined` at runtime, six
+  journeys red). Naming the file makes both resolvers agree, and a `.web.ts` file is only ever
+  in a web bundle so nothing is hardcoded that was not already true. This is the same family as
+  `captureConstants.ts` and `musicSearchConstants.ts`, one layer over: those exist for a
+  SELF-resolution cycle, this is a cross-module disagreement.
 - **`expo-secure-store` HAS NO WEB IMPLEMENTATION.** Its web build is `export default {}`,
   so every method is `undefined` and calling one THROWS rather than returning null.
   `secureSessionStorage.web.ts` exists for that reason; without it a browser visitor is a

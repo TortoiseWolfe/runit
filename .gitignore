@@ -4,6 +4,9 @@ dist/
 # The Supabase-backed export (pnpm export:web:live). Same reason as dist/: build output,
 # and this one has the project URL and publishable key inlined into the bundle.
 dist-live/
+# The SHIPPABLE browser guest build (pnpm export:web:guest) -- backend flag only, no harness
+# flag. Build output like its two siblings; #78 explains why it must never be dist-live.
+dist-guest/
 web-build/
 *.log
 .DS_Store
