@@ -863,7 +863,11 @@ was still got wrong here, stranding 840 bytes. `docs/smoke-live.md`.
 **It is the only lane that can see four things.** RPC ARGUMENT NAMES — PostgREST resolves
 overloads by name, so `p_titel` is a runtime 404 against a function that exists, and
 `database.types.ts` is hand-written. COLUMN NAMES AND FILTERS — `FakeClient` records what
-was sent and never evaluates it. RLS ADMITTING what the app needs — Lane E proves refusals
+was sent and never evaluates it. **It records the COLUMN LIST now too** (`op.columns`, since
+2026-09-21): `select()` used to take no argument and discard it, so a query that forgot a column
+returned seeded rows exactly as if it had asked. `invitees` never selected `phone` from #60 until
+then, and every phone-only guest came back from a reload with no number. A missing column is
+assertable now; a WRONG value in one still needs lane H. RLS ADMITTING what the app needs — Lane E proves refusals
 by forging claims, which bypasses GoTrue entirely. And ANONYMOUS SIGN-IN, a dashboard toggle
 no token can flip, which was off while build #3 shipped.
 
@@ -1504,6 +1508,20 @@ sending a real report from the live site as a cold visitor (the #81 proof): the 
 `os: "0.0.0"` and the sheet showed "web 0.0.0". A browser now reports no OS version at all.
 The live send is also the only thing that has proven #81 against real GoTrue -- `FakeClient`
 models `ensureSession`, it does not run it.
+
+**SEND EMAILS THE GUEST LIST, PRE-ADDRESSED, IN BCC -- AND NEVER TEXTS IT.** `invitees.send`
+promised "pre-addressed" and opened a blank share sheet, so a host typed her guests in twice; on
+desktop it did nothing, and it toasted "Invitation sent to 12" over a message addressed to
+nobody. Native opens `expo-mail-composer`; web hands a `mailto:` to the mail app and returns
+null past `MAILTO_BUDGET` rather than silently dropping guests. **BCC only**, because the join
+screen promises guests cannot see each other. **Phones are never texted**: a group text puts
+every number in one thread, so they are counted and the screen says to use Share.
+**`invitedAt` is stamped only on outcome `sent`** -- iOS's composer is the only thing that
+confirms. Android reports `undetermined` whether the host sent or backed out, and a browser hears
+nothing from a `mailto:`; the approved plan said to treat Android's as sent, and implementing it
+showed that would stamp every dismissed composer. Proven live from a desktop browser on
+2026-09-21, including the phone number surviving a reload. `Copy addresses` is the route that
+always works, for a desktop whose default mail app is not the one the host uses.
 
 **THE BROWSER GUEST ROUTE IS LIVE (#78), AND `pnpm deploy:web` IS THE COMMAND.** The app
 itself is served from the ROOT of `runit-app.pages.dev`; the bridge keeps `/i/CODE`. Measured
