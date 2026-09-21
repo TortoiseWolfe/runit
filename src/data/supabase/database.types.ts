@@ -196,11 +196,13 @@ export type Database = {
       feedback: {
         Row: {
           id: string; auth_user_id: string; event_id: string | null;
-          body: string; context: Record<string, unknown>; created_at: string;
+          body: string; context: Record<string, unknown>;
+          screenshot_path: string | null; created_at: string;
         };
         Insert: {
           id?: string; auth_user_id: string; event_id?: string | null;
-          body: string; context?: Record<string, unknown>; created_at?: string;
+          body: string; context?: Record<string, unknown>;
+          screenshot_path?: string | null; created_at?: string;
         };
         Update: { body?: string; context?: Record<string, unknown> };
         Relationships: [];

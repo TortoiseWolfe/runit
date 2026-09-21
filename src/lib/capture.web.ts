@@ -1,6 +1,6 @@
 import type { CapturedPhoto } from './capture';
 
-import { MAX_EDGE, MAX_THUMB, QUALITY } from './captureConstants';
+import { FIDELITY_PIXEL, MAX_EDGE, MAX_THUMB, QUALITY } from './captureConstants';
 
 /**
  * Web implementation. Metro picks this file over `capture.ts` for the web bundle,
@@ -24,10 +24,9 @@ import { MAX_EDGE, MAX_THUMB, QUALITY } from './captureConstants';
  * per FIDELITY note G, only a device can witness a real capture.
  */
 
-/** A 1x1 transparent PNG. Small, valid, and obviously synthetic if it ever leaks
- *  into a screenshot -- which it should not, since uploads land pending. */
-const FIDELITY_PIXEL =
-  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+// MOVED TO `captureConstants.ts` (#77): a second web half needs the same pixel, and
+// `guest-photos.spec.ts` asserts this exact data URI, so two copies drifting would retire
+// the proof that a value came from the capture path rather than from a literal.
 
 /**
  * SHRINK A PICKED FILE BEFORE IT LEAVES THE BROWSER (#11).

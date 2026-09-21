@@ -3274,6 +3274,10 @@ create table public.feedback (
   -- is EVIDENCE rather than state: nothing here is read by a policy or a trigger, and a
   -- column per field would be a migration every time a new phone detail is worth having.
   context      jsonb not null default '{}'::jsonb,
+  -- WHERE THE PICTURE LANDED, if they attached one. Nullable, and most reports have none:
+  -- a sentence is worth filing on its own, and demanding a screenshot would turn a
+  -- ten-second report into a task. `{auth_user_id}/{uuid}.jpg` in the `feedback` bucket.
+  screenshot_path text,
   created_at   timestamptz not null default now()
 );
 
@@ -3311,3 +3315,34 @@ create trigger feedback_rate_limit
   for each row execute function public.feedback_rate_limit();
 
 revoke execute on function public.feedback_rate_limit() from public, anon, authenticated;
+
+-- ========================================================================
+-- A REPORT CAN CARRY A PICTURE -- #77
+-- ========================================================================
+--
+-- THE PICKER, NEVER A VIEW CAPTURE, and that is the whole privacy design rather than an
+-- implementation detail. A party app's screen is mostly OTHER PEOPLE'S photographs and names;
+-- capturing it automatically would send them to a repository without the person reporting the
+-- bug ever seeing what left their phone. Going through `expo-image-picker` means they choose
+-- exactly what to send, and can crop or redact first. It is also how TestFlight already works,
+-- so it is a familiar motion.
+
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('feedback', 'feedback', false, 10485760, array['image/jpeg','image/png','image/webp'])
+on conflict (id) do nothing;
+
+-- PRIVATE, like `event-photos` and for a sharper reason: whatever is in this picture, the
+-- person sent it to US and to nobody else. A public bucket would serve it to anyone holding
+-- the URL. `pnpm feedback:app` reads it with the service role.
+--
+-- Object path is `{auth_user_id}/{uuid}.jpg`, so (storage.foldername(name))[1] is the
+-- reporter's own identity -- the same shape `event-photos` uses with the event id.
+create policy feedback_insert_self on storage.objects for insert to authenticated
+  with check (
+    bucket_id = 'feedback'
+    and (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+-- NO SELECT, NO UPDATE, NO DELETE for any client role, which matches `public.feedback`
+-- itself. The reporter has no reason to read the folder back, and a folder any authenticated
+-- caller could list is every screenshot anybody ever sent us.

@@ -2393,7 +2393,37 @@ begin
                          case when sqlstate = '54023' then 'PASS' else 'FAIL' end, sqlstate);
   end;
 
+  -- A PICTURE GOES UNDER YOUR OWN PREFIX AND NOBODY ELSE'S (#77). The path is
+  -- `{auth_user_id}/{uuid}.jpg`, the same shape `event-photos` uses with the event id, and
+  -- it is the only thing an INSERT can check -- there is no row to join to yet.
+  begin
+    insert into storage.objects (bucket_id, name, owner)
+    values ('feedback', cuid::text || '/shot.jpg', cuid);
+    out := out || format('%s a reporter can attach a picture under their own prefix', 'PASS');
+  exception when others then
+    out := out || format('FAIL a reporter cannot attach a picture at all (%s)', sqlstate);
+  end;
+
+  begin
+    insert into storage.objects (bucket_id, name, owner)
+    values ('feedback', nuid::text || '/not-mine.jpg', cuid);
+    out := out || format('FAIL a reporter can write under SOMEBODY ELSE''S prefix');
+  exception when others then
+    out := out || format('%s and not under somebody else''s (%s)',
+                         case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  -- AND NOBODY CAN LIST THE FOLDER. No select policy at all: a bucket any authenticated
+  -- caller could read is every screenshot anybody ever sent us.
+  select count(*) into n from storage.objects where bucket_id = 'feedback';
+  out := out || format('%s and cannot read what anyone else attached (%s, want 0)',
+                       case when n = 0 then 'PASS' else 'FAIL' end, n);
+
   execute 'reset role';
+  -- NO CLEANUP FOR THE STORAGE ROWS, and trying is what aborts this block:
+  -- `storage.protect_delete()` refuses every direct SQL delete on `storage.objects` before
+  -- RLS is even consulted -- for the owner as much as for a guest, which this file already
+  -- asserts elsewhere. Nothing commits anyway; the closing RAISE is the whole design.
   delete from public.feedback where auth_user_id in (cuid, nuid);
 
   select count(*) into fails from unnest(out) x where x like 'FAIL%';

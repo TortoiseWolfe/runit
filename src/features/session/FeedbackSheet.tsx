@@ -3,6 +3,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 
+import { pickScreenshot } from '@/lib/pickScreenshot';
 import { useFeedbackActions } from '@/state/actions';
 import { alpha, border, radius, useTheme, weight } from '@/theme';
 
@@ -31,6 +32,7 @@ export function FeedbackSheet({ visible, onClose }: { visible: boolean; onClose:
   const { tokens, fade } = useTheme();
   const { send } = useFeedbackActions();
   const [body, setBody] = useState('');
+  const [shot, setShot] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const facts = deviceFacts();
@@ -38,10 +40,11 @@ export function FeedbackSheet({ visible, onClose }: { visible: boolean; onClose:
   const submit = async () => {
     if (busy || !body.trim()) return;
     setBusy(true);
-    const ok = await send(body, facts);
+    const ok = await send(body, facts, shot);
     setBusy(false);
     if (!ok) return;
     setBody('');
+    setShot(null);
     onClose();
   };
 
@@ -87,13 +90,36 @@ export function FeedbackSheet({ visible, onClose }: { visible: boolean; onClose:
             ]}
           />
 
+          {/*
+            A PICTURE, IF THEY CHOOSE ONE -- and the picker is the privacy design rather
+            than a convenience (#77). Capturing the current view automatically would send
+            other guests' photographs and names to a repository without the reporter ever
+            seeing what left their phone. The library lets them pick, and crop somebody out.
+
+            OPTIONAL, AND THE LABEL SAYS SO. Demanding a screenshot turns a ten-second
+            report into a task, and a sentence on its own is worth filing.
+          */}
+          <Pressable
+            onPress={async () => setShot((await pickScreenshot()) ?? null)}
+            accessibilityRole="button"
+            accessibilityLabel={shot ? 'Change the picture' : 'Add a picture'}
+            hitSlop={8}
+            testID="feedback-attach"
+            style={[s.attach, { borderColor: tokens.base300 }]}
+          >
+            <Text style={[s.attachText, { color: tokens.baseContent }]}>
+              {shot ? 'Picture attached · change it' : 'Add a picture (optional)'}
+            </Text>
+          </Pressable>
+
           {/* SHOWN, NOT HARVESTED. They can read exactly what goes with it. */}
           <Text
             style={[s.facts, { color: alpha(tokens.baseContent, fade.faint) }]}
             testID="feedback-facts"
           >
-            Sent with this: {factLine(facts)}. No name, no email, nothing about anyone else
-            at your event.
+            Sent with this: {factLine(facts)}
+            {shot ? ' · the picture you chose' : ''}. No name, no email, nothing about anyone
+            else at your event.
           </Text>
 
           {/* NO CONTROL AT ALL UNTIL THERE IS SOMETHING TO SEND, rather than a disabled one.
@@ -179,6 +205,13 @@ const s = StyleSheet.create({
     textAlignVertical: 'top',
   },
   facts: { fontSize: 12, lineHeight: 18 },
+  // 44 tall, over SC 2.5.8's 24pt AA minimum, and a full-width row because it is a choice
+  // rather than the action -- the Send button below it is the one with weight.
+  attach: {
+    height: 44, borderRadius: radius.field, borderWidth: border,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  attachText: { fontSize: 14 },
   cta: { height: 52, borderRadius: radius.field, alignItems: 'center', justifyContent: 'center', marginTop: 6 },
   ctaText: { fontSize: 16, fontWeight: weight.semibold },
   cancel: { height: 48, borderRadius: radius.field, borderWidth: border, alignItems: 'center', justifyContent: 'center' },

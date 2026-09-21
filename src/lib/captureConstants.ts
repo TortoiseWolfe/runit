@@ -36,3 +36,16 @@ export const QUALITY = 0.8;
  * and nothing else. A tile downloads ~15KB instead of ~300KB.
  */
 export const MAX_THUMB = 400;
+
+/**
+ * A 1x1 transparent PNG. Small, valid, and obviously synthetic if it ever leaks into a
+ * screenshot -- which it should not, since uploads land pending.
+ *
+ * IT LIVES HERE BECAUSE TWO WEB HALVES NEED IT NOW (#77): `capture.web.ts` for the album's
+ * shutter and `pickScreenshot.web.ts` for a bug report's picture. `guest-photos.spec.ts`
+ * asserts this exact data URI, which is what proves a value came from the capture path
+ * rather than from a literal in a screen -- so two copies drifting would silently retire
+ * that proof.
+ */
+export const FIDELITY_PIXEL =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';

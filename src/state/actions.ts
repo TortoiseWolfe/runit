@@ -472,9 +472,13 @@ export function useFeedbackActions() {
   return useMemo(
     () => ({
       /** True on success. The sheet closes; this does not close it. */
-      send: async (body: string, context?: Record<string, unknown>): Promise<boolean> => {
+      send: async (
+        body: string,
+        context?: Record<string, unknown>,
+        screenshotUri?: string | null,
+      ): Promise<boolean> => {
         try {
-          await repo.feedback.send({ body, context });
+          await repo.feedback.send({ body, context, screenshotUri });
           // SAYING THANK YOU IS THE FEATURE. Somebody who reports a bug into silence does
           // not report the second one, and the second one is usually the better report.
           show('Thanks — that went straight to the people who build this.');

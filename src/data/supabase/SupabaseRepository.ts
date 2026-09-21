@@ -1665,7 +1665,15 @@ export class SupabaseRepository implements RunitRepository {
   }
 
   feedback = {
-    send: async ({ body, context }: { body: string; context?: Record<string, unknown> }) => {
+    send: async ({
+      body,
+      context,
+      screenshotUri,
+    }: {
+      body: string;
+      context?: Record<string, unknown>;
+      screenshotUri?: string | null;
+    }) => {
       const said = body.trim();
       if (!said) throw new JoinError('needs_a_name');
 
@@ -1676,8 +1684,38 @@ export class SupabaseRepository implements RunitRepository {
       const uid = who.user?.id;
       if (!uid) throw new JoinError('session_unavailable');
 
+      /*
+       * BYTES FIRST, ROW SECOND -- the opposite of the deletion rule and for the same
+       * reason: whichever one can strand the other goes second. A row naming an object that
+       * failed to upload points at nothing; an object with no row is a file the sweep in
+       * `feedback:app` never looks at, which is litter rather than a broken report.
+       *
+       * AND A FAILED UPLOAD DOES NOT LOSE THE WORDS. The sentence is the report; the
+       * picture is evidence for it. Refusing to file because an image did not go up would
+       * throw away the thing we actually asked for.
+       */
+      let screenshotPath: string | null = null;
+      if (screenshotUri) {
+        try {
+          const res = await fetch(screenshotUri);
+          const bytes = await res.arrayBuffer();
+          // `{auth_user_id}/{uuid}.jpg` -- the prefix IS the authorisation, the same shape
+          // `event-photos` uses with the event id.
+          const path = `${uid}/${crypto.randomUUID()}.jpg`;
+          // contentType is required, not cosmetic: the bucket allows jpeg/png/webp only and
+          // rejects the default application/octet-stream outright.
+          const up = await this.db.storage.from('feedback').upload(path, bytes, {
+            contentType: 'image/jpeg',
+          });
+          if (!up.error) screenshotPath = path;
+        } catch {
+          // Deliberately swallowed. See above: the words travel either way.
+        }
+      }
+
       const { error } = await this.db.from('feedback').insert({
         auth_user_id: uid,
+        screenshot_path: screenshotPath,
         // The party they were in, so it can be reproduced. Null is the common case for the
         // person most worth hearing from: somebody reporting that joining did not work.
         event_id: this.eventId ?? null,
