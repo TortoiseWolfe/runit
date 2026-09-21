@@ -24,6 +24,30 @@ export const useEvent = () => useObservable(useRepository().event.current);
  */
 export const useMyEvents = () => useObservable(useRepository().event.mine);
 
+/**
+ * THE SAME LIST, MINUS THE EVENT YOU ARE ALREADY LOOKING AT -- and it lives here rather than
+ * in the component that draws it because a SECOND caller now depends on it (#80).
+ *
+ * `MyEventsList` takes `hideCurrent` and the join screen passes it, because the event you are
+ * in is that screen's headline and printing its name again as a row reads as a bug. So the
+ * list the join screen RENDERS is this array, not `useMyEvents()` -- and the two differ in a
+ * real case: a host standing in the only party she hosts has one event in `mine` and an empty
+ * list on screen.
+ *
+ * The join screen's sign-in link now chooses its words by whether that list is there. Keying
+ * it on `useMyEvents().length` would make the copy claim a list nobody can see, in exactly
+ * that case. `whenAndWhere` in `src/lib/format.ts` is this repo's worked example of what
+ * happens next: two hand-built copies of one rule, each carrying a comment noting the other
+ * existed, agreeing by luck until they did not.
+ *
+ * `mine` is a `Signal<HostedEvent[]>` and is never null, whatever the comment above says.
+ */
+export const useMyOtherEvents = () => {
+  const all = useMyEvents();
+  const current = useEvent();
+  return all.filter((e) => e.id !== current?.id);
+};
+
 /** What a code resolved to before joining. Null until `useLookUpInvite` has run. */
 export const usePreview = () => useObservable(useRepository().event.preview);
 export const useFeed = () => useObservable(useRepository().chat.feed);
