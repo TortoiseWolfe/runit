@@ -1087,8 +1087,30 @@ there is no compose box.
 **THE GITHUB TOKEN NEVER REACHES A SERVER.** `send-push` and `delete-account` hold the SERVICE
 ROLE, which is this project's own secret; a token that can file an issue is a credential for
 somebody else's system, and the narrowest one that posts to a tracker can also read every
-private repo it is scoped to. So the app writes a row and a laptop files the issue, where
-`gh auth token` already works.
+private repo it is scoped to. So no GitHub token ever sits on a Supabase server.
+
+**AND SINCE 2026-09-21 AN HOURLY ACTION FILES THEM, NOT A LAPTOP** (`.github/workflows/feedback.yml`,
+at :17). Until then a report became an issue only when a person ran `pnpm feedback:app`, so a
+tester's report sat invisible until somebody remembered. The owner chose the Action knowing the
+cost: **one stored credential, `SUPABASE_FEEDBACK_KEY`**, a DEDICATED `sb_secret_` key named
+`github_feedback_action` (id `e981aad6-…`), created for this alone and scoped to ONE project.
+**Revoke it in the dashboard's API keys page and exactly this job stops**; the Edge Functions'
+key is a different one. It went from the Management API into `gh secret set` over stdin and was
+never printed. The legacy account-wide token is NEVER stored in CI -- it reads and writes every
+project on the account. The tool reads through PostgREST with the project key first and falls
+back to the Management API only on a laptop without one. The GitHub side is the run's own
+`GITHUB_TOKEN`, repo-scoped, expiring with the run.
+
+**PROVEN END TO END, and the screenshot half had never run before.** A report WITH a picture
+was sent from the live site as a cold visitor, the Action was dispatched, and it filed the issue
+-- label, quoted text, facts, and the screenshot COMMITTED to `design/feedback/` and linked. No
+laptop had ever committed one: `SUPABASE_SERVICE_ROLE_KEY` was never in `.env.local`, so
+`commitScreenshot` returned null on every manual run. A second dispatch filed nothing, so dedupe
+holds. Every test artifact was deleted afterwards -- storage object first, then the row, THEN the
+issue, because deleting the issue while the row exists makes the next run re-file it.
+
+**A new-style secret key is not a JWT.** Measured before building: PostgREST and Storage both
+accept it as `apikey` alone and as `apikey` plus Bearer, so nothing needed a special case.
 
 **INSERT-ONLY, AS YOURSELF, SIX AN HOUR.** No select policy for any client role -- the
 `guests` shape, because a queue a guest could read is a list of other people's complaints. The
