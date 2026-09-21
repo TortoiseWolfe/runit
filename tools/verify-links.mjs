@@ -215,6 +215,47 @@ try {
   if (!page.body.includes('id="code"')) {
     note('/i/HOUSE7 has no code element, so a guest would not see the code to type.');
   }
+  // #78's route. It is the page's FILLED button now, and the only way into a party that
+  // does not start with an install -- so its absence is not cosmetic.
+  if (!page.body.includes('id="web"')) {
+    note('/i/HOUSE7 has no browser route (id="web"): a guest who will not install has no way in.');
+  }
+
+  /*
+   * THE ANDROID INSTALL LINK HAS A FOURTEEN-DAY FUSE, measured on 2026-09-21. EAS
+   * internal-distribution artifacts expire 14 days after they are built: the APK this page
+   * served from 2026-09-11 expires 2026-09-25. When one does, the install button this page
+   * shows every Android visitor answers 400 and the page says nothing -- a door that will not
+   * open, at the top of the funnel, which is what `empty-world.spec.ts`'s aria-disabled gate
+   * exists to catch everywhere else in the app.
+   *
+   * HEAD, not GET: the artifact is ~130MB and HEAD answers in half a second -- 200 while it
+   * lives, 400 once it is gone. Its own try, so a network failure here is reported as THIS and
+   * not as the landing page being unreachable.
+   *
+   * It catches the death on the next board, not before it. Warning ahead would need the
+   * build id and an EAS token, and this lane is credential-free on purpose. CLAUDE.md records
+   * the fuse so a person rebuilds before it burns.
+   */
+  const tag = /<a\b[^>]*\bid="android"[^>]*>/.exec(page.body)?.[0];
+  const apkUrl = tag ? /\bhref="([^"]+)"/.exec(tag)?.[1] : undefined;
+  if (!apkUrl) {
+    note('/i/HOUSE7 has no Android install link (id="android").');
+  } else {
+    try {
+      const r = await fetch(apkUrl, { method: 'HEAD', redirect: 'follow', signal: AbortSignal.timeout(15_000) });
+      if (!r.ok) {
+        note(
+          `the Android install link answered ${r.status} -- the APK has EXPIRED.\n` +
+            `    ${apkUrl}\n` +
+            '    EAS internal builds live 14 days. Rebuild (`eas build -p android --profile preview`),\n' +
+            '    repoint `id="android"` in web/i/index.html, and `pnpm deploy:web`.',
+        );
+      }
+    } catch (e) {
+      note(`the Android install link could not be checked: ${e instanceof Error ? e.message : e}`);
+    }
+  }
 } catch (e) {
   note(`/i/HOUSE7 could not be fetched: ${e instanceof Error ? e.message : String(e)}`);
 }

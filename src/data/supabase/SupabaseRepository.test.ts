@@ -234,6 +234,53 @@ describe('host sign-in chooses between two calls, and one of them is destructive
   });
 });
 
+/*
+ * THE PERSON THE JOIN SCREEN'S REPORT LINK EXISTS FOR COULD NOT SEND ONE (#81).
+ *
+ * "Something not right? Tell us" is on the join screen for somebody who CANNOT GET IN -- the
+ * report this product has most needed since S7Y9RX produced zero sign-ins. That person has
+ * never joined, so they hold no session: sign-in is LAZY, `signInAnonymously()` lives on the
+ * join path. `feedback.send` read `getUser()`, found nobody, and threw `session_unavailable`.
+ * The sheet toasted it and the report was lost -- for exactly the one person it was for.
+ *
+ * FOUND BY ANOTHER SESSION reading #77 to borrow it for a different app, and filed without a
+ * device. Nothing here could see it: `feedback.spec.ts` boots MemoryRepository, which checks no
+ * session, and this suite had no feedback test at all.
+ */
+describe('sending feedback before joining anything (#81)', () => {
+  it('signs a cold visitor in rather than refusing the report', async () => {
+    const c = ready();
+    // A cold open. Nobody has joined, so there is no session and no identity.
+    expect(c.session).toBeNull();
+    const repo = build(c);
+
+    await repo.feedback.send({ body: 'the code would not take', context: {} });
+
+    expect(c.signInCalls).toBe(1);
+    const row = c.ops.find((op) => op.kind === 'insert' && op.table === 'feedback');
+    expect(row).toBeDefined();
+    // Filed under the identity it just minted -- the one the policy's `with check` admits.
+    expect((row!.payload as { auth_user_id: string }).auth_user_id).toBe('auth-user');
+  });
+
+  /*
+   * AND IT DOES NOT MINT A SECOND IDENTITY FOR SOMEBODY WHO HAS ONE, which is what stops the
+   * fix from being "always sign in". A guest reporting from inside a party already holds a
+   * session; a fresh anonymous user there would file her report under a stranger's uid.
+   */
+  it('does not sign in again for somebody who already holds a session', async () => {
+    const c = ready();
+    c.user = { id: 'auth-user' };
+    c.session = { user: c.user };
+    const repo = build(c);
+
+    await repo.feedback.send({ body: 'my photo did not appear', context: {} });
+
+    expect(c.signInCalls).toBe(0);
+    expect(c.ops.some((op) => op.kind === 'insert' && op.table === 'feedback')).toBe(true);
+  });
+});
+
 /* ------------------------------------------------------------------------ auth */
 
 describe('joining', () => {
