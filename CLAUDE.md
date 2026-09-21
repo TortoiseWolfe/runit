@@ -1221,16 +1221,27 @@ that lives in a button handler is bypassed by the second caller.
   overlays anything — so a keyboard measurement taken against it silently "confirms"
   whatever you expected. `adb shell pm clear com.google.android.inputmethod.latin`
   resets it to docked. This is the same trap as `hw.keyboard = no`, one layer down.
-- **SIGN-IN IS LAZY, SO A COLD VISITOR IS `anon` -- AND ONE REQUEST ALWAYS 401s (#79).**
-  `signInAnonymously()` sits on the JOIN path (`SupabaseRepository.ts:1000`), not on boot, so
-  somebody who has just opened the app holds the `anon` role and nothing else. `loadMine` calls
-  `my_events()` unconditionally one line after reading the session, and that function is
-  correctly revoked from `anon` -- so every cold open fires `401 / 42501 permission denied`.
-  It is HANDLED (`sigMyEvents.set([])`, empty list, no crash) and it is still worth closing: it
-  is the only request the app makes before a guest types anything, so the next real console
-  error arrives into noise a reader has learned to scroll past. `loadBlocks` is the pattern --
-  a null identity is a real state with an empty answer. **A first draft of `prove:guest`
-  asserted a session on boot and failed; the tool was wrong about eagerness, not the app.**
+- **SIGN-IN IS LAZY, SO A COLD VISITOR IS `anon` -- AND ONE REQUEST USED TO 401 ON EVERY BOOT
+  (#79, fixed).** `signInAnonymously()` sits on the JOIN path (`SupabaseRepository.ts:1000`),
+  not on boot, so somebody who has just opened the app holds the `anon` role and nothing else.
+  `loadMine` called `my_events()` regardless, and that function is correctly revoked from
+  `anon`, so every cold open answered `401 / 42501 permission denied` -- the ONLY request the
+  app made before a guest typed anything. It was always HANDLED (empty list, no crash); what
+  it cost was a SIGNAL, a red line on every boot in the one console a developer reads while
+  holding a phone. `loadBlocks` is the pattern it now copies: a null identity is a real state
+  with an empty answer, not a fallback. **The guard needs BOTH tests** -- "does not ask when
+  nobody has signed in" alone passes if you delete the call entirely.
+- **AND THE FIXTURE DISAGREED WITH GOTRUE ABOUT WHAT `getUser()` ANSWERS, which is the fourth
+  time that class has bitten.** `FakeClient.verifyOtp` set `session` and left `user` null, so
+  a client that had just signed in still reported no identity -- a state real GoTrue cannot
+  produce, since supabase-js resolves `getUser()` against the current session. Nothing
+  noticed until #79's guard turned a PASSING test red, and the red was the fixture's fault.
+  `verifyOtp` and `signInAnonymously` set `user` now (the second with `is_anonymous: true`,
+  the field host sign-in branches on) and `signOut` clears it. Mutation-checked: reverting
+  that one line turns `refreshes the events list after signing in` red. The rule is the one
+  #66 and the nameless guest and the sign-in mode all wrote: **the fixture being different
+  from the backend is the single thing this adapter exists not to be**, and a fixture is
+  wrong in BOTH directions -- kinder, and merely unlike.
 - **A `.web.ts` FILE IMPORTING A SIBLING MUST NAME `./x.web` EXPLICITLY, AND THE BARE FORM IS A
   TRAP IN BOTH DIRECTIONS.** Metro resolves `./capture` to `capture.web.ts` inside a web bundle,
   so the bare specifier RUNS correctly -- but tsc knows nothing of platform extensions and

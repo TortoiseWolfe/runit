@@ -1945,6 +1945,27 @@ export class SupabaseRepository implements RunitRepository {
       const { data: who } = await this.db.auth.getUser();
       this.sigAccount.set(who.user?.email ?? null);
 
+      /*
+       * NOBODY TO FILTER ON IS A REAL STATE WITH AN EMPTY ANSWER, NOT A FALLBACK (#79).
+       *
+       * Sign-in here is LAZY: `signInAnonymously()` is on the join path, so somebody who has
+       * just opened the app holds no session. `my_events()` is a definer function correctly
+       * revoked from `anon`, so asking anyway answered `401 / 42501 permission denied` on
+       * every cold open -- the ONLY request the app made before a guest typed anything.
+       *
+       * It was already handled below and nothing broke. What it cost is a signal: a red line
+       * in the console on every single boot, so the next real error there arrives into noise
+       * a reader has learned to scroll past. This repo makes that argument about itself
+       * elsewhere -- `SKIPPED:` is reserved for measured-nothing because devaluing the word
+       * is how a summary stops being read.
+       *
+       * `loadBlocks` is the pattern this copies.
+       */
+      if (!who.user) {
+        this.sigMyEvents.set([]);
+        return;
+      }
+
       const { data, error } = await this.db.rpc('my_events');
       if (error) {
         this.sigMyEvents.set([]);

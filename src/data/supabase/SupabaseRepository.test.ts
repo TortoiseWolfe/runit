@@ -184,6 +184,44 @@ describe('host sign-in chooses between two calls, and one of them is destructive
     ).rejects.toMatchObject({ reason: 'bad_email_code' });
   });
 
+  /*
+   * A COLD VISITOR IS `anon`, AND `my_events()` IS NOT GRANTED TO `anon` (#79).
+   *
+   * Sign-in here is LAZY -- `signInAnonymously()` sits on the join path, not on boot -- so
+   * somebody who has just opened the app holds no session at all. `loadMine` asked anyway,
+   * and the migration correctly revokes that function from `anon`, so every cold open fired
+   * one `401 / 42501 permission denied`. It was handled (`sigMyEvents.set([])`, empty list,
+   * no crash) and it still put a red line in the one console a developer reads while holding
+   * a phone -- which is how the next real error there arrives into noise.
+   *
+   * ONLY THIS FILE CAN SEE IT. Lane B boots `MemoryRepository`, which has no RPCs; lane E
+   * forges claims and never goes through GoTrue. `FakeClient` records what was sent, so the
+   * call that did NOT go out is observable here and nowhere else.
+   */
+  it('asks for nothing when nobody has signed in, because my_events is revoked from anon', async () => {
+    const c = ready();
+    c.user = null; // a cold open: no join yet, so no anonymous session either
+    const repo = build(c);
+
+    await repo.event.loadMine();
+
+    expect(c.ops.some((op) => op.kind === 'rpc' && op.table === 'my_events')).toBe(false);
+  });
+
+  /*
+   * AND THE OTHER HALF, WHICH IS WHAT STOPS THE GUARD FROM BEING "NEVER ASK". Without this,
+   * deleting the call entirely would pass the test above -- the mutation that matters.
+   */
+  it('still asks once there is an identity to filter on', async () => {
+    const c = ready();
+    c.user = { id: 'auth-user' };
+    const repo = build(c);
+
+    await repo.event.loadMine();
+
+    expect(c.ops.some((op) => op.kind === 'rpc' && op.table === 'my_events')).toBe(true);
+  });
+
   it('refreshes the events list after signing in, because my_events filters on auth.uid()', async () => {
     const c = ready();
     const repo = build(c);
