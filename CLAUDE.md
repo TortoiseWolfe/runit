@@ -1407,7 +1407,33 @@ that lives in a button handler is bypassed by the second caller.
   `pnpm verify:links` (lane G) is the one that can tell, because it reads the BODY back and
   looks for our own appID and App Store id in it. `pages.dev` names are global and
   first-come; an unclaimed one does not resolve at all, so probe before choosing.
-- **THE BROWSER GUEST ROUTE IS LIVE (#78), AND `pnpm deploy:web` IS THE COMMAND.** The app
+- **ANDROID BETA IS A SIDELOADED APK, AND ITS LINK HAS A FOURTEEN-DAY FUSE.** The `preview`
+profile is `distribution: internal`: no Play Store, no review, anyone with the link installs
+it, and `web/i/index.html`'s `id="android"` button is how a guest gets it. **EAS internal
+artifacts expire 14 days after they are built** -- measured: the APK built 2026-09-11 expires
+2026-09-25. When it does, that button answers **400** and the page says nothing: a door that
+will not open, at the top of the funnel. Lane G HEADs the link on every board now and fails
+the day it dies; it cannot warn ahead, because that needs the build id and an EAS token and
+the lane is credential-free on purpose. **So rebuild and repoint inside two weeks**, every two
+weeks, until #82's durable fix exists.
+
+**THE FREE PLAN'S QUOTA IS PER PLATFORM, and that is why Android could ship when iOS could
+not.** `eas account:usage turtlewolfe --json` is the read -- 15 iOS and 15 Android a cycle,
+30 total. On 2026-09-21 iOS was at 15/15 and Android at 3/15. Read it before planning a build;
+do not infer one platform's headroom from the other's refusal.
+
+**A FEEDBACK REPORT NAMES ITS BUILD FROM THE BINARY, NOT FROM CONFIG.** `deviceFacts()` read
+`Constants.expoConfig.ios.buildNumber` / `android.versionCode`, and **both are absent from
+`app.json`** -- `appVersionSource: "remote"` keeps them in EAS and writes them into the native
+project, never into config. So reports said `build unknown`, and on Android every `preview`
+build was `versionCode 1` besides, because only `production` auto-incremented. It reads
+`expo-application` now (`nativeBuildVersion`, true whatever EAS does), and `preview`
+auto-increments. **The test that pins it tests the WIRING**: six cases cover the pure
+`factsFrom`, and reverting to config would pass every one of them, so `expo-application` is
+mocked with a build config does not carry. The old docblock claimed *"Exported so the test
+can read it"* -- there was no test.
+
+**THE BROWSER GUEST ROUTE IS LIVE (#78), AND `pnpm deploy:web` IS THE COMMAND.** The app
 itself is served from the ROOT of `runit-app.pages.dev`; the bridge keeps `/i/CODE`. Measured
 end to end on 2026-09-21: the bridge's new filled button carries `/join?code=S7Y9RX`, the app
 boots on the live host, and the screen names **Kayden & Kason's Birthday** with its real date
