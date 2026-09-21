@@ -6,6 +6,7 @@
  */
 import { useCallback, useMemo } from 'react';
 import { useRouter } from 'expo-router';
+import * as Clipboard from 'expo-clipboard';
 
 import { denialMessage } from '@/domain/denials';
 import {
@@ -16,6 +17,7 @@ import {
 } from '@/data/repository';
 import { capturePhoto } from '@/lib/capture';
 import { canPickContacts, pickContact } from '@/lib/contacts';
+import { addressFromInput, bccList } from '@/lib/invite';
 import { registerForPush } from '@/lib/push';
 import { checkLimit } from '@/domain/entitlements';
 import { useEntitlements } from './hooks';
@@ -571,12 +573,42 @@ export function useHostActions() {
        * here surfaces the adapter's sentence, which is already human ("That address is
        * already on the list.").
        */
-      addInvitee: async (email: string, displayName?: string) => {
+      /*
+       * AN EMAIL OR A PHONE NUMBER, in one field. It sent whatever it was given to
+       * `add({ email })`, so a host at a desktop -- no contacts picker there -- could not put a
+       * phone number on her list at all, and a typo became an "email".
+       */
+      addInvitee: async (raw: string, displayName?: string) => {
+        const addr = addressFromInput(raw);
+        if (!addr) {
+          show("That doesn't look like an email address or a phone number.");
+          return false;
+        }
         try {
-          await repo.invitees.add({ email, displayName });
+          await repo.invitees.add({ ...addr, displayName });
           return true;
         } catch (e) {
-          show(e instanceof Error ? e.message : 'Could not add that address.');
+          show(e instanceof Error ? e.message : 'Could not add that.');
+          return false;
+        }
+      },
+      /*
+       * EVERY EMAIL ON THE LIST, READY TO PASTE INTO BCC. The route that always works: a
+       * desktop whose default mail app is not the one the host uses, and a list too long for one
+       * `mailto:` link. Same `bccList` the composer uses, so the two cannot disagree.
+       */
+      copyAddresses: async (emails: readonly (string | null | undefined)[]) => {
+        const list = bccList(emails);
+        if (list.length === 0) {
+          show('Nobody on the list has an email address.');
+          return false;
+        }
+        try {
+          await Clipboard.setStringAsync(list.join(', '));
+          show(`Copied ${list.length} ${list.length === 1 ? 'address' : 'addresses'} — paste them into BCC.`);
+          return true;
+        } catch {
+          show('Could not copy here.');
           return false;
         }
       },
@@ -673,16 +705,38 @@ export function useHostActions() {
         }
       },
 
+      /*
+       * ONE SENTENCE PER OUTCOME, and each says only what is known. The old toast read
+       * "Invitation sent to 12." over a share sheet that had addressed nobody -- a count of
+       * ids, not of anything that happened. `phoneOnly` gets its own clause because those
+       * people were deliberately NOT sent anything, and a host must not believe otherwise.
+       */
       sendInvitations: async (ids: InviteeId[]) => {
         if (ids.length === 0) return false;
         try {
-          const sent = await repo.invitees.send(ids);
-          show(
-            sent
-              ? `Invitation sent to ${ids.length}.`
-              : 'No share sheet here — nothing was sent.',
-          );
-          return sent;
+          const r = await repo.invitees.send(ids);
+          const people = (n: number) => `${n} ${n === 1 ? 'guest' : 'guests'}`;
+          const phones =
+            r.phoneOnly > 0
+              ? ` ${r.phoneOnly} with only a phone number — text them from Share.`
+              : '';
+          switch (r.outcome) {
+            case 'sent':
+              show(`Emailed ${people(r.emailed)}.${phones}`);
+              return true;
+            case 'unconfirmed':
+              show(`Opened your email with ${people(r.emailed)} in BCC — send it from there.${phones}`);
+              return true;
+            case 'cancelled':
+              show('Not sent.');
+              return false;
+            case 'no-emails':
+              show('Nobody on the list has an email address — text them from Share instead.');
+              return false;
+            case 'unavailable':
+              show('Could not open your email here. Use Copy addresses and paste them into BCC.');
+              return false;
+          }
         } catch (e) {
           show(e instanceof Error ? e.message : 'Could not send that.');
           return false;

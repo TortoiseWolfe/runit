@@ -210,7 +210,21 @@ test.describe('sending the invitation', () => {
     await expect(page.getByTestId('invitee-send')).toHaveCount(0);
   });
 
-  test('it names how many are UNSENT, and stops offering them once they are sent', async ({
+  /*
+   * SEND EMAILS THE LIST, PRE-ADDRESSED IN BCC -- and a browser cannot claim it went.
+   *
+   * It opened a blank share sheet for months while its docblock promised "pre-addressed", and
+   * this journey asserted the row flipped to "sent" afterwards. That was the FIXTURE's lie:
+   * `MemoryRepository.send` opened nothing and stamped everyone. A real browser hands a
+   * `mailto:` to the mail app and hears nothing back, so it stamps nobody. The stamped state is
+   * reachable only through iOS's composer, which reports `sent`; MemoryRepository.test.ts
+   * injects that and pins it. This proves what the web actually does.
+   *
+   * The BCC line is read from where the harness composer records it rather than inferred from
+   * a toast. A test that only watched for a toast would pass on a Send that addressed nobody,
+   * which is exactly the bug.
+   */
+  test('it emails the list in BCC, and a browser does not claim it was sent', async ({
     page,
   }, testInfo) => {
     const scheme = testInfo.project.name as 'dark' | 'light';
@@ -219,22 +233,95 @@ test.describe('sending the invitation', () => {
     await page.getByTestId('host-segment-event').click();
     await openInvitees(page);
 
-    await page.getByTestId('invitee-email').fill(ADDRESS);
+    await page.getByTestId('invitee-email').fill(ADDRESS.toUpperCase());
     await page.getByTestId('invitee-add').click();
     await expect(page.getByTestId('invitee-row')).toHaveCount(1);
 
-    // BEFORE: one person, nobody sent to. The number on the button is the UNSENT count,
-    // which is the whole reason it is not just "Send".
+    // The number is EMAILS, not people -- Send never texts anybody.
     const send = page.getByTestId('invitee-send');
-    await expect(send).toHaveText('Send the invitation to 1');
-
+    await expect(send).toHaveText('Email the invitation to 1');
     await send.click();
 
-    // AFTER: the row says so, and the button stops offering to send to somebody who has
-    // already been sent to. A button that always reads "Send to 1" would pass a mere
-    // existence check and tell the host nothing.
-    await expect(page.getByTestId('invitee-row')).toContainText('sent');
-    await expect(send).toHaveText('Send the invitation again');
+    const mailto = await page.evaluate(() => (globalThis as { __runitLastMailto?: string }).__runitLastMailto);
+    expect(mailto?.startsWith('mailto:?')).toBe(true);
+    const params = new URLSearchParams(mailto!.slice('mailto:?'.length));
+    expect(params.get('bcc')).toBe(ADDRESS); // lowercased, as the unique index treats it
+    expect(params.has('to')).toBe(false);
+    expect(params.get('subject')).toMatch(/^You're invited to /);
+
+    await expect(page.getByTestId('toast')).toContainText('in BCC');
+    // NOT stamped: nothing confirmed it went, so the row does not say it did and Send still
+    // offers the same person.
+    await expect(page.getByTestId('invitee-row')).not.toContainText('sent');
+    await expect(send).toHaveText('Email the invitation to 1');
+    await expect(page.locator('[aria-disabled="true"]')).toHaveCount(0);
+  });
+
+  /*
+   * A PHONE NUMBER GOES ON THE LIST, AND SEND DOES NOT TEXT IT. The field was email-only, so a
+   * host at a desktop -- no contacts picker there -- could not add one at all. And a group text
+   * would put every guest's number in front of every other guest, so the screen says to use
+   * Share rather than drawing a Send that cannot be private.
+   */
+  test('a phone number goes on the list, and Send does not text it', async ({ page }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await joinAsGuest(page, scheme);
+    await switchToHost(page);
+    await page.getByTestId('host-segment-event').click();
+    await openInvitees(page);
+
+    await page.getByTestId('invitee-email').fill('(555) 555-0100');
+    await page.getByTestId('invitee-add').click();
+    await expect(page.getByTestId('invitee-row')).toHaveCount(1);
+
+    // Nobody to email, so no Send -- and no Copy, which would have nothing to copy.
+    await expect(page.getByTestId('invitee-send')).toHaveCount(0);
+    await expect(page.getByTestId('invitee-copy')).toHaveCount(0);
+    await expect(page.getByTestId('invitee-phones')).toContainText('1 with only a phone number');
+    await expect(page.getByTestId('invitee-phones')).toContainText('from Share');
+  });
+
+  test('a typo is refused rather than filed as an email', async ({ page }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await joinAsGuest(page, scheme);
+    await switchToHost(page);
+    await page.getByTestId('host-segment-event').click();
+    await openInvitees(page);
+
+    await page.getByTestId('invitee-email').fill('sam');
+    await page.getByTestId('invitee-add').click();
+    await expect(page.getByTestId('invitee-row')).toHaveCount(0);
+    await expect(page.getByTestId('toast')).toContainText(/email address or a phone number/);
+  });
+});
+
+/*
+ * COPY ADDRESSES, the route that always works -- a desktop whose default mail app is not the
+ * one the host uses, and a list too long for one `mailto:` link. Read back off the real
+ * clipboard, which Chromium grants to a test that asks.
+ */
+test.describe('copying the addresses', () => {
+  test.use({ permissions: ['clipboard-read', 'clipboard-write'] });
+
+  test('puts every email on the clipboard, ready for BCC', async ({ page }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await joinAsGuest(page, scheme);
+    await switchToHost(page);
+    await page.getByTestId('host-segment-event').click();
+    await openInvitees(page);
+
+    for (const a of ['Ruth@example.test', 'sam@example.test', '(555) 555-0100']) {
+      await page.getByTestId('invitee-email').fill(a);
+      await page.getByTestId('invitee-add').click();
+    }
+    await expect(page.getByTestId('invitee-row')).toHaveCount(3);
+
+    await page.getByTestId('invitee-copy').click();
+    await expect(page.getByTestId('toast')).toContainText('Copied 2 addresses');
+    // The phone is not an address to paste into BCC, and the case is folded.
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+      'ruth@example.test, sam@example.test',
+    );
   });
 });
 

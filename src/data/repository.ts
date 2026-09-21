@@ -21,7 +21,7 @@ import type {
   EventDeletionImpact,
   EventId,
   Host, HostId, Report, ReportId, ReportReason, ReportResolution, ReportSubject,
-  Invitee, InviteeId, NowPlaying, Photo, PhotoId,
+  Invitee, InviteeId, InviteSendResult, NowPlaying, Photo, PhotoId,
   RunitEvent, ScheduleItem, ScheduleItemId, Session, SongRequest, SongRequestId,
 } from './types';
 import type { EntitlementDenial, Entitlements } from '@/domain/entitlements';
@@ -588,18 +588,23 @@ export interface RunitRepository {
       people: { email?: string; phone?: string; displayName?: string }[],
     ): Promise<{ added: number; skipped: number }>;
     /**
-     * HANDS THE INVITATION TO THE PHONE'S OWN COMPOSER and records that it happened.
+     * OPENS THE HOST'S OWN MAIL, PRE-ADDRESSED IN BCC, and stamps the ones it can prove.
      *
-     * There is no mail server here (#18) and no SMS gateway, so "send" means opening
-     * Messages or Mail pre-addressed with `shareMessage`. That is exactly what a host does
-     * by hand today; the difference is that the list is addressed for her and `invitedAt`
-     * stops being a column nothing writes.
+     * There is no mail server here (#18) and no SMS gateway: RunIt mails nobody, the host
+     * does, from her own account. This docblock promised "pre-addressed" for months while the
+     * code opened a blank share sheet, so every address on the list went nowhere and a host
+     * typed her guests in twice. It is addressed now, and ONLY in BCC -- the join screen
+     * promises guests cannot see each other, and a To line of forty addresses breaks that.
      *
-     * Resolves FALSE when the composer was dismissed, and nothing is stamped in that case --
-     * a host who backs out has not invited anybody, and recording otherwise would put a
-     * date beside a message that was never sent.
+     * PHONE NUMBERS ARE NOT TEXTED. A group text is the same promise broken louder: every
+     * guest's number in one thread they can all read. `phoneOnly` counts them so the screen
+     * can say "text these from Share" instead of pretending they were invited.
+     *
+     * `invitedAt` is stamped ONLY on outcome `sent` -- the one thing the OS confirms. A
+     * composer that opened and said nothing more is `unconfirmed` and stamps nobody, because a
+     * date beside a message that was never sent is worse than no date.
      */
-    send(ids: InviteeId[]): Promise<boolean>;
+    send(ids: InviteeId[]): Promise<InviteSendResult>;
     /**
      * Removing someone strands nothing -- unlike a folder or a photo, no bytes hang off
      * an invitee -- which is why the schema grants DELETE here and nowhere else.

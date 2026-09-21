@@ -37,6 +37,15 @@ export interface Op {
   payload?: unknown;
   filters: [string, unknown][];
   selected: boolean;
+  /**
+   * THE COLUMN LIST a `.select(...)` asked for, verbatim. It was DISCARDED until 2026-09-21:
+   * `select()` took no argument, so a query that forgot a column returned seeded rows exactly as
+   * if it had asked, and no test could tell. `invitees` omitted `phone` from #60 until then --
+   * every phone-only guest came back from a reload with no number. This does not make the fake
+   * EVALUATE the list (it still returns whole seeded rows); it makes what was requested
+   * assertable, which is the half a missing column hides in.
+   */
+  columns?: string;
 }
 
 type Responder = (op: Op) => Result | undefined;
@@ -47,8 +56,9 @@ class Query implements PromiseLike<Result> {
     private readonly op: Op,
     private readonly resolve: (op: Op) => Result,
   ) {}
-  select(): this {
+  select(columns?: string): this {
     this.op.selected = true;
+    if (columns !== undefined) this.op.columns = columns;
     return this;
   }
   eq(column: string, value: unknown): this {
@@ -159,7 +169,7 @@ export class FakeClient {
 
   from(table: string) {
     return {
-      select: () => this.op('select', table).select(),
+      select: (columns?: string) => this.op('select', table).select(columns),
       insert: (payload: unknown) => this.op('insert', table, payload),
       update: (payload: unknown) => this.op('update', table, payload),
       delete: () => this.op('delete', table),
