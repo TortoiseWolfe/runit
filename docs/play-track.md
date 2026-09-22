@@ -77,9 +77,16 @@ unnoticed, which is the whole failure mode.
 3. **Build and upload the first bundle:** `eas build -p android --profile production`.
    Read `eas account:usage turtlewolfe --json` first — **the free quota is per platform**,
    15 Android and 15 iOS a cycle, and one is not the other's.
-4. **Read the Play app-signing fingerprint back.** Play Console → your app → *Test and
-   release* → *Setup* → *App signing*. Copy the **SHA-256 certificate fingerprint** under
-   *App signing key certificate* — not the upload key.
+4. **Read the Play app-signing fingerprint back.**
+   `https://play.google.com/console/u/0/developers/<developerId>/app/<appId>/keymanagement`
+   — copy the **SHA-256 certificate fingerprint** under *App signing key certificate*, not
+   the upload key.
+
+   **That URL cannot be written out here yet**, because both ids are minted when the account
+   and the app are created and neither exists. Paste the real one into this file at step 2
+   so the next person does not have to hunt for it. Until then:
+   [play.google.com/console](https://play.google.com/console) → your app → *Test and release*
+   → *Setup* → *App signing*.
 5. **Put it in `web/.well-known/assetlinks.json`**, alongside the EAS one, and
    `pnpm deploy:web` from `main`. Both fingerprints stay: sideloaded builds and Play builds
    are signed differently and both must verify.
