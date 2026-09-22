@@ -3,6 +3,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 
 
 import { pickScreenshot } from '@/lib/pickScreenshot';
 import { useFeedbackActions } from '@/state/actions';
+import { Button } from '@/components/ui/Button';
 import { alpha, border, radius, useTheme, weight } from '@/theme';
 
 import { deviceFacts, factLine } from './deviceFacts';
@@ -126,16 +127,12 @@ export function FeedbackSheet({ visible, onClose }: { visible: boolean; onClose:
               `empty-world.spec.ts` counts `[aria-disabled="true"]` across a screen, which is
               this repo's gate against drawing a door nobody can open. */}
           {body.trim() ? (
-            <Pressable
+            <Button
               onPress={submit}
-              accessibilityRole="button"
               testID="feedback-send"
-              style={[s.cta, { backgroundColor: tokens.primary }]}
-            >
-              <Text style={[s.ctaText, { color: tokens.primaryContent }]}>
-                {busy ? 'Sending…' : 'Send it'}
-              </Text>
-            </Pressable>
+              style={s.ctaGap}
+              label={busy ? 'Sending…' : 'Send it'}
+            />
           ) : (
             <Text
               style={[s.facts, { color: alpha(tokens.baseContent, fade.faint) }]}
@@ -145,14 +142,7 @@ export function FeedbackSheet({ visible, onClose }: { visible: boolean; onClose:
             </Text>
           )}
 
-          <Pressable
-            onPress={onClose}
-            accessibilityRole="button"
-            testID="feedback-cancel"
-            style={[s.cancel, { borderColor: tokens.base300 }]}
-          >
-            <Text style={[s.cancelText, { color: tokens.baseContent }]}>Not now</Text>
-          </Pressable>
+          <Button variant="secondary" size="sm" onPress={onClose} testID="feedback-cancel" label="Not now" />
         </ScrollView>
       </View>
     </Modal>
@@ -181,8 +171,5 @@ const s = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   attachText: { fontSize: 14 },
-  cta: { height: 52, borderRadius: radius.field, alignItems: 'center', justifyContent: 'center', marginTop: 6 },
-  ctaText: { fontSize: 16, fontWeight: weight.semibold },
-  cancel: { height: 48, borderRadius: radius.field, borderWidth: border, alignItems: 'center', justifyContent: 'center' },
-  cancelText: { fontSize: 15 },
+  ctaGap: { marginTop: 6 },
 });

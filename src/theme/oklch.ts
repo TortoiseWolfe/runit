@@ -95,3 +95,88 @@ export const ALBUM_HUES: readonly number[] = [30, 200, 120, 280, 60, 340, 170, 2
 
 /** Canvas: `hue: (nextPending * 67) % 360` -- hue is DATA, stored on the photo. */
 export const hueForPhotoSeq = (seq: number): number => (seq * 67) % 360;
+
+/* ---------------------------------------------------------------------------
+ * sRGB -> OKLab, and the mix that needs it.
+ *
+ * The forward direction above is enough for a colour the canvas AUTHORED, because the
+ * canvas writes oklch and we convert it once. It is not enough for a colour DERIVED from
+ * another at runtime -- which is what a gradient stop is. `tokens.ts` keeps each token's
+ * oklch source in a COMMENT (the test re-parses `theme.css`, not the comment), so at
+ * runtime a token is a hex string and nothing else. Lightening it correctly means going
+ * back.
+ *
+ * WHY NOT LERP IN sRGB. Mixing gamma-encoded channels darkens and desaturates through the
+ * middle -- the classic muddy midpoint. The design system's own answer is
+ * `color-mix(in oklab, ...)`, which appears ~40 times in `design/theme.css` and is how
+ * ScriptHammer's raised button gets its top stop. Doing it in a different space here would
+ * mean the app's buttons are lit by different physics from everything else in the theme.
+ * ------------------------------------------------------------------------ */
+
+/** Gamma-encoded sRGB byte -> linear light. The inverse of `encode` above. */
+function decode(u8: number): number {
+  const u = u8 / 255;
+  return u <= 0.04045 ? u / 12.92 : Math.pow((u + 0.055) / 1.055, 2.4);
+}
+
+function parseHex(hex: string): [number, number, number] {
+  const h = hex.replace('#', '');
+  const full = h.length === 3 ? h.split('').map((ch) => ch + ch).join('') : h;
+  return [
+    parseInt(full.slice(0, 2), 16),
+    parseInt(full.slice(2, 4), 16),
+    parseInt(full.slice(4, 6), 16),
+  ];
+}
+
+/**
+ * sRGB hex -> OKLab `[L, a, b]`.
+ *
+ * The matrices are Ottosson's, and they are the inverses of the ones `oklchToSrgb` uses --
+ * `oklch.test.ts` proves that by round-tripping every token in the table rather than by
+ * trusting the transcription.
+ */
+export function srgbHexToOklab(hex: string): [number, number, number] {
+  const [r8, g8, b8] = parseHex(hex);
+  const r = decode(r8);
+  const g = decode(g8);
+  const b = decode(b8);
+
+  const L = 0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b;
+  const M = 0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b;
+  const S = 0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b;
+
+  const lp = Math.cbrt(L);
+  const mp = Math.cbrt(M);
+  const sp = Math.cbrt(S);
+
+  return [
+    0.2104542553 * lp + 0.793617785 * mp - 0.0040720468 * sp,
+    1.9779984951 * lp - 2.428592205 * mp + 0.4505937099 * sp,
+    0.0259040371 * lp + 0.7827717662 * mp - 0.808675766 * sp,
+  ];
+}
+
+/** OKLab `[L, a, b]` -> sRGB hex. Shares the cube/matrix tail of `oklchToSrgb`. */
+export function oklabToSrgbHex(l: number, a: number, b: number): string {
+  const c = Math.hypot(a, b);
+  const h = (Math.atan2(b, a) * 180) / Math.PI;
+  return oklchToSrgbHex(l, c, h);
+}
+
+/**
+ * What CSS `color-mix(in oklab, a ${(1 - t) * 100}%, b)` computes.
+ *
+ * `t` is how much of `b` lands: `mix(x, '#FFFFFF', 0.08)` is ScriptHammer's
+ * `color-mix(in oklab, x 92%, #fff)`, the top stop of every raised button on that site.
+ */
+export function mix(a: string, b: string, t: number): string {
+  const k = Math.max(0, Math.min(1, t));
+  const [l1, a1, b1] = srgbHexToOklab(a);
+  const [l2, a2, b2] = srgbHexToOklab(b);
+  return oklabToSrgbHex(
+    l1 + (l2 - l1) * k,
+    a1 + (a2 - a1) * k,
+    b1 + (b2 - b1) * k,
+  );
+}

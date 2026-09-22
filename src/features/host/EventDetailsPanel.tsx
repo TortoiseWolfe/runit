@@ -10,6 +10,7 @@ import { TIERS } from '@/domain/tiers';
 import type { EventDeletionImpact, HostRole } from '@/data/types';
 import { alpha, border, eyebrow, radius, useTheme, weight } from '@/theme';
 import { AccountRow } from '@/components/ui/AccountRow';
+import { Button } from '@/components/ui/Button';
 import { MyEventsList } from '@/components/ui/MyEventsList';
 import { Disclosure } from '@/components/ui/Disclosure';
 import { ZonePicker } from '@/components/ui/ZonePicker';
@@ -505,22 +506,15 @@ export function EventDetailsPanel() {
                 visibly there and does nothing when tapped reads as a bug, and disabling it
                 makes the denial unreachable. The repository throws and the toast names the
                 limit. It once WAS disabled elsewhere and looked exactly like a broken button. */}
-            <Pressable
+            <Button
+              variant="secondary"
+              size="sm"
               onPress={onInvite}
-              accessibilityRole="button"
               accessibilityHint={atHostCap ? `This plan includes ${hostCap} hosts.` : undefined}
               testID="cohost-invite"
-              style={[s.rotate, { borderColor: tokens.base300 }]}
-            >
-              <Text
-                style={[
-                  s.rotateText,
-                  { color: atHostCap ? alpha(tokens.baseContent, fade.faint) : tokens.baseContent },
-                ]}
-              >
-                {atHostCap ? `${hostCap} hosts on this plan` : 'Add a co-host'}
-              </Text>
-            </Pressable>
+              quiet={atHostCap}
+              label={atHostCap ? `${hostCap} hosts on this plan` : 'Add a co-host'}
+            />
           </Disclosure>
         </View>
       ) : null}
@@ -636,14 +630,7 @@ export function EventDetailsPanel() {
             ]}
           />
 
-          <Pressable
-            onPress={onAddInvitee}
-            accessibilityRole="button"
-            testID="invitee-add"
-            style={[s.rotate, { borderColor: tokens.base300 }]}
-          >
-            <Text style={[s.rotateText, { color: tokens.baseContent }]}>Add to the list</Text>
-          </Pressable>
+          <Button variant="secondary" size="sm" onPress={onAddInvitee} testID="invitee-add" label="Add to the list" />
 
           {/* THE PHONE ALREADY KNOWS WHO TO INVITE (#60). One typed address at a time is how
               a guest list comes to be forty keyboard entries with no autocomplete, and a
@@ -653,17 +640,14 @@ export function EventDetailsPanel() {
               no multi-select without reading the whole address book, which is a different
               product. So this loops, and says how many landed rather than pretending a batch
               happened. */}
-          <Pressable
+          <Button
+            variant="secondary"
+            size="sm"
             onPress={onAddFromContacts}
-            accessibilityRole="button"
             accessibilityLabel="Add someone from your contacts"
             testID="invitee-from-contacts"
-            style={[s.rotate, { borderColor: tokens.base300 }]}
-          >
-            <Text style={[s.rotateText, { color: tokens.baseContent }]}>
-              + Add from contacts
-            </Text>
-          </Pressable>
+            label="+ Add from contacts"
+          />
 
           {/* SENDING, WHICH NOTHING COULD DO. `invited_at` has existed since the first
               migration with no writer, and the panel said so: "NOTHING HERE SENDS ANYTHING".
@@ -696,32 +680,27 @@ export function EventDetailsPanel() {
             />
           ) : null}
           {invitees.length > 0 ? (
-            <Pressable
+            <Button
+              variant="secondary"
+              size="sm"
               onPress={onSaveGuestList}
-              accessibilityRole="button"
               accessibilityLabel="Save these people as a reusable list"
               testID="guest-list-save"
-              style={[s.rotate, { borderColor: tokens.base300 }]}
-            >
-              <Text style={[s.rotateText, { color: tokens.baseContent }]}>
-                Save these {invitees.length} as a list
-              </Text>
-            </Pressable>
+              label={`Save these ${invitees.length} as a list`}
+            />
           ) : null}
 
           {guestLists.map((l) => (
-            <Pressable
+            <Button
               key={l.id}
+              variant="secondary"
+              size="sm"
+              tone="accent"
               onPress={() => void attachGuestList(l.id, l.name)}
-              accessibilityRole="button"
               accessibilityLabel={`Add the ${l.name} list, ${l.memberCount} people`}
               testID={`guest-list-${l.id}`}
-              style={[s.rotate, { borderColor: tokens.base300 }]}
-            >
-              <Text style={[s.rotateText, { color: tokens.accent }]}>
-                + {l.name} ({l.memberCount})
-              </Text>
-            </Pressable>
+              label={`+ ${l.name} (${l.memberCount})`}
+            />
           ))}
 
           {/* EMAIL, PRE-ADDRESSED, IN BCC. It opened a blank share sheet for months while its
@@ -729,19 +708,19 @@ export function EventDetailsPanel() {
               guests in again. Drawn only when somebody on the target has an email -- a Send
               that could reach nobody is the control-that-cannot-act this panel does not draw. */}
           {emailTarget > 0 ? (
-            <Pressable
+            <Button
+              variant="secondary"
+              size="sm"
+              tone="accent"
               onPress={onSendInvitations}
-              accessibilityRole="button"
               accessibilityLabel={`Email the invitation to ${emailTarget} ${emailTarget === 1 ? 'guest' : 'guests'}, in BCC`}
               testID="invitee-send"
-              style={[s.rotate, { borderColor: tokens.base300 }]}
-            >
-              <Text style={[s.rotateText, { color: tokens.accent }]}>
-                {unsent.length > 0
+              label={
+                unsent.length > 0
                   ? `Email the invitation to ${emailTarget}`
-                  : 'Email the invitation again'}
-              </Text>
-            </Pressable>
+                  : 'Email the invitation again'
+              }
+            />
           ) : null}
 
           {/* THE ROUTE THAT ALWAYS WORKS. A desktop's default mail app is often not the one the
@@ -804,19 +783,16 @@ export function EventDetailsPanel() {
               it, issue a new one — the old one stops working.
             </Text>
           )}
-          <Pressable
+          <Button
+            variant="secondary"
+            size="sm"
             onPress={async () => {
               const next = await rotateHostKey();
               if (next) setIssuedKey(next);
             }}
-            accessibilityRole="button"
             testID="rotate-key"
-            style={[s.rotate, { borderColor: tokens.base300 }]}
-          >
-            <Text style={[s.rotateText, { color: tokens.baseContent }]}>
-              {issuedKey ? 'Issue another' : 'Issue a new key'}
-            </Text>
-          </Pressable>
+            label={issuedKey ? 'Issue another' : 'Issue a new key'}
+          />
         </View>
       ) : null}
 
@@ -935,11 +911,6 @@ const s = StyleSheet.create({
   seatRole: { fontSize: 13 },
   // Tabular so the three groups line up, and large because it gets copied by hand.
   key: { fontSize: 22, fontWeight: weight.semibold, letterSpacing: 2, fontVariant: ['tabular-nums'] },
-  rotate: {
-    height: 44, borderRadius: radius.field, borderWidth: border,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  rotateText: { fontSize: 14, fontWeight: weight.medium },
   // Its own box, not the row's: a full-width Pressable is what the gutter gate caught on
   // `ReportLink` twice (CLAUDE.md, "THE GUTTER GATE MEASURES THE CONTROL'S OWN BOX").
   copyLink: { alignSelf: 'flex-start', paddingVertical: 6 },

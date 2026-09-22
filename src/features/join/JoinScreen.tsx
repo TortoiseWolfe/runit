@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 
+import { Button } from "@/components/ui/Button";
 import { Screen } from "@/components/ui/Screen";
 import { Toast } from "@/components/ui/Toast";
 import {
@@ -589,16 +590,12 @@ export function JoinScreen() {
             )}
           </View>
 
-          <Pressable
+          <Button
             onPress={onJoin}
-            accessibilityRole="button"
             testID="join-submit"
-            style={[s.cta, { backgroundColor: tokens.primary }]}
-          >
-            <Text style={[s.ctaText, { color: tokens.primaryContent }]}>
-              {joined ? "You're in ✓" : "Run it"}
-            </Text>
-          </Pressable>
+            size="lg"
+            label={joined ? "You're in ✓" : "Run it"}
+          />
 
           <Text
             style={[s.footer, { color: alpha(tokens.baseContent, fade.faint) }]}
@@ -700,12 +697,5 @@ const s = StyleSheet.create({
   codeInput: { fontSize: 18, letterSpacing: tracking(0.2, 18) },
   nickInput: { fontSize: 16 },
   fine: { fontSize: 12, lineHeight: 18 },
-  cta: {
-    height: 56,
-    borderRadius: radius.field,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  ctaText: { fontSize: 17, fontWeight: weight.semibold },
   footer: { marginTop: "auto", textAlign: "center", fontSize: 12 },
 });

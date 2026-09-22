@@ -40,6 +40,35 @@ const DIST = join(ROOT, 'dist');
  */
 const STORE = process.env.SHOT_PRESET === 'appstore';
 /**
+ * DESKTOP PRESET. `SHOT_PRESET=desktop` re-runs the same walk at 1280x800, into
+ * `design/screenshots/desktop/`.
+ *
+ * IT EXISTS BECAUSE NO LANE HERE HAD EVER RENDERED ONE. This lane shoots 402x874 and the
+ * store preset 430x932 -- both phones -- so when the owner opened the live site on a
+ * 1920px monitor and found every field stretched across it, every gate on this board was
+ * green and had been for the life of the repo (#84). A canvas that is phone-sized and
+ * flat, matched faithfully, produces a phone layout stretched across a desktop.
+ *
+ * @2x, NOT @3x. 2560x1600 is a retina laptop; 3840x2400 is a number nobody looks at.
+ *
+ * NO SAFE-AREA INSETS. A browser has none -- `1280x800x0x0` -- so this preset needs its
+ * own export, which `pnpm shots:desktop` does. Shooting it off the phone `dist/` would
+ * inject a 62pt Dynamic Island into a laptop window and quietly pad every screenshot.
+ *
+ * THE GATES THAT STILL APPLY, and why. Colour and contrast are geometry-free claims about
+ * tokens, and the colour gate's fixed sample point lands OUTSIDE the centred content
+ * column here, which is the best place there is to read base-100 back. The gutter gate
+ * applies and passes easily, because the column is 360px clear of each edge. The PAIRING
+ * gate does not: `design/renders/` is the canvas, and the canvas drew no desktop.
+ *
+ * The real desktop ASSERTION is not here -- it is `tests/e2e/desktop-layout.spec.ts`,
+ * which measures the widest rendered field and control at this viewport. These images are
+ * for the eye (lane D); that spec is for the board.
+ */
+const DESKTOP = process.env.SHOT_PRESET === 'desktop';
+/** Phones are shot at 3; a desktop is not. */
+const SCALE = DESKTOP ? 2 : 3;
+/**
  * WHICH WORLD THE WALK SHOOTS, and for the store preset it must be one a customer can
  * actually have.
  *
@@ -53,12 +82,21 @@ const STORE = process.env.SHOT_PRESET === 'appstore';
  * 8 invited, one host, one folder. Real numbers a real customer reaches.
  */
 const WORLD = STORE ? '?free=1' : '';
-const VIEWPORT = STORE ? { width: 430, height: 932 } : { width: 402, height: 874 };
+const DESKTOP_VIEWPORT = { width: 1280, height: 800 };
+const PHONE_VIEWPORT = STORE ? { width: 430, height: 932 } : { width: 402, height: 874 };
+const VIEWPORT = DESKTOP ? DESKTOP_VIEWPORT : PHONE_VIEWPORT;
 // The insets must match the viewport or content rides under the status bar. 430x932 is a
 // 16 Pro Max: a 59pt Dynamic Island top, not the 44 of the 11 Pro Max this used to target.
 // Export with EXPO_PUBLIC_FIDELITY_FRAME set to this before shooting the store preset.
-const FIDELITY_FRAME = STORE ? '430x932x59x34' : '402x874x62x34';
-const OUT = join(ROOT, 'design', STORE ? 'appstore' : 'screenshots');
+const FIDELITY_FRAME = DESKTOP
+  ? '1280x800x0x0'
+  : STORE
+    ? '430x932x59x34'
+    : '402x874x62x34';
+/** `screenshots/desktop` nests under the ignored `screenshots/`, so it is ignored too. */
+const OUT_SUB = STORE ? 'appstore' : DESKTOP ? 'screenshots/desktop' : 'screenshots';
+const OUT = join(ROOT, 'design', OUT_SUB);
+const LANE_DIR = STORE ? 'lane-b-appstore' : DESKTOP ? 'lane-b-desktop' : 'lane-b';
 if (!existsSync(DIST)) { console.error('No dist/. Run: pnpm export:web'); process.exit(1); }
 mkdirSync(OUT, { recursive: true });
 
@@ -256,7 +294,7 @@ for (scheme of ['dark', 'light']) {
   ctx = await browser.newContext({
     colorScheme: scheme,
     viewport: VIEWPORT,
-    deviceScaleFactor: 3,
+    deviceScaleFactor: SCALE,
   });
   page = await ctx.newPage();
   errors = [];
@@ -417,7 +455,7 @@ for (scheme of ['dark', 'light']) {
 }
 } catch (e) {
   walkError = e;
-  const dir = laneDir(STORE ? 'lane-b-appstore' : 'lane-b');
+  const dir = laneDir(LANE_DIR);
   const url = await capture(page, dir, `failure-${scheme}`);
   writeReport(dir, {
     url,
@@ -430,8 +468,8 @@ for (scheme of ['dark', 'light']) {
   server.close();
 }
 console.log(
-  `\n${wrote} screenshots -> design/${STORE ? 'appstore' : 'screenshots'}/` +
-    ` at ${VIEWPORT.width * 3}x${VIEWPORT.height * 3}, insets ${FIDELITY_FRAME}`,
+  `\n${wrote} screenshots -> design/${OUT_SUB}/` +
+    ` at ${VIEWPORT.width * SCALE}x${VIEWPORT.height * SCALE}, insets ${FIDELITY_FRAME}`,
 );
 
 /**
@@ -477,7 +515,7 @@ if (walkError) {
   console.error(`\n${String(walkError)}`);
   console.error(`\n\x1b[31mFAIL: the walk aborted after ${shots.length} screenshot(s).\x1b[0m`);
   console.error(`  gates NOT RUN: colour, contrast and gutter all need the full set.`);
-  console.error(`  artifacts: test-results/${STORE ? 'lane-b-appstore' : 'lane-b'}/`);
+  console.error(`  artifacts: test-results/${LANE_DIR}/`);
   process.exit(1);
 }
 
@@ -617,7 +655,7 @@ const RENDER_PAIRS = {
   },
 };
 
-if (!STORE) {
+if (!STORE && !DESKTOP) {
   const walked = [...new Set(shots.map((s) => s.name))];
   const schemes = [...new Set(shots.map((s) => s.scheme))];
   const problems = [];

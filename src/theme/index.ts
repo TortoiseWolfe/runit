@@ -10,6 +10,9 @@ export {
   pendingPhotoColor,
   hueForPhotoSeq,
   ALBUM_HUES,
+  srgbHexToOklab,
+  oklabToSrgbHex,
+  mix,
 } from './oklch';
 export { radius, border, insetDelta, tabBar, toast, contentMaxWidth } from './layout';
 export { tracking, weight, eyebrow, fade, fadeFor, type Fade } from './typography';

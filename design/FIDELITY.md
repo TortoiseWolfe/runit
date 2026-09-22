@@ -2997,3 +2997,61 @@ wants the first — a host switching parties must not lose her seat (FIDELITY no
 out is the one case where the identity *should* go, because an emailed code brings it back.
 `LeaveSheet` still calls `closeEvent`, which is why these are two sheets rather than one with
 a checkbox.
+
+## BB. A desktop, and a button that is lit
+
+The canvas is a phone and it is flat. `design/ios-frame.jsx` draws a 402x874 device with a
+62pt status bar, every artboard is that size, and there is not one gradient in 49KB of
+`Runit.dc.html` — note AW counted its two shadows. Matched faithfully, that produces a flat
+phone layout, and **stretched across a 1920px monitor it produces what the owner opened the
+live site and found**: form fields spanning the whole screen, a recovery key alone in the
+top-left corner above a void, and buttons with no hierarchy between them. #84.
+
+**Every gate on the board was green while that was true**, because lane B renders 402x874 and
+the store preset 430x932 and nothing had ever rendered anything else. That is the finding
+under the finding: a canvas can only be matched at the size it was drawn, and a lane that
+only ever sees that size cannot tell you the design does not survive leaving it.
+
+**So two deliberate departures, decided here rather than re-litigated per screen.**
+
+### The column
+
+`contentMaxWidth = 560` in `src/theme/layout.ts`, applied once in the root layout. Not
+`<Screen>`: only three files render it, and the host console and its panels build their own
+ScrollViews. Not 402 either — at exactly the phone's width a laptop shows a strip of phone
+rather than a page. **On a phone it changes nothing**, because 402 is narrower than the cap,
+so the constraint never binds and every screenshot, render pairing and gate in lane B is
+untouched by it. `tests/e2e/desktop-layout.spec.ts` names 560 once and fails if any field or
+control renders wider.
+
+### The raised button
+
+`src/components/ui/Button/`, porting ScriptHammer's `sh-btn-primary` — a top-lit gradient,
+a coloured pool beneath, a lit top rim and an occluded bottom edge. Same light source as
+note AW's plates and wells, which is what stops a button and a card on one screen disagreeing
+about where the sun is. The mechanism could not cross for the same reason note AW records:
+`color-mix(in oklab, …)` has no RN equivalent, so `mix()` in `src/theme/oklch.ts` computes it
+here, and `oklch.test.ts` round-trips every token through the inverse transform rather than
+trusting nine transcribed constants.
+
+**One number is not ScriptHammer's, and the colour gate is why.** Its button is a compact
+pill; every button here is full width. The pill's glow, ported verbatim, spread sideways and
+repainted base-100 in the page gutter — `00-host-signin` read `#1B1C30` against `#1A1A2E`.
+A control that repaints the page it sits on has overridden the theme, so the pool is tucked:
+its sides stay inside the button's own edge and only its bottom clears. That is also what a
+wide flat plate actually does; the sideways halo was a pill's numbers on a plank.
+
+**What did NOT change, and is somebody's decision rather than an oversight.** The primary is
+still filled with `tokens.primary` — a blue-grey on dark, a slate on light — because
+`theme-tokens.spec.ts` asserts the join CTA carries that token and the canvas is what put it
+there. It is raised now; it is not a different colour. Switching the fill to `secondary`, the
+warm tan the canvas already uses for the host role pill, is a one-line change and a design
+decision that belongs to the owner.
+
+### And the lane that can see it
+
+`SHOT_PRESET=desktop` (`pnpm shots:desktop`) walks the same screens at 1280x800 @2x into
+`design/screenshots/desktop/`. It needs its own export because a browser has no safe-area
+insets and the phone build injects a 62pt Dynamic Island. The pairing gate is skipped there —
+`design/renders/` is the canvas, and the canvas drew no desktop, so there is nothing to pair
+against. These images are for the eye; the assertion is the spec.
