@@ -11,6 +11,6 @@ export {
   hueForPhotoSeq,
   ALBUM_HUES,
 } from './oklch';
-export { radius, border, insetDelta, tabBar, toast } from './layout';
+export { radius, border, insetDelta, tabBar, toast, contentMaxWidth } from './layout';
 export { tracking, weight, eyebrow, fade, fadeFor, type Fade } from './typography';
 export { DEPTH, DEPTH_CSS, BASE100_SOURCE, type Depth, type DepthInks } from './depth';

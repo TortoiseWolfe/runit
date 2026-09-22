@@ -1,5 +1,5 @@
 import { useMemo, useSyncExternalStore } from 'react';
-import { Text } from 'react-native';
+import { Text, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import {
   SafeAreaFrameContext,
@@ -30,7 +30,7 @@ import { SupabaseRepository } from '@/data/supabase/SupabaseRepository';
 
 import { RepositoryProvider } from '@/state/RepositoryProvider';
 import { ToastProvider } from '@/state/ToastProvider';
-import { ThemeProvider, useTheme } from '@/theme';
+import { ThemeProvider, contentMaxWidth, useTheme } from '@/theme';
 
 /**
  * The fidelity harness renders in a browser, where safe-area-context reports
@@ -115,13 +115,21 @@ function Chrome() {
         </>
       )}
       <StatusBar style={isDark ? 'light' : 'dark'} />
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          contentStyle: { backgroundColor: tokens.base100 },
-        }}
-      >
-      </Stack>
+      {/* ONE CENTERED COLUMN, SET HERE BECAUSE THIS IS THE ONLY PLACE THAT REACHES EVERYTHING.
+          Full-bleed ground outside, the app capped at `contentMaxWidth` inside. On a phone the
+          column is the phone and nothing moves; on a desktop it stops a form field stretching
+          across the monitor. See `contentMaxWidth` in src/theme/layout.ts. */}
+      <View style={{ flex: 1, backgroundColor: tokens.base100, alignItems: 'center' }}>
+        <View style={{ flex: 1, width: '100%', maxWidth: contentMaxWidth }}>
+          <Stack
+            screenOptions={{
+              headerShown: false,
+              contentStyle: { backgroundColor: tokens.base100 },
+            }}
+          >
+          </Stack>
+        </View>
+      </View>
     </>
   );
 }
