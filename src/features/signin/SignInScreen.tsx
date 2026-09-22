@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
 
+import { Button } from '@/components/ui/Button';
 import { Screen } from '@/components/ui/Screen';
 import { Toast } from '@/components/ui/Toast';
 import type { EmailCodeMode } from '@/data/repository';
@@ -177,14 +178,7 @@ export function SignInScreen() {
               over.
             </Text>
 
-            <Pressable
-              onPress={verify}
-              accessibilityRole="button"
-              testID="signin-verify"
-              style={[s.cta, { backgroundColor: tokens.primary }]}
-            >
-              <Text style={[s.ctaText, { color: tokens.primaryContent }]}>Sign in</Text>
-            </Pressable>
+            <Button onPress={verify} testID="signin-verify" style={s.ctaGap} label="Sign in" />
 
             {/*
               A COUNTDOWN SENTENCE, THEN A CONTROL -- never a disabled control.
@@ -214,14 +208,7 @@ export function SignInScreen() {
             )}
           </View>
         ) : (
-          <Pressable
-            onPress={send}
-            accessibilityRole="button"
-            testID="signin-send"
-            style={[s.cta, { backgroundColor: tokens.primary }]}
-          >
-            <Text style={[s.ctaText, { color: tokens.primaryContent }]}>Send me a code</Text>
-          </Pressable>
+          <Button onPress={send} testID="signin-send" style={s.ctaGap} label="Send me a code" />
         )}
 
         <Pressable
@@ -257,7 +244,6 @@ const s = StyleSheet.create({
   codeInput: { fontSize: 22, letterSpacing: 6, fontVariant: ['tabular-nums'] },
   block: { gap: 10 },
   helper: { fontSize: 12, lineHeight: 18 },
-  cta: { height: 52, borderRadius: radius.field, alignItems: 'center', justifyContent: 'center', marginTop: 10 },
-  ctaText: { fontSize: 16, fontWeight: weight.semibold },
+  ctaGap: { marginTop: 10 },
   link: { fontSize: 13, fontWeight: weight.semibold, paddingVertical: 6 },
 });

@@ -1,6 +1,7 @@
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { codeFromScan, joinLink } from '@/lib/invite';
+import { Button } from '@/components/ui/Button';
 import { alpha, useTheme, weight } from '@/theme';
 
 /**
@@ -49,7 +50,7 @@ export function QrScanner({
             Scanning needs the RunIt app on a phone. Type the code instead.
           </Text>
           {HARNESS ? (
-            <Pressable
+            <Button
               onPress={() => {
                 // Through the real parser, from the real generator. A test that called
                 // onCode('SR1017') directly would pass against a scanner that read
@@ -57,15 +58,10 @@ export function QrScanner({
                 const code = codeFromScan(joinLink(HARNESS_CODE));
                 if (code) onCode(code);
               }}
-              accessibilityRole="button"
               testID="qr-simulate"
-              hitSlop={8}
-              style={[s.cta, { backgroundColor: tokens.primary }]}
-            >
-              <Text style={[s.ctaText, { color: tokens.primaryContent }]}>
-                Simulate a scan
-              </Text>
-            </Pressable>
+              size="sm"
+              label="Simulate a scan"
+            />
           ) : null}
         </View>
         <Pressable
@@ -95,7 +91,5 @@ const s = StyleSheet.create({
     padding: 20,
   },
   body: { fontSize: 15, lineHeight: 21 },
-  cta: { borderRadius: 10, paddingVertical: 14, alignItems: 'center', minHeight: 44 },
-  ctaText: { fontSize: 15, fontWeight: weight.semibold },
   cancel: { fontSize: 15, textAlign: 'center', paddingVertical: 12, minHeight: 44 },
 });

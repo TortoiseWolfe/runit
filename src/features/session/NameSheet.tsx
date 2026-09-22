@@ -10,6 +10,7 @@ import {
 } from "react-native";
 
 import { useSessionActions } from "@/state/actions";
+import { Button } from "@/components/ui/Button";
 import { alpha, border, radius, useTheme, weight } from "@/theme";
 
 /**
@@ -120,17 +121,12 @@ export function NameSheet({
             field simply does not draw a Save, the same treatment the create form gives a
             nameless event. A control that refuses is worse than one that is not there. */}
           {!empty && (
-            <Pressable
+            <Button
               onPress={() => void save()}
-              accessibilityRole="button"
               testID="name-save"
-              hitSlop={8}
-              style={[s.cta, { backgroundColor: tokens.primary }]}
-            >
-              <Text style={[s.ctaText, { color: tokens.primaryContent }]}>
-                {busy ? "Saving…" : "Save"}
-              </Text>
-            </Pressable>
+              size="sm"
+              label={busy ? "Saving…" : "Save"}
+            />
           )}
           <Pressable
             onPress={onClose}
@@ -175,13 +171,6 @@ const s = StyleSheet.create({
     fontSize: 16,
     minHeight: 44,
   },
-  cta: {
-    borderRadius: radius.field,
-    paddingVertical: 14,
-    alignItems: "center",
-    minHeight: 44,
-  },
-  ctaText: { fontSize: 15, fontWeight: weight.semibold },
   cancel: {
     fontSize: 14,
     textAlign: "center",

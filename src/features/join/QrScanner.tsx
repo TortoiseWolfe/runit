@@ -3,6 +3,7 @@ import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 
 import { codeFromScan } from '@/lib/invite';
+import { Button } from '@/components/ui/Button';
 import { alpha, useTheme, weight } from '@/theme';
 
 /**
@@ -87,17 +88,7 @@ export function QrScanner({
                 : 'RunIt needs the camera to read an invitation QR.'}
             </Text>
             {permission?.canAskAgain !== false && (
-              <Pressable
-                onPress={() => void requestPermission()}
-                accessibilityRole="button"
-                testID="qr-allow"
-                hitSlop={8}
-                style={[s.cta, { backgroundColor: tokens.primary }]}
-              >
-                <Text style={[s.ctaText, { color: tokens.primaryContent }]}>
-                  Allow camera
-                </Text>
-              </Pressable>
+              <Button onPress={() => void requestPermission()} testID="qr-allow" size="sm" label="Allow camera" />
             )}
           </View>
         )}
@@ -139,7 +130,5 @@ const s = StyleSheet.create({
   },
   camera: { flex: 1 },
   body: { fontSize: 15, lineHeight: 21 },
-  cta: { borderRadius: 10, paddingVertical: 14, alignItems: 'center', minHeight: 44 },
-  ctaText: { fontSize: 15, fontWeight: weight.semibold },
   cancel: { fontSize: 15, textAlign: 'center', paddingVertical: 12, minHeight: 44 },
 });

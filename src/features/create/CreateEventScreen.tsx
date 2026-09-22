@@ -1,9 +1,10 @@
 import { useMemo, useRef, useState } from 'react';
 import {
-  Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
+  Platform, ScrollView, StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 
+import { Button } from '@/components/ui/Button';
 import { Screen } from '@/components/ui/Screen';
 import { DateTimeField } from '@/components/ui/DateTimeField';
 import { ZonePicker } from '@/components/ui/ZonePicker';
@@ -132,16 +133,12 @@ export function CreateEventScreen() {
             for you. You do not need it on this phone.
           </Text>
 
-          <Pressable
+          <Button
             onPress={() => router.replace('/host/broadcast')}
-            accessibilityRole="button"
             testID="created-continue"
-            style={[s.cta, { backgroundColor: tokens.primary }]}
-          >
-            <Text style={[s.ctaText, { color: tokens.primaryContent }]}>
-              I have written it down
-            </Text>
-          </Pressable>
+            style={s.ctaGap}
+            label="I have written it down"
+          />
         </ScrollView>
         <Toast />
       </Screen>
@@ -286,16 +283,12 @@ export function CreateEventScreen() {
             device reports' worth of evidence for that. `?empty=1` holds the general
             form: nothing visible anywhere may be aria-disabled. */}
         {ready ? (
-          <Pressable
+          <Button
             onPress={onCreate}
-            accessibilityRole="button"
             testID="create-submit"
-            style={[s.cta, { backgroundColor: tokens.primary }]}
-          >
-            <Text style={[s.ctaText, { color: tokens.primaryContent }]}>
-              {busy ? 'Creating…' : 'Create it'}
-            </Text>
-          </Pressable>
+            style={s.ctaGap}
+            label={busy ? 'Creating…' : 'Create it'}
+          />
         ) : (
           <Text testID="create-blocked" style={[s.helper, { color: alpha(tokens.baseContent, fade.muted) }]}>
             A name and a date are all it needs.
@@ -338,6 +331,5 @@ const s = StyleSheet.create({
   // Tabular so the groups line up, and large because it gets read aloud across a room.
   code: { fontSize: 26, fontWeight: weight.semibold, letterSpacing: 2, fontVariant: ['tabular-nums'] },
   helper: { fontSize: 12, lineHeight: 18 },
-  cta: { height: 52, borderRadius: radius.field, alignItems: 'center', justifyContent: 'center', marginTop: 10 },
-  ctaText: { fontSize: 16, fontWeight: weight.semibold },
+  ctaGap: { marginTop: 10 },
 });
