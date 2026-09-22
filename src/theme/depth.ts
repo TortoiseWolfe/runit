@@ -43,6 +43,21 @@ import type { Scheme } from './ThemeProvider';
  * The two ramps trade places between the schemes exactly as designed. A single-ink system
  * would be near-invisible on one of the app's two grounds -- so both primitives keep both
  * inks, and neither scheme was hand-tuned to make that true.
+ *
+ * AND THAT LAST PARAGRAPH IS MEASURED NOW, not reasoned. #84's plan said to raise the dark
+ * scheme's edge ink, on the reasoning that the wells nearly vanish on the default ground.
+ * Read off `design/screenshots/03-host-event.*.png`, one vertical slice through the NAME
+ * field, the numbers say the opposite and say it clearly:
+ *
+ *   dark   top shadow  #0D0D1D  ramping to the field's #16162A   -- subtle, as predicted
+ *          bottom lip  #5E6076  against the field's #141427      -- the strongest ink here
+ *   light  top shadow  #AAA49E  ramping to the field's #EBE5DD   -- carries it, as predicted
+ *          bottom lip  #E8E2DC  against the field's #DFD9D1      -- all but gone, as predicted
+ *
+ * Both schemes behave exactly as the arithmetic above claims, so the edge was never what
+ * made the app look flat -- the BUTTONS were, and #84 step 2 fixed those. Raising this
+ * would put a garish lit lip on every field on the app's default ground to solve a problem
+ * that is not in this file. Do not re-open it without a fresh slice.
  */
 
 /**
