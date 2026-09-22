@@ -101,6 +101,7 @@ pnpm test                       # jest
 pnpm typecheck                  # tsc --noEmit
 pnpm audit:styles               # Lane A: the RN colour-parser gate
 pnpm audit:targets              # Lane A2: touch targets, WCAG 2.2 SC 2.5.8 (AA)
+pnpm audit:feedback             # can the person on THIS screen tell us it is broken?
 pnpm audit:keyboard             # Lane A3: keyboard strategy + return-key contract
 pnpm audit:rpc                  # do .rpc() argument names exist on the function they are sent to
 pnpm supabase <args>            # the Supabase CLI at the ONE version this repo declares
@@ -1073,6 +1074,61 @@ to be a reader, so a broken thing there looks like a quiet evening. Not the chat
 was tried and displaced *"Announcements only · hosts post here"* -- the line telling a guest
 why there is no compose box, held by `guest-chat.spec.ts`. **A control that has to take
 something's place is in the wrong place.**
+
+**AND IT IS ON EVERY SCREEN A TESTER CAN GET STUCK ON NOW, WHICH IT WAS NOT.** The control
+reached the join screen and two guest tabs, and that list had a hole the size of the product:
+**a HOST had no route at all.** Not on any of the five console segments, not on the chrome.
+Her only path was five steps with an IDENTITY MUTATION in the middle -- `role-switch` calls
+`becomeGuest()` and lands on Chat, which deliberately has none, then a tab, a scroll, a tap,
+and switch back. `HostConsoleChrome.tsx:86-91` had already written the lesson down about
+`ConnectionPill`: *"the surface existed everywhere except where the affected person was
+standing. That is the shape of #29 and #37."* `/signin` had none either, so a host whose
+emailed code never arrived was silent -- and five real sign-in emails once landed here
+carrying the DEFAULT template with no six-digit code in them at all (FIDELITY AZ).
+
+**`HostConsoleFooter` IS ONE MOUNT IN `src/app/host/_layout.tsx`, NOT FIVE.** That file is 23
+lines and already mounts `<Toast />`, so one mount serves every segment and DISPLACES
+NOTHING -- which is what makes it survive the rule the chat footer broke. Per-segment
+placement would be five copies of one decision AND would put the control at the end of five
+scrolling documents, which is the hidden-in-plain-sight failure this exists to fix.
+
+**`JoinScreen` HAND-ROLLED THE WHOLE CONTROL FOR MONTHS, AND THAT WAS A LIVE DEFECT.** Same
+copy, same `testID="open-feedback"`, same a11y label -- and its style carried no
+`paddingVertical`, so its entire touch target was a `hitSlop={10}` that **react-native-web
+DROPS**. On the browser route, now the route most guests take, the control written for the
+person who cannot get in was a ~18pt text line: under SC 2.5.8's 24, on that screen.
+`audit:targets` passed it, correctly and uselessly, because a declared hitSlop is what it
+asks for.
+
+**`ReportLink` TAKES `inset`, AND IT DEFAULTS TO THE VALUE THAT FAILS LOUDLY.** Most parents
+already pad their content, so 0 is right for them; Photos, Music, the host footer and
+`+not-found` pass 20. A forgotten `inset={20}` renders flush at x=0 and the gutter gate reds
+the board BY NAME. A forgotten `inset={0}` renders a 40pt indent **no gate in this repo can
+see**. `alignSelf: 'flex-start'` stays unconditional and is not the caller's -- it is what
+stops the box stretching, which is what makes the gutter measurable at all.
+
+**THE BRIDGE PAGE HAD NO ROUTE AT ALL, AND IT IS WHERE THEY STOP.** `web/i/index.html` is the
+one surface every new arrival passes through, and on 2026-09-11 forty seats behind it
+produced ZERO anonymous sign-ins. Every other control is INSIDE the app, so a person who
+cannot install it, cannot open it, or cannot get past the door reached none of them. It
+carries a **Didn't work?** block now (`id="report"`), offering `/join?report=1` FIRST --
+which `JoinScreen` turns into an open sheet via `ReportLink`'s `autoOpen`, landing the report
+in the real pipeline -- and `mailto:support@turtlewolfe.com` as the fallback. **The asymmetry
+is named rather than hidden:** an email reaches a human inbox and does NOT become a GitHub
+issue, so the person most likely to be stuck lands in the channel with the least automation.
+No form on that page: it has no build step, no framework and no analytics by design, and
+posting to Supabase would need an anonymous sign-in, a key and error handling -- a second
+implementation of the sheet in a file whose whole virtue is being readable HTML.
+
+**`pnpm audit:feedback` IS THE GATE, AND ITS FIRST VERSION PASSED ITS OWN MUTATION TEST.**
+Four rules: every route renders one or is in EXCEPTIONS with a reason; Chat must NOT (the
+absence is a decision, and it was pinned by exactly one assertion in one spec); exactly ONE
+implementation of `testID="open-feedback"`; and the bridge page carries `id="report"`. It
+**follows renders, not imports** -- the first version followed imports, so deleting
+`<HostConsoleFooter />` left the `import` line behind and the gate called five routes covered
+while the host had no control at all. The defect it was written to catch, surviving the check
+written to catch it. An import is a fact about a module graph; rendering is a fact about a
+screen, and only the second is what a person can tap.
 
 **THE GUTTER GATE MEASURES THE CONTROL'S OWN BOX, and padding will never satisfy it.**
 `ReportLink` failed it twice with the same message: padding on the Text leaves the `<button>`

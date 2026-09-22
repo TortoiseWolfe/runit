@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-import { joinAsGuest, open } from './helpers';
+import { joinAsGuest, open, switchToHost } from './helpers';
 
 /**
  * THE CHANNEL THAT REPLACES TESTFLIGHT'S AT LAUNCH -- #77.
@@ -87,6 +87,104 @@ test.describe('a customer with no GitHub account can still tell us something', (
     // "here is what we are sending" sentence lives, and they would drift.
     await page.getByTestId('open-feedback').click();
     await expect(page.getByTestId('feedback-facts')).toContainText(/no email/i);
+  });
+
+
+  /**
+   * THE HOST HAD NO ROUTE AT ALL, and she is the person who buys this.
+   *
+   * Before `HostConsoleFooter` her only path was five steps with an IDENTITY MUTATION in
+   * the middle: `role-switch` calls `becomeGuest()` and lands on Chat, which deliberately
+   * has none, then a tab, then a scroll, then a tap, then switch back. This asserts the
+   * short way exists on every segment -- and deliberately never touches `role-switch`
+   * after arriving, because a test that switched role would pass against the old path too.
+   */
+  for (const seg of ['broadcast', 'dj', 'photos', 'reports', 'event'] as const) {
+    test(`a host can report from the ${seg} segment without changing who she is`, async ({
+      page,
+    }, info) => {
+      await joinAsGuest(page, info.project.name as 'dark' | 'light');
+      await switchToHost(page);
+      if (seg !== 'broadcast') await page.getByTestId(`host-segment-${seg}`).click();
+
+      // `:visible` and a COUNT, not toBeVisible on a bare testID -- expo-router keeps
+      // popped screens mounted and CSS-hidden, so the guest tabs' copies are still in the
+      // DOM (#80). The honest question is how many she can SEE, and the answer is one.
+      const control = page.locator('[data-testid="open-feedback"]:visible');
+      await expect(control).toHaveCount(1);
+      await control.click();
+      await expect(page.getByTestId('feedback-facts')).toContainText(/no email/i);
+    });
+  }
+
+  test('a host who is standing in the console never has to leave it to report', async ({
+    page,
+  }, info) => {
+    await joinAsGuest(page, info.project.name as 'dark' | 'light');
+    await switchToHost(page);
+    await page.locator('[data-testid="open-feedback"]:visible').click();
+    await page.getByTestId('feedback-body').fill('The broadcast never sent.');
+    await page.getByTestId('feedback-send').click();
+    await expect(page.getByTestId('toast')).toContainText(/thanks/i);
+    // Still a host, still on the console.
+    await expect(page.getByTestId('host-broadcast')).toBeVisible();
+  });
+
+  /**
+   * A CODE THAT NEVER ARRIVES. This screen waits on GoTrue, custom SMTP, Resend, DNS and a
+   * spam filter, and every one of those has failed here -- five real sign-in emails once
+   * landed carrying the DEFAULT template, with no six-digit code in them at all, against
+   * this exact screen asking for six digits. A host in that state had nowhere to say so.
+   */
+  test('a host whose emailed code never arrives can say so from the sign-in screen', async ({
+    page,
+  }, info) => {
+    await open(page, info.project.name as 'dark' | 'light', '/signin', 'signin-send');
+    const control = page.locator('[data-testid="open-feedback"]:visible');
+    await expect(control).toHaveCount(1);
+    await control.click();
+    await expect(page.getByTestId('feedback-facts')).toContainText(/no email/i);
+  });
+
+  /**
+   * ARRIVING HERE IS ITSELF THE REPORT -- a truncated invitation, a stale route, a deep link
+   * the app did not recognise. "Go home" threw away the only person who could describe it.
+   *
+   * IT SENDS rather than merely opening, because the control and the `<Toast/>` landed in
+   * one commit and only a send proves the second one is there. Mutation-checked: dropping
+   * `<Toast/>` from `+not-found` turns exactly this red and nothing else.
+   */
+  test('a wrong link is reportable, and the report says it landed', async ({ page }, info) => {
+    await open(page, info.project.name as 'dark' | 'light', '/no-such-screen', 'open-feedback');
+    await page.getByTestId('open-feedback').click();
+    await page.getByTestId('feedback-body').fill('The link in my invitation went nowhere.');
+    await page.getByTestId('feedback-send').click();
+    await expect(page.getByTestId('toast')).toContainText(/thanks/i);
+  });
+
+
+  /**
+   * THE BRIDGE PAGE'S ONLY WAY INTO THE PIPELINE.
+   *
+   * `web/i/index.html` is a static file with no framework -- it cannot open a sheet, and a
+   * form on it would be a second implementation of one. It links here instead. Without this
+   * param that link is a dead end, and the dead end would be silent: the join screen would
+   * render perfectly and the person who came specifically to complain would have to find a
+   * control below the fold.
+   */
+  test('somebody who arrived from the bridge page asking to report lands in the sheet', async ({
+    page,
+  }, info) => {
+    await open(page, info.project.name as 'dark' | 'light', '/join?report=1', 'feedback-body');
+    await expect(page.getByTestId('feedback-facts')).toContainText(/no email/i);
+  });
+
+  test('and the sheet is not open for everybody else', async ({ page }, info) => {
+    // The other half, and it is the half a one-sided test would miss: `autoOpen` defaulting
+    // true, or the param being read as "present" rather than "=1", both pass the test above
+    // and open a modal over the join screen for every guest arriving from a normal link.
+    await open(page, info.project.name as 'dark' | 'light', '/join?code=SR1017', 'join-submit');
+    await expect(page.getByTestId('feedback-sheet')).toHaveCount(0);
   });
 
   test('and the chat tab keeps saying why a guest cannot type there', async ({ page }, info) => {

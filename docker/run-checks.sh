@@ -100,6 +100,14 @@ pnpm audit:targets
 step "keyboard audit  (a text field the keyboard covers is a screen you cannot use)"
 pnpm audit:keyboard
 
+# Fourth in the static band, and it is a REACHABILITY check rather than a rendering one --
+# the same split the three above make. A host had no way to report a problem from any of the
+# five console segments, /signin had none, and nothing noticed: before this, `open-feedback`
+# appeared in exactly one spec and nothing asserted the presence OR absence of a route
+# anywhere else. It also pins Chat's deliberate ABSENCE as a rule rather than one assertion.
+step "feedback route audit  (can the person on this screen tell us it is broken?)"
+pnpm audit:feedback
+
 step "tier claim audit  (the ladder may not advertise what nothing enforces)"
 pnpm audit:tiers
 

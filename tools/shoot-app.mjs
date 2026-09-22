@@ -396,6 +396,10 @@ for (scheme of ['dark', 'light']) {
   for (const [seg, panel, name] of [
     ['dj', 'dj', '03-host-dj'],
     ['photos', 'photos', '03-host-photos'],
+    // Reports was the one host segment the walk never visited, so the gutter and contrast
+    // gates had never seen it -- and it is now one of five screens carrying the host's
+    // report control, which is exactly what those gates are for.
+    ['reports', 'reports', '03-host-reports'],
     ['event', 'event-details', '03-host-event'],
   ]) {
     await page.click(`[data-testid="host-segment-${seg}"]`);
@@ -637,6 +641,10 @@ const RENDER_PAIRS = {
   '03-host-broadcast': { render: '03-host-broadcast' },
   '03-host-dj': { render: '03-host-dj' },
   '03-host-photos': { render: '03-host-photos' },
+  '03-host-reports': {
+    render: null,
+    why: 'a fifth host segment the canvas never drew -- same standing as 03-host-event',
+  },
   '03-host-event': {
     render: null,
     why: 'the canvas host control has three segments; Event is the fourth, added here',

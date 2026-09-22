@@ -304,7 +304,7 @@ export function MusicScreen() {
         ))}
 
         {/* #77. The end of the tab where a guest notices a song request vanished. */}
-        <ReportLink />
+        <ReportLink inset={20} />
       </ScrollView>
 
       <ReportSheet
