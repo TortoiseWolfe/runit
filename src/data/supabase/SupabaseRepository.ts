@@ -733,6 +733,18 @@ export class SupabaseRepository implements RunitRepository {
     this.hostRows = (hosts.data as Row<'hosts'>[]).map(toHost);
     this.votes = new Set((votes.data as { request_id: string }[]).map((v) => v.request_id));
     await this.loadBlocks();
+    /*
+     * AND THE LISTS SHE SAVED BEFORE, which nothing loaded until 2026-09-21. `loadGuestLists`
+     * ran only after a save, a remove or a forget, so a list existed in the session it was
+     * saved in and never again -- "Family" was simply not offered at next week's party, and
+     * reuse across parties is the whole of #59. Loaded here because this is where an event's
+     * console gets its data, and the invitee section is the only place a list is shown.
+     *
+     * Not gated on `holdsHostSeat`, the rule the invitee read above states: RLS is the
+     * authority. `guest_lists` admits only the owner, so a guest reads nothing, and
+     * `loadGuestLists` already turns a refusal into an empty list rather than an error.
+     */
+    await this.loadGuestLists();
   }
 
   /**

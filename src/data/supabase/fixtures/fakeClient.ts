@@ -46,6 +46,8 @@ export interface Op {
    * assertable, which is the half a missing column hides in.
    */
   columns?: string;
+  /** `.order(column, { ascending })`, as asked. Rows are not reordered. */
+  order?: [string, boolean];
 }
 
 type Responder = (op: Op) => Result | undefined;
@@ -63,6 +65,19 @@ class Query implements PromiseLike<Result> {
   }
   eq(column: string, value: unknown): this {
     this.op.filters.push([column, value]);
+    return this;
+  }
+  /**
+   * RECORDED, NOT APPLIED -- rows come back in seed order, the same "records what was sent and
+   * never evaluates it" rule the rest of this fake keeps.
+   *
+   * It did not exist until 2026-09-21, and that is how a whole feature went untested. The only
+   * `.order()` in the adapter is `loadGuestLists`, which nothing called on the join path, so no
+   * test ever reached it; the moment it was added to opening a party, every joining test threw
+   * `order is not a function`. The fake's missing method was hiding the adapter's missing call.
+   */
+  order(column: string, opts?: { ascending?: boolean }): this {
+    this.op.order = [column, opts?.ascending ?? true];
     return this;
   }
   maybeSingle(): PromiseLike<Result> {

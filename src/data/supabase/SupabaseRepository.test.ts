@@ -351,6 +351,35 @@ describe('sending the guest list an email', () => {
   });
 });
 
+
+/*
+ * A SAVED LIST HAS TO BE THERE WHEN THE APP OPENS, or it is not reusable at all.
+ *
+ * `loadGuestLists()` ran only after saving, removing or forgetting a list -- never on opening a
+ * party. So a list existed in the session it was saved in and nowhere after: reopen the app, or
+ * start next week's party, and "Family" was simply not offered. Reuse across parties is the
+ * entire point of #59, and it had never worked against a real database.
+ *
+ * Found on 2026-09-21 by the owner asking whether a family list could be reused, and a live test
+ * that saved one at party A and looked for it at party B. Every journey saved and checked in the
+ * SAME session, which is the one case that worked.
+ */
+describe('saved guest lists, opening a party', () => {
+  it('offers the lists you saved before, without saving anything now', async () => {
+    const c = ready((cl) => {
+      cl.seed('guest_lists', [{ id: 'gl-family', name: 'Family', created_at: '2026-09-01T00:00:00Z' }]);
+      cl.seed('guest_list_members', [{ list_id: 'gl-family' }, { list_id: 'gl-family' }, { list_id: 'gl-family' }]);
+    });
+    const repo = await join(c);
+
+    // Nothing was saved in this session. The list comes from the database or not at all.
+    expect(c.ops.some((o) => o.kind === 'rpc' && o.table === 'save_guest_list')).toBe(false);
+    expect(repo.guestLists.all.get()).toEqual([
+      { id: 'gl-family', name: 'Family', memberCount: 3, createdAt: '2026-09-01T00:00:00Z' },
+    ]);
+  });
+});
+
 /* ------------------------------------------------------------------------ auth */
 
 describe('joining', () => {
