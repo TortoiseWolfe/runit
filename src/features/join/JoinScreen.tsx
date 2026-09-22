@@ -28,7 +28,7 @@ import { icsFilename, icsFor } from "@/lib/invite";
 import { openMaps } from "@/lib/maps";
 import { QrScanner } from "./QrScanner";
 import { AccountRow } from '@/components/ui/AccountRow';
-import { FeedbackSheet } from '@/features/session/FeedbackSheet';
+import { ReportLink } from '@/components/ui/ReportLink';
 import { MyEventsList } from "@/components/ui/MyEventsList";
 import { whenAndWhere } from "@/lib/format";
 import { shareIcs } from "@/lib/share";
@@ -82,14 +82,12 @@ export function JoinScreen() {
    * `/join?code=HOUSE7`. Before any of it the route read no params at all and dropped the
    * code on the floor.
    */
-  const params = useLocalSearchParams<{ code?: string }>();
+  const params = useLocalSearchParams<{ code?: string; report?: string }>();
   const [code, setCode] = useState(
     (typeof params.code === "string" ? params.code : undefined) ??
       event?.code ??
       "",
   );
-  /** #77: the report sheet, for the person who cannot get in. */
-  const [reporting, setReporting] = useState(false);
   // One lookup, on arrival, for the code the link carried. `params.code` is stable
   // for the life of this screen, so this fires once. Typing into the field below does
   // NOT re-run it -- see useLookUpInvite.
@@ -511,18 +509,24 @@ export function JoinScreen() {
 
               Quiet, and below the two links that already live here, for the same reason
               they are quiet: nearly everyone arriving is holding a code that works.
+
+              IT IS `ReportLink` NOW, AND IT WAS HAND-ROLLED HERE FOR MONTHS. Same copy,
+              same testID, same a11y label, written out a second time -- and the copy here
+              carried no `paddingVertical`, so its whole touch target was a `hitSlop={10}`
+              that react-native-web DROPS. On the browser route, which is the route most
+              guests now take, the control written for the person who cannot get in was a
+              ~18pt text line. `audit:targets` passed it, correctly and uselessly, because
+              a declared hitSlop is exactly what it asks for. `inset` defaults to 0 because
+              this card already pads its own content.
+
+              `?report=1` IS THE BRIDGE PAGE'S ONLY WAY IN HERE. `web/i/index.html` is a
+              static file with no framework; it cannot open a sheet. It links to
+              `/join?report=1`, and this is where that becomes one. The screen that owns the
+              URL reads the URL -- `ReportLink` takes a boolean and knows nothing about
+              routes, or the host console would start answering a join-screen query string
+              on all five of its segments.
             */}
-            <Pressable
-              onPress={() => setReporting(true)}
-              accessibilityRole="button"
-              accessibilityLabel="Tell us something is wrong"
-              hitSlop={10}
-              testID="open-feedback"
-            >
-              <Text style={[s.createLink, { color: alpha(tokens.baseContent, fade.soft) }]}>
-                Something not right? Tell us →
-              </Text>
-            </Pressable>
+            <ReportLink autoOpen={params.report === '1'} />
 
             {/* AND IT STOPS BEING OFFERED ONCE YOU ARE IN (#80). `AccountRow` renders a few
                 lines above this and draws the address you are signed in as, with Sign out
@@ -615,7 +619,6 @@ export function JoinScreen() {
             offset measured from the screen floor, so inside a scroll container it
             would scroll away from the place it is aligned to. */}
         <Toast />
-        <FeedbackSheet visible={reporting} onClose={() => setReporting(false)} />
 
         {/*
           The sheet is mounted here rather than inside the ScrollView for the same reason

@@ -194,3 +194,55 @@ describe('no key in app.json is declared twice (#74)', () => {
     expect(ios.LSApplicationQueriesSchemes).toEqual(['spotify']);
   });
 });
+
+/**
+ * PLAY RE-SIGNS THE APP, AND `assetlinks.json` HAS ONE FINGERPRINT IN IT.
+ *
+ * Android verifies an app link at INSTALL time by matching the certificate the APK was
+ * signed with against the fingerprints this file publishes. Today there is exactly one --
+ * EAS's -- and that is correct, because a sideloaded `preview` APK is the only Android build
+ * that exists.
+ *
+ * THE DAY A PLAY TRACK EXISTS THAT BECOMES WRONG, SILENTLY. Play App Signing re-signs every
+ * upload with GOOGLE'S OWN certificate, whose fingerprint is not this one. Every `/i/CODE`
+ * link would stop opening the app for every Play-installed tester and start opening a
+ * browser instead -- with no error, no crash and nothing in any log. Lane G would stay green:
+ * it checks that the SERVED file matches the LOCAL one and that the local one names our
+ * package, and both would still be true.
+ *
+ * SO THE TWO FACTS ARE TIED TOGETHER HERE. Wiring Play means declaring an Android submit
+ * target in `eas.json`; this fails the moment that exists while the fingerprint list is
+ * still one long. It cannot check that the second fingerprint is the RIGHT one -- only an
+ * install can -- but it can refuse to let the pair drift apart unnoticed, which is the whole
+ * failure mode. `docs/play-track.md` has where to read the Play fingerprint from.
+ */
+describe('the Android app links, against the day Play re-signs them (#82)', () => {
+  const assetlinks = JSON.parse(
+    readFileSync(join(__dirname, '../../web/.well-known/assetlinks.json'), 'utf8'),
+  ) as { target: { package_name: string; sha256_cert_fingerprints: string[] } }[];
+  const eas = JSON.parse(readFileSync(join(__dirname, '../../eas.json'), 'utf8')) as {
+    submit?: Record<string, { android?: unknown }>;
+  };
+
+  const playWired = Object.values(eas.submit ?? {}).some((t) => t.android !== undefined);
+  const fingerprints = assetlinks.flatMap((e) => e.target.sha256_cert_fingerprints);
+
+  it('publishes at least the fingerprint the build we ship is signed with', () => {
+    expect(fingerprints.length).toBeGreaterThan(0);
+    // Colon-separated uppercase hex, which is the only shape Android accepts.
+    for (const f of fingerprints) expect(f).toMatch(/^([0-9A-F]{2}:){31}[0-9A-F]{2}$/);
+  });
+
+  it('names the package app.json declares', () => {
+    const pkg = (config.expo as unknown as { android: { package: string } }).android.package;
+    for (const entry of assetlinks) expect(entry.target.package_name).toBe(pkg);
+  });
+
+  it('carries a SECOND fingerprint once anything submits to Play', () => {
+    // While `playWired` is false this asserts the current, correct state: one fingerprint,
+    // because sideloading is the only Android route. It is not a skip -- a skip and a pass
+    // look identical on a board, and this is the one assertion standing between a Play
+    // upload and every invitation link quietly ceasing to open the app.
+    expect(fingerprints.length).toBe(playWired ? 2 : 1);
+  });
+});

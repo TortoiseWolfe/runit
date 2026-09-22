@@ -3,6 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-
 import { useRouter } from 'expo-router';
 
 import { Button } from '@/components/ui/Button';
+import { ReportLink } from '@/components/ui/ReportLink';
 import { Screen } from '@/components/ui/Screen';
 import { Toast } from '@/components/ui/Toast';
 import type { EmailCodeMode } from '@/data/repository';
@@ -222,6 +223,22 @@ export function SignInScreen() {
             ← Back
           </Text>
         </Pressable>
+
+        {/*
+          A CODE THAT NEVER ARRIVES HAS TO BE REPORTABLE FROM HERE.
+
+          This screen is one long wait on somebody else's infrastructure: GoTrue, custom
+          SMTP, Resend, a DNS record, a spam filter. Every one of those has failed in this
+          repo's history -- five real sign-in emails once arrived carrying the DEFAULT
+          template with no six-digit code in them at all (FIDELITY AZ), against this exact
+          screen asking for six digits. A host in that state could read "Sent to
+          ruth@example.com" and had nowhere to say that nothing came.
+
+          It is `/join` she would have to walk back to, and she has no reason to think the
+          answer is there. `inset={0}` because this screen's content container already pads
+          to 20.
+        */}
+        <ReportLink />
       </ScrollView>
       <Toast />
     </Screen>

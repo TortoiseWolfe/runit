@@ -386,7 +386,7 @@ export function PhotosScreen() {
         ) : null}
 
         {/* #77. The end of the tab where a guest notices a photo did not arrive. */}
-        <ReportLink />
+        <ReportLink inset={20} />
       </ScrollView>
 
       <PhotoViewer

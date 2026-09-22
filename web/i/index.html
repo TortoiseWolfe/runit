@@ -267,6 +267,39 @@
       to whoever sent you this link. That is the only thing they need from you.</p>
   </div>
 
+  <!-- IF NONE OF THAT WORKED, SAY SO -- and this page had no way to, which is the gap that
+       matters most on it.
+
+       THIS IS THE SURFACE EVERY NEW ARRIVAL PASSES THROUGH, AND THE ONE WHERE THEY STOPPED.
+       On 2026-09-11 forty seats went out behind this page and it produced ZERO anonymous
+       sign-ins. The app carries a report control on eight screens now -- but every one of
+       them is INSIDE the app, and a person who cannot install it, cannot open it, or cannot
+       get past the door never reaches any of them. The people most worth hearing from were
+       the only people with nowhere to speak.
+
+       TWO ROUTES, BECAUSE THEY ARE NOT EQUIVALENT AND IT IS WORTH BEING HONEST ABOUT WHICH.
+
+       `/join?report=1` opens the app's own sheet, which writes to `public.feedback` and
+       becomes a `from-a-customer` GitHub issue within the hour, automatically. It needs the
+       browser route to work at all -- so it is offered FIRST, because for most people it
+       does.
+
+       The mailto is the fallback for the person for whom even that failed, and it reaches a
+       human inbox rather than the pipeline. That asymmetry is real and is the wrong way
+       round: the person most likely to be stuck lands in the channel with the least
+       automation. Narrowing it is what `?report=1` is for; closing it would mean parsing
+       mail, which is a different product.
+
+       NO FORM HERE, and that is not laziness. This page has no build step, no framework and
+       no analytics by design (see the head), and posting to Supabase from it would need an
+       anonymous sign-in, a key and error handling -- a second implementation of the sheet,
+       in a file whose whole virtue is that it is 350 lines of HTML anybody can read. -->
+  <p class="rule">Didn&rsquo;t work?</p>
+  <p class="route" id="report">Tell us and we will fix it &mdash;
+    <a href="/join?report=1">report it here</a>, or email
+    <a href="mailto:support@turtlewolfe.com">support@turtlewolfe.com</a>. Say what phone you
+    have and what happened. There is no wrong way to describe it.</p>
+
   <p class="fine">
     <a href="https://tortoisewolfe.github.io/runit-legal/privacy/">Privacy</a> &middot;
     <a href="https://tortoisewolfe.github.io/runit-legal/support/">Support</a>
