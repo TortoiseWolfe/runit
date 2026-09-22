@@ -351,6 +351,30 @@ test.describe('saved guest lists', () => {
     await expect(page.locator('[aria-disabled="true"]')).toHaveCount(0);
   });
 
+  /*
+   * A LIST CAN BE NAMED, which is what makes one reusable at all. Save named the list after the
+   * PARTY with no way to type anything else, so a host wanting a "Family" list she brings to
+   * every event could only get one by calling a party "Family". The owner asked for exactly
+   * that list on 2026-09-21 and could not have made it.
+   */
+  test('a list can be named, so one called Family comes back at any party', async ({
+    page,
+  }, testInfo) => {
+    await open(page, testInfo.project.name as 'dark' | 'light');
+    for (const a of ['ruth@example.test', '(555) 555-0100']) {
+      await page.getByTestId('invitee-email').fill(a);
+      await page.getByTestId('invitee-add').click();
+    }
+    await expect(page.getByTestId('invitee-row')).toHaveCount(2);
+
+    await page.getByTestId('guest-list-name').fill('Family');
+    await page.getByTestId('guest-list-save').click();
+
+    await expect(page.getByTestId('toast')).toContainText('Saved as "Family"');
+    // Offered back under the name she typed, with both members -- the phone included.
+    await expect(page.locator('[data-testid^="guest-list-gl"]')).toContainText('Family (2)');
+  });
+
   test('saving the roster offers it back, with its size', async ({ page }, testInfo) => {
     await open(page, testInfo.project.name as 'dark' | 'light');
     await page.getByTestId('invitee-email').fill(ADDRESS);
