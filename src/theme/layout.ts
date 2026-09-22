@@ -57,3 +57,20 @@ export const toast = {
   insetHorizontal: 20,
   durationMs: 2200,
 } as const;
+
+/**
+ * THE WIDEST ANYTHING IN THIS APP GETS, on any screen (2026-09-21).
+ *
+ * The canvas is an iPhone and nothing capped width, so on a 1920px desktop every field and button
+ * stretched ~1850px and the owner called it a confusing mess. Set ONCE at the root, which is the
+ * only place that reaches the host console -- its panels render their own ScrollViews, and only
+ * three files use `<Screen>`.
+ *
+ * 560 and not 402. At exactly the phone's width a laptop shows a strip; 560 is a comfortable form
+ * column that still reads as the phone app it is. And on a phone it changes nothing at all,
+ * because 402 is narrower -- so every lane-B screenshot and gate is untouched.
+ *
+ * Modal sheets render in a portal OUTSIDE the root, so each one caps itself with this too.
+ * `tests/e2e/desktop-layout.spec.ts` names 560 once and fails if anything is wider.
+ */
+export const contentMaxWidth = 560;
