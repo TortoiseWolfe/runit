@@ -555,7 +555,20 @@ const s = StyleSheet.create({
   // is the fix that hitSlop cannot be: RN's own docs say slop "never extends past
   // the parent view bounds" and that overlaps resolve by sibling z-order, so slop
   // between flush siblings buys ambiguity, not safety.
-  scheduleRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 13, paddingHorizontal: 14, borderRadius: radius.field },
+  // `flex: 1` SO THE TITLE SHRINKS INSTEAD OF THE ROW GROWING (#85). `scheduleTitle` has
+  // had `flex: 1` since it was written, but that only lets it shrink INSIDE this row -- and
+  // this row had no flex of its own, so it sized to its content and grew until the title
+  // fitted, shoving the remove control (a SIBLING, see the wrapper's own comment) off the
+  // end. `weddingSeed`'s "First dance, then open floor" is long enough to do it, and the
+  // gutter gate measured the x at 6.9px from the screen edge.
+  //
+  // NO LANE HERE SAW IT FOR THE LIFE OF THE REPO, and that is the part worth remembering:
+  // the checks container renders DejaVu, which is narrower than the SF Pro and Roboto that
+  // iOS and Android actually use, so it fitted there and overflowed on the host. CLAUDE.md
+  // records that font divergence as a LANE D hazard -- a wrap difference read as a fidelity
+  // regression. It reaches one gate further: a wrap difference moves where text breaks, a
+  // LAYOUT difference moves where a control IS, and the gutter gate measures exactly that.
+  scheduleRow: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 13, paddingHorizontal: 14, borderRadius: radius.field },
   // 72 not 64: the design itself wraps "11:30 PM" at 64. FIDELITY note A.
   time: { width: 72, fontSize: 14, fontVariant: ['tabular-nums'] },
   scheduleTitle: { flex: 1, fontSize: 14 },

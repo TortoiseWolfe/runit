@@ -35,11 +35,27 @@
  * 4. **The app must be the GUEST build.** `dist-live` carries `EXPO_PUBLIC_FIDELITY=1` and
  *    would hand a guest a synthetic 1x1 photo, four fixture songs and a fake scan button.
  *    `audit:guest-build` is run here rather than trusted to have been run.
+ *
+ * 5. **A bundle of ANY age deploys cleanly and reports success** (#86). This script used to
+ *    require `dist-guest/` to already exist and then only gate it, so the freshness of the
+ *    bytes was a thing a person remembered. On 2026-09-22 it published a bundle built the
+ *    PREVIOUS EVENING -- two merges' worth of work "deployed" and none of it shipped. The
+ *    only tell was `Uploaded 0 files (24 already uploaded)`, and
+ *    `wrangler pages deployment list` named the right commit on BOTH rows, because wrangler
+ *    reads git rather than the bundle. So a stale deploy is indistinguishable from a correct
+ *    one in the place you would go to check it, which is worse than the four traps above --
+ *    each of those had a symptom somewhere.
+ *
+ *    So it BUILDS, rather than checking an mtime and complaining. `audit:guest-build` exists
+ *    because "run the right export" was being trusted rather than checked; the export it
+ *    guards was still something a person had to remember to run. Now neither is.
  */
 import { cpSync, existsSync, mkdirSync, renameSync, rmSync, readdirSync, statSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+
+import { envLocal } from './lib/env.mjs';
 
 const ROOT = join(import.meta.dirname, '..');
 const red = (s) => `\x1b[31m${s}\x1b[0m`;
@@ -57,6 +73,58 @@ if (branch !== 'main' && !DRY) {
   console.error('  A deploy from here is a PREVIEW. It reports "Deployment complete!" and changes');
   console.error('  nothing a guest sees. Merge first, then deploy from main.');
   process.exit(1);
+}
+
+/**
+ * Trap 5. BUILD IT, every time.
+ *
+ * The two values come from `.env.local` through `envLocal`, which prefers `process.env` --
+ * so CI can pass them and a laptop need not. Neither is a secret: the project URL and the
+ * publishable key are compiled into every shipped bundle by construction, which is the same
+ * reasoning `envLocal`'s own docblock sets out.
+ *
+ * REFUSING WITHOUT THEM rather than exporting anyway. `expo export` succeeds with an empty
+ * `EXPO_PUBLIC_SUPABASE_URL` and produces a bundle that boots to a screen that can never
+ * join anything -- a green build of a dead app, which is the shape this whole file exists
+ * to stop.
+ */
+const SUPABASE_URL = envLocal('EXPO_PUBLIC_SUPABASE_URL');
+const SUPABASE_KEY = envLocal('EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY');
+if (!SUPABASE_URL || !SUPABASE_KEY) {
+  console.error(red('FAIL: no Supabase URL or publishable key.'));
+  console.error('  They live in .env.local, or pass them in the environment:');
+  console.error('    EXPO_PUBLIC_SUPABASE_URL, EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY');
+  console.error('  Exporting without them builds an app that boots and can never join.');
+  process.exit(1);
+}
+
+/**
+ * EVEN ON `--dry`, DELIBERATELY. A dry run that reuses whatever bundle is lying around is
+ * the same trap one step smaller: it would rehearse the staging of bytes the real run would
+ * then replace. It costs a real export (~40s) and that is the price of a rehearsal that
+ * rehearses.
+ */
+{
+  rmSync(DIST, { recursive: true, force: true });
+  console.log('building dist-guest/ against production...');
+  try {
+    execFileSync('pnpm', ['export:web:guest'], {
+      stdio: 'inherit',
+      cwd: ROOT,
+      env: {
+        ...process.env,
+        EXPO_PUBLIC_SUPABASE_URL: SUPABASE_URL,
+        EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: SUPABASE_KEY,
+        // Belt and braces: `export:web:guest` does not set it, and an inherited one from a
+        // shell that ran `export:web` would silently produce the harness bundle. The audit
+        // below would catch that -- this stops it happening at all.
+        EXPO_PUBLIC_FIDELITY: '',
+      },
+    });
+  } catch {
+    console.error(red('FAIL: the guest export did not build. Not deploying.'));
+    process.exit(1);
+  }
 }
 
 if (!existsSync(DIST)) {
