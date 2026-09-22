@@ -115,6 +115,7 @@ export function EventDetailsPanel() {
   /** The co-host key, held only long enough to be written down. */
   const [invitedKey, setInvitedKey] = useState<string | null>(null);
   const [inviteeEmail, setInviteeEmail] = useState('');
+  const [listName, setListName] = useState('');
 
   const venueRef = useRef<TextInput>(null);
   const doorsRef = useRef<TextInput>(null);
@@ -168,12 +169,16 @@ export function EventDetailsPanel() {
 
   const onSaveGuestList = async () => {
     if (busy) return;
-    // NAMED AFTER THE EVENT by default, because that is what a host would call it and it is
-    // one fewer thing to type on a phone. She renames it by saving again under another name;
-    // `save_guest_list` merges by name rather than erroring.
-    const name = (event?.name ?? 'My list').trim();
+    /*
+     * WHATEVER SHE TYPED, AND THE PARTY'S NAME ONLY IF SHE TYPED NOTHING. This comment used to
+     * say "she renames it by saving again under another name" -- with no field anywhere to type
+     * one, so every list was named after a party and a "Family" list she brings to every event
+     * could exist only if a party were called Family. The owner asked for that list on
+     * 2026-09-21. `save_guest_list` still merges by name, so saving "Family" twice adds to it.
+     */
+    const name = (listName.trim() || event?.name || 'My list').trim();
     setBusy(true);
-    await saveGuestList(name);
+    if (await saveGuestList(name)) setListName('');
     setBusy(false);
   };
 
@@ -672,6 +677,24 @@ export function EventDetailsPanel() {
               same people, kept. Drawn inside the invitee section rather than beside it
               because it is the same job -- who is coming -- and a second top-level fold for
               it would be a menu of one. */}
+          {invitees.length > 0 ? (
+            <TextInput
+              value={listName}
+              onChangeText={setListName}
+              placeholder={`Name this list, e.g. Family`}
+              placeholderTextColor={alpha(tokens.baseContent, fade.faint)}
+              accessibilityLabel="A name for this list, to bring it to your next party"
+              testID="guest-list-name"
+              autoCorrect={false}
+              returnKeyType="done"
+              submitBehavior="blurAndSubmit"
+              onSubmitEditing={onSaveGuestList}
+              style={[
+                s.input,
+                { borderColor: tokens.base300, color: tokens.baseContent, backgroundColor: tokens.base100 },
+              ]}
+            />
+          ) : null}
           {invitees.length > 0 ? (
             <Pressable
               onPress={onSaveGuestList}
