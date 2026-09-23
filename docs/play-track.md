@@ -70,8 +70,11 @@ unnoticed, which is the whole failure mode.
 
 ## The runbook — the parts only a Google login can do
 
-1. **Create the account.** $25, once, at [play.google.com/console](https://play.google.com/console).
-   Personal. Identity verification takes a few days.
+1. **Create the account.** **$25 one-time registration fee**, at
+   **https://play.google.com/apps/publish/signup** — that is the SIGN-UP flow.
+   `play.google.com/console` is where you land *after* you have an account and is the wrong
+   link to follow first. Major credit card only; Google's own page says **prepaid cards are
+   not accepted**. Personal account. Identity verification takes a few days.
 2. **Create the app**, package `com.turtlewolfe.runit`. It must match `app.json`'s
    `android.package`; the test above asserts `assetlinks.json` agrees.
 3. **Build and upload the first bundle:** `eas build -p android --profile production`.
