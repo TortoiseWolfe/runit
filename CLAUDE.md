@@ -943,8 +943,28 @@ No sweep: the local stack is disposable.
 see row-level security behave. It runs `supabase/verify-policies.sql`, which seeds an
 event, a guest and a host inside a `DO` block, switches
 role with `set local role authenticated` and a forged `request.jwt.claims`, asserts
-**two hundred and five** behaviours, and RAISES at the end so nothing commits -- the
+**two hundred and forty** behaviours, and RAISES at the end so nothing commits -- the
 "error" it prints IS the report.
+
+**IT RAN GREEN ON 2026-09-23, FROM SCRATCH, AND THE PROSE HAD DRIFTED.** This paragraph and
+`docs/lane-e.md` both said 205 while `EXPECTED_ASSERTIONS` was already 240 -- the floor was
+raised with the assertions and the sentence describing it was not, which is the mirror of the
+143-that-was-really-142 mistake. 240 is now a MEASURED number: `supabase db reset` rebuilt the
+database from `supabase/migrations/` and all 240 held, so the committed migration applies to an
+empty database and its policies behave. That second half is the one only a reset can prove, and
+it is how two of this lane's three historical defects were found.
+
+**AND IT FINDS THE LOCAL STACK ITSELF NOW, because the documented recipe handed you the wrong
+port.** The skip message printed `54322`; the stack on this machine answers on **54422**, and a
+wrong port fails in a way that reads exactly like the stack being down. `supabase start` does
+print the real `DB_URL` in its closing JSON -- but only on the run that STARTS the stack, so an
+already-running one or a `db reset` gives you nothing to read. `verify-policies.mjs` asks
+`docker port supabase_db_<project_id>` and NAMES what it found, because a lane that quietly
+changed which database it measured would be the same failure as one that quietly skipped. It is
+loopback-and-fixed-password by construction, so it cannot become a remote connection by
+accident, and the checks container has no docker CLI -- so the BOARD still skips exactly as
+before. That is deliberate: a stale local stack reddening a board over somebody else's change is
+how a gate gets switched off.
 
 **`supabase db push` AND `db reset` WERE A SILENT NO-OP, and #48 fixed it.** The CLI
 reserves the migration name `init` and skips the file -- *"replace \"init\" with a different
