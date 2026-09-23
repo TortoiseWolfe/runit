@@ -472,7 +472,13 @@ const s = StyleSheet.create({
     flexDirection: 'row', gap: 8, borderTopWidth: border,
     paddingTop: 12, paddingBottom: 10, paddingHorizontal: 20,
   },
-  input: { flex: 1, height: 46, borderRadius: radius.field, borderWidth: border, paddingHorizontal: 14, fontSize: 15 },
+  // `minWidth: 0` for the reason BroadcastPanel's `scheduleTitleInput` spells out: on web a
+  // flex item's min-width defaults to its min-content size, so `flex: 1` alone does not
+  // shrink. MEASURED, this row currently FITS -- 20px clearance, no overflow, even with a
+  // long song typed in -- so this is not a live defect. It lands at exactly 362px inside a
+  // 362px box, which is the same shape the run-of-show composer was in one glyph before it
+  // broke. Five other rows here already pair the two; these were the last that did not.
+  input: { flex: 1, minWidth: 0, height: 46, borderRadius: radius.field, borderWidth: border, paddingHorizontal: 14, fontSize: 15 },
   requestButton: { height: 46, paddingHorizontal: 18, borderRadius: radius.field, alignItems: 'center', justifyContent: 'center' },
   requestText: { fontSize: 15, fontWeight: weight.semibold },
 });

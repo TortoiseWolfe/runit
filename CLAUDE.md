@@ -1075,12 +1075,44 @@ was fine both times.
 
 **Compare within ONE environment.** The same source renders differently on the
 host than in the checks container — 5.53% of pixels on the join screen — because
-the app pins no fonts and the two machines have different ones. `renders/` is
-committed and was generated **on the host, in DejaVu**; `screenshots/` belongs to
-whichever ran `pnpm shots` last. `design/screenshots/.provenance.json` records
-which. Regenerate on the host before a Lane D read, or you will read a wrap
-difference as a fidelity regression that no code caused. See FIDELITY note 6 and
-issue #6.
+the app pins no font (correctly: the canvas asks for the PLATFORM's font) and the
+two machines have different ones. `renders/` is committed and was generated **on the
+host, in DejaVu**; `screenshots/` belongs to whichever ran `pnpm shots` last.
+`design/screenshots/.provenance.json` records which. Regenerate on the host before a
+Lane D read, or you will read a wrap difference as a fidelity regression that no code
+caused. See FIDELITY note 6 and issue #6.
+
+**THE CONTAINER RENDERS ROBOTO, BY DECLARATION — AND THIS FILE SAID DEJAVU.** It did
+not: measured 2026-09-23, `fc-match system-ui` in the checks image answered **WenQuanYi
+Zen Hei**, a CJK font, and DejaVu is not installed there at all. `design/FIDELITY.md`
+said Liberation. Every screenshot, the colour gate, the contrast gate, the gutter gate
+and `guest-chat.spec.ts`'s two line-box assertions had been measured in it.
+
+**THAT IS NOT A LANE D PROBLEM ONLY, WHICH IS WHERE THIS NOTE USED TO STOP.** A wrap
+difference changes where text BREAKS; a layout difference changes where a control IS,
+and the gutter gate is a measurement of exactly that. Against Roboto — the font Android
+ships — the CJK font was up to 4.1% narrow on one real app string and 3.1% wide on
+another. **On a 402px viewport, 4% of a 200px run is ~8px, which is the gutter gate's
+entire margin**: a control measured at 8px clearance there was not proven to clear
+anything on a phone.
+
+So `docker/checks.Dockerfile` installs `fonts-roboto` plus a fontconfig alias and
+`run-checks.sh` asserts `fc-match system-ui` still answers Roboto — the same shape as
+the Node and Playwright pins, for the reason that file already states: **the repo picks
+the runtime, the base image does not.** The font was the last thing still left to it.
+**SF Pro cannot be installed** (Apple does not redistribute it), so iOS stays unproven
+here exactly as everywhere else.
+
+**IT CAUGHT A REAL DEFECT ON ITS FIRST RUN.** `schedule-add` sat **1.8px** from the
+screen edge under Roboto and cleared 8px under the CJK font. The cause was not a missing
+gutter: react-native-web renders `flex: 1` into CSS flexbox, where a flex item's
+`min-width` defaults to its MIN-CONTENT size, so the title input refused to shrink and
+the row needed 380px inside a 362px box. **Yoga has no such floor — the DEVICE was fine
+and the HARNESS was not**, and the only lane that could see it was measuring in a font
+narrow enough to hide it. `minWidth: 0` is the fix and this repo already pairs it with
+`flex: 1` in five other rows; these two inputs were the ones that did not. The music
+composer was measured rather than assumed — it FITS, with 20px clearance, and was
+paired anyway because it lands at exactly 362px in a 362px box. #85.
 
 ### iOS is not verified here — say so plainly
 

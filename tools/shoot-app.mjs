@@ -714,7 +714,7 @@ if (!STORE && !DESKTOP) {
    */
   if (inContainer) {
     console.log(
-      '  \x1b[33mLANE D NOT READABLE: these are container fonts; design/renders/ is host DejaVu.',
+      '  \x1b[33mLANE D NOT READABLE: these are container Roboto; design/renders/ is host DejaVu.',
     );
     console.log('  Re-shoot on the host (pnpm export:web && pnpm shots) before reading.\x1b[0m');
   }

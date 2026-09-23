@@ -45,6 +45,23 @@ if [ "$want" != "$have" ]; then
 fi
 echo "  Node $have (matches .nvmrc)"
 
+step "system font is the one a device ships"
+# The gutter gate measures WHERE A CONTROL IS, and that moves with glyph width. The base
+# image's own answer for system-ui is WenQuanYi Zen Hei, a CJK font -- up to 4.1% off
+# Roboto on real app strings, which on a 402px viewport is the gate's entire 8px margin.
+# checks.Dockerfile pins Roboto; this is what makes a base-image font change loud.
+font="$(fc-match -f '%{family}' system-ui 2>/dev/null || echo '(fontconfig missing)')"
+case "$font" in
+  *[Rr]oboto*) echo "  system-ui resolves to $font" ;;
+  *)
+    printf '\033[31mFAIL\033[0m: system-ui resolves to %s, not Roboto.\n' "$font" >&2
+    printf 'Every screenshot, the contrast gate and the gutter gate are measured in this\n' >&2
+    printf 'font. Fix the fonts-roboto install in docker/checks.Dockerfile; do not let the\n' >&2
+    printf 'base image decide what a control is measured in.\n' >&2
+    exit 1
+    ;;
+esac
+
 step "install (frozen lockfile)"
 pnpm install --frozen-lockfile
 

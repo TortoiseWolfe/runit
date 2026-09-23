@@ -51,19 +51,46 @@ glyph metrics move: the suite's two geometric assertions
 line box wraps when the glyphs get wider. Gating on geometry does not escape the
 font problem; it *is* the font problem, one level up.
 
-Nothing in the app pins a font. `grep fontFamily src/` is empty, `dist/` ships no
-font files, and this host has 8 fonts, all DejaVu. Typography is entirely
-machine-supplied.
+Nothing in the app pins a font, and that is correct -- the canvas asks for the
+PLATFORM's font, so pinning a webfont would diverge from the design rather than
+converge on it. `grep fontFamily src/` is empty and `dist/` ships no font files.
+
+**THE CONTAINER'S FONT IS PINNED, THOUGH, AND THIS TABLE USED TO NAME THE WRONG ONE.**
+It said "container (Liberation)". Measured 2026-09-23, `fc-match system-ui` in the
+checks image answered **WenQuanYi Zen Hei** -- a CJK font. DejaVu is not installed
+there at all, and CLAUDE.md said it was. Every screenshot, the colour gate, the
+contrast gate, the gutter gate and the two line-box assertions below had been
+measured in it.
+
+`docker/checks.Dockerfile` now installs `fonts-roboto` and a fontconfig alias, and
+`run-checks.sh` asserts `fc-match system-ui` still answers Roboto -- the same shape
+as the Node and Playwright pins, and for the same reason: the repo picks what a
+control is measured in, not the base image. **Roboto because it is the font Android
+actually ships.** SF Pro cannot be installed -- Apple does not redistribute it -- so
+iOS stays unmeasured here exactly as it is everywhere else.
 
 Measured with `tools/measure-text-margin.mjs` against one `dist/`:
 
-| | host (DejaVu) | container (Liberation) | column |
+| | host (DejaVu) | container (Roboto) | column |
 |---|---|---|---|
-| `11:30 PM` | **65.33px** | 58.89px | 72px |
-| `Full schedule` | 78.13px | 70.72px | one line in both |
+| `11:30 PM` | **65.33px** | 59.39px | 72px |
+| `8:00 PM` | 56.42px | 51.53px | 72px |
 
-**The host is the tighter environment**, clearing the 72px column by 6.67px
-(9.3%). A font ~10% wider than DejaVu wraps `11:30 PM` and fails `:228`.
+**The host is the tighter environment**, clearing the 72px column by 6.67px (9.3%);
+Roboto clears it by 12.61px (17.5%). So the worry this note used to end on -- "a font
+~10% wider than DejaVu wraps `11:30 PM`" -- does not bite on Android, which is
+NARROWER than DejaVu here. All 540 journeys pass under Roboto, `:167` and `:228`
+included. iOS remains the open question.
+
+**IT CAUGHT A REAL DEFECT ON ITS FIRST RUN**, which is the whole argument for pinning
+it. `schedule-add` sat **1.8px** from the screen edge under Roboto and cleared 8px
+under the CJK font. The cause was not a missing gutter: react-native-web renders
+`flex: 1` into CSS flexbox, where a flex item's `min-width` defaults to its
+min-content size, so the title input refused to shrink and the row needed 380px
+inside a 362px box. **Yoga has no such floor** -- so the DEVICE was fine and the
+HARNESS was not, and the one lane that could see it was measuring in a font narrow
+enough to hide it. Fixed with `minWidth: 0`, which this repo already pairs with
+`flex: 1` in five other rows.
 
 Note `renders/` is committed and was generated on this host in DejaVu, so making
 the container authoritative for `screenshots/` would guarantee a divergence on

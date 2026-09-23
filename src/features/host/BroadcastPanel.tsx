@@ -543,7 +543,15 @@ const s = StyleSheet.create({
   link: { fontSize: 13 },
   scheduleCompose: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
   scheduleInput: { borderWidth: border, borderRadius: radius.field, paddingHorizontal: 12, minHeight: 44, fontSize: 14 },
-  scheduleTitleInput: { flex: 1 },
+  // `minWidth: 0` BECAUSE `flex: 1` ALONE DOES NOT SHRINK ON WEB. react-native-web renders
+  // this into CSS flexbox, where a flex item's `min-width` defaults to `auto` -- its
+  // min-content size -- and an <input> has an intrinsic one. So the title refused to shrink,
+  // the row needed 380px inside a 362px box, and the Add button was pushed to 1.8px from the
+  // screen edge. Yoga has no such floor, which is exactly why this was invisible: the
+  // DEVICE was fine and the harness was not. Five other rows here already pair the two
+  // (DjQueuePanel, PhotoApprovalsPanel, MusicScreen); this one and the music composer
+  // were the ones that did not.
+  scheduleTitleInput: { flex: 1, minWidth: 0 },
   // Wide enough for "12:30 PM" and no wider: the title is what needs the room.
   scheduleTimeInput: { width: 92 },
   scheduleAdd: { borderWidth: border, borderRadius: radius.field, minHeight: 44, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center' },
