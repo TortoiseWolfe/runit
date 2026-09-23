@@ -140,65 +140,36 @@ function titleFor(body) {
 }
 
 /**
- * COMMIT THE PICTURE, DO NOT LINK TO IT -- and this is the sibling tool's hardest-won rule.
- * `feedback-to-issues.mjs` says it outright: a signed URL "expires after a short while", so
- * an issue whose only evidence is one decays into a description of a picture nobody can see.
- * The bucket is private, so a raw link would be worse than useless.
+ * THE PICTURE IS NOT PUBLISHED, AND THIS REPOSITORY BEING PUBLIC IS THE WHOLE REASON.
  *
- * `design/feedback/` is the same destination and the same side of the .gitignore rule that
- * `design/device/` sits on: irreproducible evidence off a real device is committed.
+ * This tool used to COMMIT the bytes to `design/feedback/`, on the sibling tool's rule that
+ * a signed URL "expires after a short while" and an issue whose only evidence is one decays
+ * into a description of a picture nobody can see. That rule is right. The premise underneath
+ * it was not: `CLAUDE.md` asserted this repository was private, and it has been public since
+ * the day it was created.
  *
- * A FAILURE HERE DOES NOT STOP THE ISSUE. The sentence is the report; the picture is evidence
- * for it, and filing nothing because an image could not be fetched would throw away the thing
- * we actually asked for. Returns null and the body says which of the two happened.
+ * A screenshot of THIS product is other people's photographs. Somebody reporting "my photo
+ * never appeared" screenshots the album -- which is a room full of guests who never heard of
+ * us, under their own nicknames. An hourly job that publishes that to a public repository,
+ * irreversibly, is not a thing to leave running while the argument for it is re-read.
+ *
+ * THE DECAY ARGUMENT DOES NOT BITE HERE, which is what makes this cheap. Unlike the
+ * TestFlight channel, this one has a DURABLE reference: `feedback.screenshot_path` names an
+ * object in a bucket that does not expire. So the issue records the report id, and a
+ * maintainer runs `pnpm feedback:shot <id>` to pull the bytes into `.feedback-shots/`, which
+ * is gitignored. The workflow therefore needs `contents: read`, not `write`.
+ *
+ * THE PATH ITSELF IS NOT PRINTED EITHER. It is `{auth_user_id}/{uuid}.ext`, so publishing it
+ * would put a reporter's identity in a public issue -- pseudonymous, but it links every
+ * report from one device, and this channel promises that nothing identifying travels. The
+ * row id is already in the dedupe marker and is enough for the fetch tool to find the rest.
+ *
+ * AND THE PATH-SHAPE GUARD WENT WITH IT, deliberately, rather than being deleted. It belongs
+ * wherever that client-written string is interpolated into a service-role URL, and that is
+ * now `tools/feedback-shot.mjs`.
  */
-async function commitScreenshot(row) {
-  const { envLocal } = await import('./lib/env.mjs');
-  const url = envLocal('EXPO_PUBLIC_SUPABASE_URL');
-  const key = envLocal('SUPABASE_SERVICE_ROLE_KEY');
-  if (!url || !key) return null;
 
-  /*
-   * REFUSE ANYTHING THAT IS NOT TWO UUIDS AND A KNOWN EXTENSION, before it reaches a URL.
-   *
-   * This string comes from a column a CLIENT writes, and the fetch below carries the
-   * SERVICE ROLE -- which reads every folder in every bucket, whatever RLS tells a client.
-   * Unchecked, `../event-photos/<event>/<photo>.jpg` would fetch a guest's private
-   * photograph and this tool would COMMIT IT TO THE REPOSITORY.
-   *
-   * The database now refuses to store such a path at all, in two places: a CHECK constraint
-   * on the shape and `feedback_guard` comparing the prefix to the reporter's own identity.
-   * This is here anyway, because rows written before those guards existed are still in the
-   * table, and because the thing on the other side of this interpolation is somebody else's
-   * photographs.
-   */
-  if (!/^[0-9a-fA-F-]{36}\/[0-9a-fA-F-]{36}\.(jpg|png|webp)$/.test(row.screenshot_path ?? '')) {
-    console.error(`  refusing a screenshot path that is not {uuid}/{uuid}.ext: ${row.id}`);
-    return null;
-  }
-
-  try {
-    const res = await fetch(
-      `${url}/storage/v1/object/feedback/${row.screenshot_path}`,
-      { headers: { Authorization: `Bearer ${key}`, apikey: key } },
-    );
-    if (!res.ok) return null;
-    const bytes = Buffer.from(await res.arrayBuffer());
-    const path = `design/feedback/app-${row.id}.jpg`;
-    await gh(`/repos/${OWNER}/${REPO}/contents/${path}`, {
-      method: 'PUT',
-      body: JSON.stringify({
-        message: `Screenshot from a customer report (${row.id})`,
-        content: bytes.toString('base64'),
-      }),
-    });
-    return `https://github.com/${OWNER}/${REPO}/blob/main/${path}`;
-  } catch {
-    return null;
-  }
-}
-
-function issueBody(row, shotLink) {
+function issueBody(row) {
   const ctx = row.context ?? {};
   const facts = [
     ['Platform', [ctx.platform, ctx.os].filter(Boolean).join(' ')],
@@ -222,9 +193,16 @@ function issueBody(row, shotLink) {
     // reason. "No picture" and "a picture we could not fetch" are different facts, and
     // asserting the first over the second states a cause that was never established.
     ...(row.screenshot_path
-      ? shotLink
-        ? ['', `Screenshot: ${shotLink}`]
-        : ['', 'They attached a screenshot and it could not be fetched from storage.']
+      ? [
+          '',
+          'They attached a screenshot. It is **not** published here -- this repository is',
+          'public and the picture is very likely other guests. Pull it into the gitignored',
+          '`.feedback-shots/` with:',
+          '',
+          '```',
+          `pnpm feedback:shot ${row.id}`,
+          '```',
+        ]
       : []),
     '',
     'Filed by `pnpm feedback:app` from `public.feedback`. The reporter has no GitHub',
@@ -318,10 +296,9 @@ for (const row of fresh) {
     console.log(`  would file: ${title}`);
     continue;
   }
-  const shotLink = row.screenshot_path ? await commitScreenshot(row) : null;
   const issue = await gh(`/repos/${OWNER}/${REPO}/issues`, {
     method: 'POST',
-    body: JSON.stringify({ title, body: issueBody(row, shotLink), labels: [LABEL] }),
+    body: JSON.stringify({ title, body: issueBody(row), labels: [LABEL] }),
   });
   console.log(`  #${issue.number}  ${title}`);
 }

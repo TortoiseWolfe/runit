@@ -36,7 +36,9 @@ concurrency:
 
 permissions:
   issues: write     # file the issue, create the `from-a-customer` label once
-  contents: write   # commit the screenshot to design/feedback/ -- a signed URL decays
+  contents: read    # NOT write. The screenshot stays in storage: this repository is
+                    # public, and a screenshot of this product is other guests. The row
+                    # id goes in the issue and `pnpm feedback:shot <id>` fetches it.
 
 jobs:
   file:

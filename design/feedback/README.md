@@ -28,3 +28,30 @@ references it loses its evidence permanently — Apple's copy will already have 
 Commits landing here are excluded from CI by `paths-ignore` in
 `.github/workflows/checks.yml`: a tester screenshot changes no source, and re-running
 the full Docker suite for one would cost five minutes to prove nothing.
+
+## The customer channel does NOT land here, and the split is the point
+
+`public.feedback` — the in-app "Something not right?" sheet — used to commit its pictures
+here too, filed hourly by `.github/workflows/feedback.yml`. It no longer does.
+
+**The rule above is right; the premise under it was not.** It rests on "irreproducible
+evidence is committed", and `CLAUDE.md` asserted this repository was private. **It has been
+public since the day it was created.** A screenshot of this product is other people's
+photographs: the report that channel most wants is *"my photo never appeared"*, and the
+evidence for it is a picture of the album — a room of guests under their own nicknames who
+have never heard of us.
+
+**The customer channel has something TestFlight does not: a durable reference.**
+`feedback.screenshot_path` names an object in a bucket that does not expire, so nothing
+decays. The issue carries the report id, `pnpm feedback:shot <id>` pulls the bytes into the
+gitignored `.feedback-shots/` with the service role, and the workflow runs `contents: read`.
+
+**So these two channels differ because their evidence differs, not because their content
+does.** Apple's URLs genuinely expire and there is no path to fall back on, which is why the
+tester half still commits — an open decision, not an oversight. See
+[#87](https://github.com/TortoiseWolfe/runit/issues/87).
+
+`src/lib/feedbackPrivacy.test.ts` holds the customer half to it. Five assertions, each
+mutation-checked against the single edit that would undo it — because every part of that fix
+looks like an improvement while you are undoing it, and the damage is world-readable before
+anybody reviews the commit.
