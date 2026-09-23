@@ -14,13 +14,19 @@
  *   node tools/measure-text-margin.mjs
  *   docker compose run --rm checks bash -c 'node tools/measure-text-margin.mjs'
  *
- * Measured 2026-09-03 against the same dist/:
- *   "11:30 PM"       host 65.33px  container 58.89px   column 72px
- *   "Full schedule"  host 78.13px  container 70.72px   1 line in both
+ * Measured 2026-09-23 against the same dist/:
+ *   "11:30 PM"  host 65.33px  container 59.39px  column 72px
+ *   "8:00 PM"   host 56.42px  container 51.53px  column 72px
  *
- * The HOST is the tighter environment -- DejaVu is wider than Liberation -- so it
- * is the worst case, and it clears the 72px column by 6.67px (9.3%). A font ~10%
- * wider than DejaVu would wrap "11:30 PM" and fail :228. That is the real margin.
+ * The container's font was NOT Liberation, which this docblock and FIDELITY note 6
+ * both used to say. `fc-match system-ui` answered WenQuanYi Zen Hei, a CJK font, and
+ * checks.Dockerfile now pins **Roboto** -- the font Android ships -- with run-checks.sh
+ * asserting it. The numbers above are Roboto.
+ *
+ * The HOST is still the tighter environment and so the worst case available here: it
+ * clears the 72px column by 6.67px (9.3%) where Roboto clears it by 12.61px (17.5%).
+ * So Android has MORE headroom than this host, not less. SF Pro is unmeasurable here --
+ * Apple does not redistribute it -- so iOS remains the open question, as everywhere.
  *
  * Requires a built dist/ (`pnpm export:web`).
  */

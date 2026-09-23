@@ -30,6 +30,28 @@ RUN set -eux; \
     # /usr/local/bin precedes /usr/bin, so this shadows the bundled Node.
     node -v; npm -v
 
+# THE FONT IS PINNED TOO, AND FOR THE SAME REASON AS THE NODE ABOVE.
+#
+# Left alone the base image decides, and MEASURED on v1.55.0-noble it decides badly:
+# DejaVu is not installed at all, and `fc-match system-ui` answers **WenQuanYi Zen Hei**
+# -- a CJK font. Every screenshot, the contrast gate, the gutter gate and
+# `guest-chat.spec.ts`'s line-box count have been measured in it. CLAUDE.md said the
+# container renders DejaVu and design/FIDELITY.md said Liberation; both were wrong.
+#
+# It matters because the gutter gate is a measurement of WHERE A CONTROL IS, and that
+# moves with glyph width. Measured against Roboto -- the font Android actually ships --
+# the container was up to 4.1% narrow on one string and 3.1% wide on another. On a 402px
+# viewport, 4% of a 200px run is ~8px, which is the gate's ENTIRE margin: a control
+# measured at 8px clearance here is not proven to clear anything on a phone.
+#
+# So Roboto, because it is the real font on a real target and it is freely licensed.
+# SF Pro cannot be installed -- Apple does not redistribute it -- so iOS stays unproven
+# here exactly as it is everywhere else in this repo, and says so.
+#
+# run-checks.sh asserts `fc-match system-ui` still answers Roboto, so a base image that
+# changes its font set fails loudly instead of silently re-measuring everything.
+RUN set -eux;     apt-get update;     apt-get install -y --no-install-recommends fonts-roboto;     rm -rf /var/lib/apt/lists/*;     printf '%s\n'       '<?xml version="1.0"?>'       '<!DOCTYPE fontconfig SYSTEM "fonts.dtd">'       '<fontconfig>'       '  <alias><family>system-ui</family><prefer><family>Roboto</family></prefer></alias>'       '  <alias><family>ui-sans-serif</family><prefer><family>Roboto</family></prefer></alias>'       '  <alias><family>sans-serif</family><prefer><family>Roboto</family></prefer></alias>'       '</fontconfig>'       > /etc/fonts/conf.d/60-runit-system-ui.conf;     fc-cache -f >/dev/null;     fc-match system-ui | grep -qi roboto
+
 # Runs as uid 1000 so anything written back through the bind mount -- dist/,
 # design/screenshots/ -- lands on the host owned by you, not by root.
 ENV HOME=/home/app \
