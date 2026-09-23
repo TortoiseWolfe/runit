@@ -19,8 +19,26 @@ import type { RunitEvent } from '@/data/types';
  * platforms -- verified on the Android emulator, not assumed, because "works on
  * web, wrong on device" is this repo's recurring failure.
  */
+/**
+ * ONE FORMATTER PER (SHAPE, ZONE). `new Intl.DateTimeFormat` loads locale data and is the
+ * single most expensive thing this file does; every helper below used to build one per
+ * call, and the per-row callers (chat bubbles, the run of show, the approval queue) paid it
+ * once per row per render. The only varying input is the time zone, so a Map keyed on the
+ * options is the whole cache. Behaviour is unchanged: a formatter is immutable.
+ */
+const formatters = new Map<string, Intl.DateTimeFormat>();
+function fmt(locale: string, opts: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+  const key = locale + JSON.stringify(opts);
+  let f = formatters.get(key);
+  if (!f) {
+    f = new Intl.DateTimeFormat(locale, opts);
+    formatters.set(key, f);
+  }
+  return f;
+}
+
 export function formatClock(iso: string, timeZone: string): string {
-  return new Intl.DateTimeFormat('en-US', {
+  return fmt('en-US', {
     hour: 'numeric',
     minute: '2-digit',
     hour12: true,
@@ -37,7 +55,7 @@ export function formatClock(iso: string, timeZone: string): string {
  * not seeded by hand.
  */
 export function formatEventDate(iso: string, timeZone: string): string {
-  return new Intl.DateTimeFormat('en-US', {
+  return fmt('en-US', {
     weekday: 'short',
     month: 'short',
     day: 'numeric',
@@ -86,7 +104,7 @@ export function whenAndWhere(
  * never round-trips through a parser at all. FIDELITY note M.
  */
 function zoneOffsetMs(instant: Date, timeZone: string): number {
-  const parts = new Intl.DateTimeFormat('en-US', {
+  const parts = fmt('en-US', {
     timeZone,
     hour12: false,
     year: 'numeric',
@@ -143,7 +161,7 @@ export function instantToWallClock(
   iso: string,
   timeZone: string,
 ): { date: string; time: string } {
-  const parts = new Intl.DateTimeFormat('en-CA', {
+  const parts = fmt('en-CA', {
     timeZone,
     hour12: false,
     year: 'numeric',

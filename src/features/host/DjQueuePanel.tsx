@@ -8,7 +8,7 @@ import { alpha, border, eyebrow, radius, useTheme, weight } from '@/theme';
 
 /** Artboard 03, DJ queue segment. */
 export function DjQueuePanel() {
-  const { tokens, fade, depth, depthCss } = useTheme();
+  const { tokens, fade, depth } = useTheme();
   const nowPlaying = useNowPlaying();
   const accepted = useAccepted();
   const incoming = useIncoming();

@@ -310,7 +310,9 @@
   // The code is the last path segment: /i/HOUSE7 -> HOUSE7. Same alphabet the app mints
   // from (no 0/O, no 1/I/L), upper-cased because a QR may carry any case and a person
   // reading it aloud will not preserve one.
-  var raw = decodeURIComponent(location.pathname.split('/').filter(Boolean).pop() || '');
+  var seg = location.pathname.split('/').filter(Boolean).pop() || '';
+  var raw;
+  try { raw = decodeURIComponent(seg); } catch (e) { raw = seg; } // a bad %-sequence is not a reason to draw nothing
   var code = raw.toUpperCase().replace(/[^A-HJ-NP-Z2-9]/g, '').slice(0, 12);
 
   var el = function (id) { return document.getElementById(id); };

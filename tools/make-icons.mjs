@@ -33,7 +33,7 @@
  *     `scan-on-device.mjs` measuring that the camera preview paints.
  */
 import { chromium } from '@playwright/test';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PNG } from 'pngjs';
 

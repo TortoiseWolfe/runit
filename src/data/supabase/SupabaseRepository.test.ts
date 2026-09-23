@@ -1969,3 +1969,42 @@ describe('rotating the host key', () => {
     await expect(repo.event.rotateHostKey()).rejects.toThrow(/Only a host of this event/);
   });
 });
+
+/**
+ * 2026-09-23 review. The `events` comparator lists the fields that count as a change, and
+ * `photoModeration` was not among them -- so a realtime UPDATE flipping only that column was
+ * judged equal to the last event and never published. The host's own "Approve photos"
+ * toggle did not repaint from this observable; lane H's first draft hit exactly that and
+ * blamed websocket latency. Every mapped column is exercised so the NEXT one cannot go
+ * missing the same way: each update below must reach a subscriber.
+ */
+describe('the events observable publishes every mapped column', () => {
+  const cases: [string, unknown][] = [
+    ['photo_moderation', true],
+    ['name', 'Renamed'],
+    ['venue', 'Elsewhere'],
+    ['starts_at', '2031-01-01T00:00:00.000Z'],
+    ['timezone', 'Europe/London'],
+    ['doors_label', 'Doors 9'],
+    ['tier', 'party'],
+    ['active_folder_id', 'f-other'],
+    ['now_schedule_item_id', 's-2'],
+    ['guest_count', 99],
+    ['invited_count', 42],
+  ];
+
+  it.each(cases)('a realtime UPDATE to %s is published', async (column, value) => {
+    const c = ready();
+    c.seed('events', [eventRow({ photo_moderation: false })]);
+    const repo = await join(c);
+    const before = repo.event.current.get();
+    expect(before).not.toBeNull();
+
+    const events = c.channels.find((ch) => ch.name === 'runit:events');
+    expect(events).toBeDefined();
+    const row = c.find('select', 'events').length >= 0 ? eventRow({ photo_moderation: false }) : null;
+    events!.emit({ eventType: 'UPDATE', new: { ...(row as object), [column]: value } });
+
+    expect(repo.event.current.get()).not.toBe(before);
+  });
+});

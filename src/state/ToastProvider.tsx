@@ -9,11 +9,18 @@ export interface ToastState {
 }
 
 interface ToastApi {
-  toast: ToastState | null;
   show: (text: string) => void;
 }
 
-const ToastContext = createContext<ToastApi | null>(null);
+/**
+ * TWO CONTEXTS, NOT ONE. `show` is stable for the life of the provider; `toast` changes on
+ * every show and every dismiss. One context carrying both meant every `useToast()` consumer
+ * -- which is every `use*Actions` hook, so every screen, sheet and queue row -- re-rendered
+ * twice per toast to read a value none of them use. `<Toast>` is the only reader of the
+ * state and gets its own context; the compiler cannot split a context value for you.
+ */
+const ShowContext = createContext<ToastApi | null>(null);
+const StateContext = createContext<ToastState | null>(null);
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toast, setToast] = useState<ToastState | null>(null);
@@ -26,14 +33,24 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     setToast({ id: seq.current, text });
     timer.current = setTimeout(() => setToast(null), toastMetrics.durationMs);
   }, []);
+  const [api] = useState<ToastApi>(() => ({ show }));
 
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
 
-  return <ToastContext.Provider value={{ toast, show }}>{children}</ToastContext.Provider>;
+  return (
+    <ShowContext.Provider value={api}>
+      <StateContext.Provider value={toast}>{children}</StateContext.Provider>
+    </ShowContext.Provider>
+  );
 }
 
 export function useToast(): ToastApi {
-  const v = useContext(ToastContext);
+  const v = useContext(ShowContext);
   if (!v) throw new Error('useToast must be used inside <ToastProvider>');
   return v;
+}
+
+/** The current toast, or null. Read by `<Toast>` and nothing else. */
+export function useToastState(): ToastState | null {
+  return useContext(StateContext);
 }

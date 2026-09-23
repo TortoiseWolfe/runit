@@ -99,7 +99,10 @@ Deno.serve(async (req) => {
     // An empty body is a normal invocation and the defaults are the safe ones.
   }
   const dry = payload.dry_run === true;
-  const limit = Math.max(1, Math.min(payload.limit ?? DEFAULT_LIMIT, 1000));
+  // `Number.isFinite`, because `Math.min(NaN, 1000)` is NaN, `NaN > 0` is false, the file
+  // loop never runs, and the event row is deleted with every byte still in the bucket.
+  const asked = Number(payload.limit);
+  const limit = Math.max(1, Math.min(Number.isFinite(asked) ? asked : DEFAULT_LIMIT, 1000));
 
   /**
    * ONE EVENT, OR THE WHOLE ACCOUNT. Either way the list of events to destroy is decided in
@@ -112,7 +115,14 @@ Deno.serve(async (req) => {
    * the other way round. A co-host invited at `role = 'host'` must not be able to destroy a
    * wedding she was brought in to help run.
    */
-  const one = typeof payload.event === 'string' ? payload.event : null;
+  // Lower-cased and shape-checked: `is_event_founder()` accepts an upper-case or
+  // brace-wrapped uuid, but the storage prefix is the canonical lower-case text, so a
+  // variant spelling passed the founder check and then listed an empty folder.
+  const one =
+    typeof payload.event === 'string' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(payload.event)
+      ? payload.event.toLowerCase()
+      : null;
   let events: string[];
 
   if (one) {

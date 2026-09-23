@@ -7,3 +7,11 @@
 /.well-known/apple-app-site-association
   Content-Type: application/json
   Cache-Control: public, max-age=3600
+
+# The app itself. Its session lives in localStorage on the web route, so it must never be
+# framed by another origin. No CSP here: the expo export inlines scripts and styles, and a
+# policy that breaks the bundle gets deleted inside a week -- these three cost nothing.
+/*
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin

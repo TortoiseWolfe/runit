@@ -72,7 +72,21 @@ const GLOW_ALPHA = 0.75;
  * The gradient and the bevel are what make this thing look raised. The glow is the smallest
  * of the three and the only one that touches the page, so it is the one that yields.
  */
+/**
+ * Cached per fill. `tokens.primary` has exactly two values, and this used to run two
+ * sRGB->OKLab conversions and one back on EVERY render of every primary Button -- per
+ * keystroke on the join and create screens, once a second during the sign-in countdown.
+ */
+const inks = new Map<string, ButtonInk>();
 export function buttonInk(fill: string): ButtonInk {
+  let ink = inks.get(fill);
+  if (!ink) {
+    ink = buttonInkRaw(fill);
+    inks.set(fill, ink);
+  }
+  return ink;
+}
+function buttonInkRaw(fill: string): ButtonInk {
   return {
     fill,
     top: mix(fill, '#FFFFFF', TOP_STOP_WHITE),

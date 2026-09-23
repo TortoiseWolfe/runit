@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Animated, Easing, StyleSheet, Text } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { useToast } from '@/state/ToastProvider';
+import { useToastState } from '@/state/ToastProvider';
 import { insetDelta, radius, tabBar, toast as toastMetrics, useTheme } from '@/theme';
 
 /**
@@ -16,7 +16,7 @@ import { insetDelta, radius, tabBar, toast as toastMetrics, useTheme } from '@/t
  * distance above the tabs on any device.
  */
 export function Toast() {
-  const { toast } = useToast();
+  const toast = useToastState();
   const { tokens } = useTheme();
   const insets = useSafeAreaInsets();
   // useState rather than useRef: the value must be stable across renders, but

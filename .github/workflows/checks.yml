@@ -39,8 +39,10 @@ jobs:
 
       # LANE E RUNS HERE NOW, IF THE SECRET EXISTS -- and the reason it did not is
       # that three files said this was "one public-repo job with no secret store".
-      # The repository is PRIVATE, and private repositories have encrypted Actions
-      # secrets like any other. The stated blocker was never true, and it kept the
+      # The repository is PUBLIC -- it always was, and this comment said "private" for a
+      # while -- and visibility has nothing to do with having a secret store: public
+      # repositories have encrypted Actions secrets like any other. The stated blocker
+      # was never true under either premise, and it kept the
       # one lane that can see row-level security out of CI for the life of the repo.
       #
       # Until somebody adds SUPABASE_DB_URL under Settings -> Secrets and variables

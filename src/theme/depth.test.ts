@@ -101,7 +101,7 @@ it('RN can parse every colour these emit', () => {
  */
 const rnRequire = createRequire(require.resolve('react-native/package.json'));
 const processBoxShadow = rnRequire('react-native/Libraries/StyleSheet/processBoxShadow')
-  .default as (v: string) => Array<Record<string, unknown>>;
+  .default as (v: string) => Record<string, unknown>[];
 
 describe.each(['dark', 'light'] as const)('depth · %s · the CSS string', (scheme) => {
   it.each(['plate', 'well', 'groove'] as const)(

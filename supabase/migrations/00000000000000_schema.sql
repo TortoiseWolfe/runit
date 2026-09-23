@@ -655,9 +655,12 @@ end $$;
 -- WHAT IT DOES TO THE ORACLE. The comment on events_read already concedes that
 -- join_event is an oracle on a code: a uuid on a hit, unknown_code on a miss. This
 -- does not create that exposure, it widens what a hit RETURNS -- from a bare uuid
--- to a name, a venue and a time. It is bounded by the same thing: `authenticated`
--- only, so every call sits behind a session and therefore behind the anonymous
--- sign-in rate limit. Never grant this to `anon`.
+-- to a name, a venue and a time. `authenticated` only, so every call sits behind a
+-- session -- and THAT IS NOT A BOUND ON GUESSING, which this comment used to claim. The
+-- anonymous sign-in limit caps how many IDENTITIES one address may mint, not how many
+-- times one identity may call. Per-identity miss counting is not implemented (2026-09-23
+-- review); the code space is ~8.9e8 and a hit returns a name, a venue and a time, which
+-- may be somebody's home. Never grant this to `anon`.
 --
 -- WHAT IT DELIBERATELY WITHHOLDS: tier, guest_count, invited_count,
 -- active_folder_id, now_schedule_item_id. The join screen promises "guests can't
@@ -1263,10 +1266,11 @@ alter table public.photos          enable row level security;
 -- An event is readable once you are in it. Discovery is via join_event() only,
 -- which is SECURITY DEFINER, so the events table cannot be LISTED. That is not
 -- the same as a code being unguessable: join_event is an oracle -- a uuid on a
--- hit, `unknown_code` on a miss. What bounds guessing is the GRANTS section at
--- the foot of this file, which puts every call behind a session and therefore
--- behind the anonymous sign-in rate limit. Codes are still short; treat the
--- limit as the control and prove it by rehearsal.
+-- hit, `unknown_code` on a miss. The GRANTS section at the foot of this file puts
+-- every call behind a session; the anonymous sign-in limit then caps IDENTITIES, not
+-- calls, so one session may guess without bound. That was mis-stated here as a control
+-- until the 2026-09-23 review. Codes are short; a per-identity miss throttle inside
+-- join_event/event_preview is the missing piece.
 create policy events_read on public.events for select
   using (public.my_guest_id(id) is not null or public.is_host(id));
 
@@ -1341,6 +1345,43 @@ create policy broadcasts_read on public.broadcasts for select
 create policy broadcasts_write on public.broadcasts for insert
   with check (public.is_host(event_id) and public.event_is_open(event_id));
 
+-- THE AUTHOR IS THE SEAT THAT IS SPEAKING. The client supplies `author_*` because the
+-- columns are denormalised and NOT NULL (a deleted host must not blank the history), but
+-- supplying them is not the same as choosing them: any host seat could post as the founder,
+-- with `seen_count = 40` and a `created_at` from last week. When the caller has a session,
+-- her own seat overwrites whatever was sent; seeds and the service role (no `auth.uid()`)
+-- keep what they wrote. Sixty an hour per seat, for the realtime reason `requests_guard` gives.
+revoke insert on public.broadcasts from authenticated, anon;
+grant  insert (event_id, author_host_id, author_name, author_role_label, kind, body, pinned)
+  on public.broadcasts to authenticated;
+
+create or replace function public.broadcasts_author() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare h record; n int;
+begin
+  if auth.uid() is not null then
+    select id, display_name, role_label into h
+      from public.hosts where event_id = new.event_id and auth_user_id = auth.uid()
+     limit 1;
+    if found then
+      new.author_host_id    := h.id;
+      new.author_name       := h.display_name;
+      new.author_role_label := h.role_label;
+    end if;
+    new.seen_count := 0;
+    new.created_at := now();
+    select count(*) into n from public.broadcasts b
+     where b.author_host_id = new.author_host_id and b.created_at > now() - interval '1 hour';
+    if n >= 60 then
+      raise exception 'broadcasts_too_often' using errcode = '54023';
+    end if;
+  end if;
+  return new;
+end $$;
+revoke execute on function public.broadcasts_author() from public, anon, authenticated;
+create trigger broadcasts_author before insert on public.broadcasts
+  for each row execute function public.broadcasts_author();
+
 -- #26. A host could pin and never un-pin: `broadcasts` carried a SELECT policy and an
 -- INSERT policy and nothing else, so a notice that stopped being true two hours in sat
 -- above the feed for the rest of the night with no control anywhere that could move it.
@@ -1410,6 +1451,39 @@ create policy requests_insert on public.song_requests for insert
 create policy requests_moderate on public.song_requests for update
   using (public.is_host(event_id)) with check (public.is_host(event_id));
 
+-- A POLICY SAYS WHO MAY WRITE, A GRANT SAYS WHICH COLUMNS -- and `song_requests` had only the
+-- first. `requests_insert` let a guest write the row directly (the app uses `request_song`,
+-- but an attacker is not obliged to), and nothing stopped that row arriving as
+-- `status = 'accepted'` with `vote_count = 99999`: past moderation, first in `play_next`,
+-- and -- inserted as 'played' -- outside the one-row-per-song index. The five columns below
+-- are exactly what `request_song` writes.
+revoke insert on public.song_requests from authenticated, anon;
+grant  insert (event_id, title, artist, requested_by_guest_id, requested_by_name)
+  on public.song_requests to authenticated;
+
+-- AND A CAP, because every insert here is a realtime message to every device in the room --
+-- the project-wide ceiling this file warns about at the top. Thirty an hour per guest is a
+-- number nobody reaches by requesting songs. The name is the seat's, not the payload's.
+create or replace function public.requests_guard() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare n int;
+begin
+  select count(*) into n from public.song_requests r
+   where r.requested_by_guest_id = new.requested_by_guest_id
+     and r.created_at > now() - interval '1 hour';
+  if n >= 30 then
+    raise exception 'requests_too_often' using errcode = '54023';
+  end if;
+  if new.requested_by_guest_id is not null then
+    select g.nickname into new.requested_by_name
+      from public.guests g where g.id = new.requested_by_guest_id and btrim(g.nickname) <> '';
+  end if;
+  return new;
+end $$;
+revoke execute on function public.requests_guard() from public, anon, authenticated;
+create trigger requests_guard before insert on public.song_requests
+  for each row execute function public.requests_guard();
+
 -- Votes are readable so a guest can see which songs they voted for. Writable
 -- only as themselves -- the primary key already stops a double count.
 create policy votes_read on public.song_votes for select
@@ -1446,6 +1520,28 @@ create policy folders_insert on public.folders for insert
 create policy folders_update on public.folders for update
   using (public.is_host(event_id))
   with check (public.is_host(event_id) and public.event_is_open(event_id));
+
+-- `max_folders`, for the same reason as `photos_cap`: a cap read only by the client is a
+-- cap enforced by whichever client is asking.
+create or replace function public.folders_cap() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare v_cap int; v_n int;
+begin
+  perform 1 from public.events where id = new.event_id for update;
+  select tl.max_folders into v_cap
+    from public.tier_limits tl join public.events e on e.tier = tl.tier
+   where e.id = new.event_id;
+  if v_cap is not null then
+    select count(*) into v_n from public.folders where event_id = new.event_id;
+    if v_n >= v_cap then
+      raise exception 'folders_full' using errcode = '54023';
+    end if;
+  end if;
+  return new;
+end $$;
+revoke execute on function public.folders_cap() from public, anon, authenticated;
+create trigger folders_cap before insert on public.folders
+  for each row execute function public.folders_cap();
 
 -- DELETE is granted to NOBODY, matching how `photos` already works: no DELETE policy for
 -- anyone, and `hide` is an audit trail rather than a removal. `photo_count` is
@@ -1491,6 +1587,53 @@ revoke insert on public.photos from authenticated, anon;
 grant  insert (id, event_id, folder_id, uploaded_by_guest_id, uploaded_by_name,
                hue, storage_path, thumb_path, created_at)
   on public.photos to authenticated, anon;
+
+-- A PATH IS A CLAIM ABOUT WHOSE BYTES THESE ARE, and until 2026-09-23 nothing checked it.
+-- `storage_path` and `thumb_path` were in the insert grant with no shape and no prefix rule,
+-- and `photos_moderate` had no column grant at all -- so any host seat could rewrite them,
+-- and any guest could file a row naming an object in SOMEBODY ELSE'S event. Two things read
+-- those paths with a service role: `event_photos_select` admits an object named by your own
+-- row, and `photos_past_retention` feeds them to the sweep, which DELETES them. Forge a row
+-- at a victim's path, move your own event's `starts_at` back a month, and the 04:17 sweep
+-- destroys their album. The `feedback` table already carried both halves of this rule.
+alter table public.photos
+  add constraint photos_path_under_own_event check (
+    (storage_path is null or split_part(storage_path, '/', 1) = event_id::text)
+    and (thumb_path is null or split_part(thumb_path, '/', 1) = event_id::text)
+  ),
+  add constraint photos_path_shape check (
+    (storage_path is null or storage_path ~ '^[0-9a-f-]{36}/[^/]+$')
+    and (thumb_path is null or thumb_path ~ '^[0-9a-f-]{36}/[^/]+$')
+  );
+
+-- A host approves or hides. She does not rename the bytes.
+revoke update on public.photos from authenticated, anon;
+grant  update (status) on public.photos to authenticated;
+
+-- THE ALBUM CAP LIVES HERE, NOT ONLY IN THE CLIENT. `tier_limits.max_photos` had exactly one
+-- reader, `SupabaseRepository.photos.upload`, which is to say the cap was enforced by
+-- whichever client happened to be asking. Same shape as `join_event`'s seat count: lock the
+-- event row so two uploads in the same millisecond cannot both read 99-of-100.
+create or replace function public.photos_cap() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare v_cap int; v_n int;
+begin
+  perform 1 from public.events where id = new.event_id for update;
+  select tl.max_photos into v_cap
+    from public.tier_limits tl join public.events e on e.tier = tl.tier
+   where e.id = new.event_id;
+  if v_cap is not null then
+    select count(*) into v_n from public.photos where event_id = new.event_id;
+    if v_n >= v_cap then
+      raise exception 'album_full' using errcode = '54023';
+    end if;
+  end if;
+  return new;
+end $$;
+revoke execute on function public.photos_cap() from public, anon, authenticated;
+create trigger photos_cap before insert on public.photos
+  for each row execute function public.photos_cap();
+
 
 -- The tier decides, and the database asks it -- see `set_photo_status` below the
 -- `tier_limits` seed, which is where anything reading that table has to live.
@@ -2369,6 +2512,16 @@ language plpgsql security definer set search_path = public as $$
 declare
   v_moderated boolean;
 begin
+  -- THE NAME COMES FROM THE SEAT, NOT FROM THE PAYLOAD. `uploaded_by_name` is in the insert
+  -- grant because it is denormalised and NOT NULL, but a guest could put any name there --
+  -- and `file_report` labels a report "Photo from <name>", so moderation would land on the
+  -- wrong person. If the guest row exists with a name, its nickname wins; seeds keep theirs.
+  if new.uploaded_by_guest_id is not null then
+    select g.nickname into new.uploaded_by_name
+      from public.guests g where g.id = new.uploaded_by_guest_id
+       and btrim(g.nickname) <> '';
+  end if;
+
   -- UNCONDITIONAL, AND THE FIRST ATTEMPT WAS NOT. It tried `current_user not in
   -- ('anon','authenticated')` to exempt admin callers -- which silently never matched,
   -- because inside a SECURITY DEFINER function `current_user` is the DEFINER, not the
@@ -2670,6 +2823,10 @@ create trigger invitees_fold
 -- sends -- least of all the client, which cannot send.
 revoke update on public.invitees from authenticated, anon;
 grant  update (email, phone, display_name) on public.invitees to authenticated;
+-- The same four on INSERT. The update grant protected `invited_at` and `joined_guest_id`
+-- from being rewritten and said nothing about them being written in the first place.
+revoke insert on public.invitees from authenticated, anon;
+grant  insert (event_id, email, phone, display_name) on public.invitees to authenticated;
 
 revoke execute on function public.fold_invited_count() from public, anon, authenticated;
 
@@ -3273,7 +3430,9 @@ create table public.feedback (
   -- Device, build, route, connection. Shaped by the client and kept as jsonb because this
   -- is EVIDENCE rather than state: nothing here is read by a policy or a trigger, and a
   -- column per field would be a migration every time a new phone detail is worth having.
-  context      jsonb not null default '{}'::jsonb,
+  -- Bounded, because it is interpolated into a public issue and stored forever; the
+  -- sheet sends seven short strings and an attacker is not obliged to.
+  context      jsonb not null default '{}'::jsonb check (pg_column_size(context) <= 4096),
   -- WHERE THE PICTURE LANDED, if they attached one. Nullable, and most reports have none:
   -- a sentence is worth filing on its own, and demanding a screenshot would turn a
   -- ten-second report into a task. `{auth_user_id}/{uuid}.jpg` in the `feedback` bucket.
@@ -3300,7 +3459,20 @@ alter table public.feedback enable row level security;
 -- client role: this table is written by people and read by a maintainer with a service role.
 create policy feedback_insert_self on public.feedback
   for insert to authenticated
-  with check (auth_user_id = auth.uid());
+  with check (
+    auth_user_id = auth.uid()
+    -- A report ABOUT a party comes from somebody in it. Any event_id used to be accepted,
+    -- and the filer printed that event's join code -- the admission credential -- into a
+    -- public issue.
+    and (event_id is null or public.my_guest_id(event_id) is not null or public.is_host(event_id))
+  );
+
+-- `created_at` and `id` were client-writable, and `feedback_guard` counts by `created_at`:
+-- a back-dated row never counted, so one identity could file without limit. The grant says
+-- which columns; the trigger below stamps the clock regardless.
+revoke insert on public.feedback from authenticated, anon;
+grant  insert (auth_user_id, event_id, body, context, screenshot_path)
+  on public.feedback to authenticated;
 
 -- ONE IDENTITY, SIX AN HOUR. An endpoint that files GitHub issues is an endpoint somebody
 -- can fill, and the publishable key is compiled into the bundle -- so the cap is in the
@@ -3314,6 +3486,8 @@ create or replace function public.feedback_guard() returns trigger
 language plpgsql security definer set search_path = public as $$
 declare n int;
 begin
+  -- The server's clock, whatever the payload said. Belt to the column grant's braces.
+  new.created_at := now();
   select count(*) into n from public.feedback f
    where f.auth_user_id = new.auth_user_id
      and f.created_at > now() - interval '1 hour';

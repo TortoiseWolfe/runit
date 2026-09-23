@@ -2,7 +2,7 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 
 import {
-  INVITE_ORIGIN, appSchemeLink, codeFromScan, icsFilename, icsFor, joinLink, shareMessage, RETIRED_ORIGINS, acceptedOrigins,
+  INVITE_ORIGIN, appSchemeLink, codeFromScan, icsFilename, icsFor, joinLink, shareMessage, acceptedOrigins,
   inviteEmail, inviteMailto, MAILTO_BUDGET, outcomeFromMailStatus, addressFromInput,
 } from './invite';
 
@@ -123,7 +123,7 @@ describe('the .ics', () => {
     // Unescaped, a venue called "Smith, Hall" truncates LOCATION at "Smith" -- the
     // property separator swallows the rest of the line.
     const s = icsFor({ ...EVENT, venue: 'Smith, Hall; Rear\\Wing' }, FIXED);
-    expect(s).toContain('LOCATION:Smith\\, Hall\; Rear\\\\Wing');
+    expect(s).toContain('LOCATION:Smith\\, Hall\\; Rear\\\\Wing');
   });
 
   it('turns a real newline into an escaped one', () => {

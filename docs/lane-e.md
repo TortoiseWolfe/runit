@@ -198,8 +198,10 @@ returned to a caller. If it was never recorded, reset it there; the app authenti
 PostgREST with the publishable key and does not use it.
 
 Set the same string as the `SUPABASE_DB_URL` **Actions secret** and it runs on every push.
-The repository is private, so it has a secret store — three files used to claim otherwise,
-which is why the lane never ran in CI.
+The repository is **public** — it always was, and this file said "private" for a while — and
+visibility has nothing to do with having a secret store: public repositories have encrypted
+Actions secrets like any other. The secret has simply never been set (#88), which is why the
+lane has never run in CI.
 
 ## Two traps in the SQL itself
 

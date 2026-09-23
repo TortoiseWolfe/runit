@@ -256,7 +256,7 @@ if (Number(m[1]) > 0) {
  * Raise it when you add assertions, and RUN THE FILE to get the number rather than adding
  * to it. That is the whole lesson of #31 and it has now cost three separate bugs.
  */
-const EXPECTED_ASSERTIONS = 240;
+const EXPECTED_ASSERTIONS = 253;
 // The FIRST assertion shares its line with the "0 FAILURE(S)." preamble -- `format()`
 // joins the array after it -- so an anchored line match silently undercounts by one.
 const counted = report

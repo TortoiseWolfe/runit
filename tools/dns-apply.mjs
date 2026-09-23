@@ -32,7 +32,6 @@ const args = process.argv.slice(2);
 const apply = args.includes('--apply');
 const only = args.includes('--only') ? args[args.indexOf('--only') + 1] : null;
 
-const red = (s) => `\x1b[31m${s}\x1b[0m`;
 const green = (s) => `\x1b[32m${s}\x1b[0m`;
 const yellow = (s) => `\x1b[33m${s}\x1b[0m`;
 const dim = (s) => `\x1b[2m${s}\x1b[0m`;

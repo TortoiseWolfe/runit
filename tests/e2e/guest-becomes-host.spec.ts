@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-import { WEDDING, open } from './helpers';
+import { open } from './helpers';
 
 /**
  * `?guest=1` IS THE WHOLE REASON THESE TESTS CAN SEE ANYTHING. Every other seed answers
