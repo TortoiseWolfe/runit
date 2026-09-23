@@ -39,3 +39,7 @@ playwright-report/
 
 # Transient, written and deleted by tools/verify-qr.mjs.
 .qr-verify.png
+
+# Customer screenshots, pulled on demand by `pnpm feedback:shot <id>`.
+# NEVER committed: this repository is public and these pictures are other guests.
+.feedback-shots/

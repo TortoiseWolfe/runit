@@ -998,14 +998,26 @@ A and A2) fails a run that measures less than the last one -- because "0 FAILURE
 forty assertions and over a hundred and eighty are the same sentence. Raise the number when you
 add assertions; that friction is the feature.
 
-**"Nothing re-runs it in CI" was true, and the REASON given for it was false.** This file
-said twice, and `verify-policies.mjs` said once, that CI here is "one public-repo job with
-no secret store". The repository is **private**, and private repositories have encrypted
-Actions secrets like any other. `checks.yml` passes `secrets.SUPABASE_DB_URL` through to
-the container now, so the moment that secret exists lane E runs on every push. Until then
-it expands to an empty string and the lane skips loudly, exactly as it does locally --
-so the wiring is a no-op rather than a red gate. A wrong premise had kept the only lane
-that can see row-level security out of CI for the life of the repo.
+**"Nothing re-runs it in CI" was true, the REASON given for it was false, and THE
+CORRECTION WAS FALSE TOO -- which is the part worth remembering.** This file said twice, and
+`verify-policies.mjs` said once, that CI here is "one public-repo job with no secret store".
+The second half is what is wrong: **a repository's visibility has nothing to do with whether
+it has a secret store.** Public repositories have encrypted Actions secrets like any other.
+`checks.yml` passes `secrets.SUPABASE_DB_URL` through to the container, so the moment that
+secret exists lane E runs on every push; until then it expands to an empty string and the
+lane skips loudly, exactly as it does locally, so the wiring is a no-op rather than a red
+gate. **As of 2026-09-23 that secret does not exist** -- `gh secret list` shows only
+`SUPABASE_FEEDBACK_KEY` -- so lane E has still never run in CI.
+
+**This paragraph then asserted the repository was PRIVATE, and it never has been.** Created
+public on 2026-09-03, public today. A wrong premise about visibility had kept the only lane
+that can see row-level security out of CI for the life of the repo; the fix restated the
+premise wrongly in the other direction and nothing noticed for two weeks, because the
+CONCLUSION was right either way and nobody re-checks a conclusion that holds. What it cost
+is recorded under THE FEEDBACK SCREENSHOTS below, where the same false premise reached code
+rather than prose. **Two real consequences of being public, neither of which changes the
+wiring:** a secret is not exposed to a `pull_request` run from a fork (there are none), and
+anything committed by an Action is world-readable the instant it lands.
 
 **AND THE SUMMARY SAYS SO NOW.** `run-checks.sh` used to print "All checks passed" whether
 or not a lane had skipped -- so lane E skipped on every run for the life of this repo while
@@ -1163,7 +1175,8 @@ back to the Management API only on a laptop without one. The GitHub side is the 
 
 **PROVEN END TO END, and the screenshot half had never run before.** A report WITH a picture
 was sent from the live site as a cold visitor, the Action was dispatched, and it filed the issue
--- label, quoted text, facts, and the screenshot COMMITTED to `design/feedback/` and linked. No
+-- label, quoted text, facts, and the screenshot COMMITTED to `design/feedback/` and linked
+(which is what this repo no longer does -- see THE FEEDBACK SCREENSHOTS below). No
 laptop had ever committed one: `SUPABASE_SERVICE_ROLE_KEY` was never in `.env.local`, so
 `commitScreenshot` returned null on every manual run. A second dispatch filed nothing, so dedupe
 holds. Every test artifact was deleted afterwards -- storage object first, then the row, THEN the
@@ -1196,11 +1209,41 @@ at nothing, while an object with no row is litter the sweep ignores. **And a fai
 not lose the words** -- the sentence is the report, the picture is evidence for it, so the
 upload is wrapped and swallowed.
 
-**`pnpm feedback:app` COMMITS THE PICTURE rather than linking to it**, which is the sibling
-tool's hardest-won rule: a signed URL decays into a description of a picture nobody can see,
-and this bucket is private so a raw link is worse than useless. It also distinguishes TWO
-CAUSES the way the sibling does -- "no picture" and "a picture we could not fetch" are
-different facts.
+**THE FEEDBACK SCREENSHOTS ARE NOT PUBLISHED, AND THEY WERE, HOURLY, FOR TWO DAYS.**
+`pnpm feedback:app` used to COMMIT the picture to `design/feedback/` rather than link to it
+-- the sibling TestFlight tool's hardest-won rule, because a signed URL decays into a
+description of a picture nobody can see and this bucket is private so a raw link is worse
+than useless. **The rule is right. The premise under it was that this repository is private,
+and it never has been** (see the lane E paragraph above). The Action ran with
+`contents: write` from 2026-09-21 until 2026-09-23.
+
+**A SCREENSHOT OF THIS PRODUCT IS OTHER PEOPLE'S PHOTOGRAPHS.** The report this channel most
+wants is "my photo never appeared", and the evidence for it is a picture OF THE ALBUM -- a
+room full of guests, under their own nicknames, who have never heard of us. `pickScreenshot`
+is the privacy design for what leaves the reporter's phone, and it buys nothing here: she is
+consenting to show US, not to be published to a public repository, irreversibly, by a cron
+job. **The identical argument is already written down one repo over** --
+`RescueDogs/docs/features/feedback-loop.md` refuses this exact step in this exact sentence --
+and it did not cross, because the port reasoned from that repo's visibility and this one's
+was believed.
+
+**THE DECAY ARGUMENT DOES NOT BITE HERE, which is what made the fix free.** Unlike TestFlight,
+this channel has a DURABLE reference: `feedback.screenshot_path` names an object in a bucket
+that does not expire. So the issue records the report id, `pnpm feedback:shot <id>` pulls the
+bytes into the gitignored `.feedback-shots/` with the service role, and the workflow is
+`contents: read`. **The path is not printed either** -- it is `{auth_user_id}/{uuid}.ext`, so
+publishing it would put a pseudonymous identity linking all of one device's reports into a
+public issue, against this channel's own promise that nothing identifying travels.
+
+**THE PATH-SHAPE GUARD MOVED RATHER THAN DIED.** It belongs wherever a client-written string
+is interpolated into a service-role URL, and that is now `tools/feedback-shot.mjs`. So does
+the sniff-do-not-trust check. It still distinguishes TWO CAUSES the way the sibling does --
+"no picture" and "a picture we could not fetch" are different facts.
+
+**THE TESTFLIGHT CHANNEL STILL COMMITS, AND THAT IS AN OPEN DECISION RATHER THAN AN
+OVERSIGHT.** `feedback-to-issues.mjs` has no durable reference to fall back on -- eas-cli's
+own type says those URLs "expire after a short while" -- so the same change there costs the
+evidence outright. Same content risk, different remedy, nobody's call but the owner's.
 
 **`screenshot_path` IS GUARDED IN TWO PLACES BECAUSE A SERVICE ROLE READS IT, and it shipped
 unguarded for one commit.** `feedback:app` interpolates that column into a storage URL and
