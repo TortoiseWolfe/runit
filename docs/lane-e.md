@@ -2,7 +2,7 @@
 
 `supabase/verify-policies.sql` is the only check in this repo that can watch row-level
 security behave. It seeds an event, a guest and a host inside a `DO` block, switches role
-with `set local role authenticated` and a forged `request.jwt.claims`, asserts **205**
+with `set local role authenticated` and a forged `request.jwt.claims`, asserts **240**
 behaviours, and RAISES at the end so nothing commits — the "error" it prints *is* the report.
 
 ## It had never run
@@ -30,16 +30,31 @@ The first complete run measured **142**.
 This is the route to prefer. It needs nothing from anyone.
 
 ```bash
-npx supabase start          # ~12 containers, first pull is slow. It APPLIES the migration
-                            # itself now (#48 renamed it off the reserved word `init`), and
-                            # prints the DB_URL it chose -- READ THAT, do not assume 54322.
-
-SUPABASE_DB_URL=postgresql://postgres:postgres@127.0.0.1:<port>/postgres pnpm verify:policies
+pnpm supabase start     # ~12 containers, first pull is slow. It APPLIES the migration
+                        # itself (#48 renamed it off the reserved word `init`).
+pnpm verify:policies    # finds the stack and its port by itself, and says which it used
 ```
 
-**The port is not always 54322.** `supabase start` prints `DB_URL` in its final JSON line;
-on this machine it has come up on **54422**. Pasting the number from an old note produces a
-connection error that reads exactly like the stack being down.
+To prove the migration applies to an EMPTY database as well as that its policies behave --
+which is how two of the three defects below were found -- rebuild first:
+
+```bash
+pnpm supabase db reset  # recreates the database from supabase/migrations/
+pnpm verify:policies
+```
+
+Measured 2026-09-23: **240 assertions, 0 failures**, against a database reset from the
+committed migration.
+
+**The port is not always 54322, and you no longer have to know it.** On this machine the
+stack comes up on **54422**, and the skip message used to print 54322 with total confidence --
+a wrong port fails in a way that reads exactly like the stack being down. `verify-policies.mjs`
+now asks `docker port supabase_db_<project_id>` and prints which port and which container it
+chose. Setting `SUPABASE_DB_URL` still wins, so the live run is unchanged.
+
+**`supabase start` does print the real `DB_URL`** in its closing JSON -- but only on the run
+that STARTS the stack. Come back to an already-running one, or use `db reset`, and there is no
+such line anywhere, which is exactly when somebody reaches for a number in an old note.
 
 **Mutating the LOCAL database is how you check a new assertion bites**, and it is much faster
 than editing the migration and resetting:

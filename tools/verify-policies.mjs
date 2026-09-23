@@ -13,39 +13,107 @@
  * correct. So it skips, says so in the same shape as a failure, and names what went
  * unchecked.
  *
- * THIS FILE USED TO SAY CI WAS "a single public-repo job with no secret store", and so
- * did CLAUDE.md, twice. The repository is PRIVATE, and private repositories have
- * encrypted Actions secrets like any other -- so the stated reason the one lane that can
- * see row-level security never ran in CI was never true. `checks.yml` passes
- * `secrets.SUPABASE_DB_URL` through now; set it and this runs on every push. Until it is
- * set the secret expands to an empty string and this skips, exactly as it does locally.
+ * THIS FILE USED TO SAY CI WAS "a single public-repo job with no secret store", and the
+ * correction was ALSO WRONG -- it then said the repository is PRIVATE. It is not, and never
+ * has been: created public 2026-09-03. **A repository's visibility has nothing to do with
+ * whether it has a secret store**; public repositories have encrypted Actions secrets like
+ * any other, which is what makes the conclusion right under both premises and is exactly why
+ * nobody re-checked it. `checks.yml` passes `secrets.SUPABASE_DB_URL` through; set it and
+ * this runs on every push. As of 2026-09-23 that secret does not exist, so it expands to an
+ * empty string and this skips, exactly as it does locally.
  *
  *   export SUPABASE_DB_URL='postgresql://postgres:<pw>@db.<ref>.supabase.co:5432/postgres'
  *   pnpm verify:policies
+ *
+ * BUT IT FINDS A LOCAL STACK BY ITSELF NOW, and that is the route to prefer -- it needs no
+ * credential from anybody, which was always the real reason this lane never ran. The port is
+ * DISCOVERED (`docker port`), never assumed: this skip message used to print 54322 and the
+ * stack on this machine answers on 54422, so the documented recipe handed you a connection
+ * error that reads exactly like the stack being down.
  *
  * The SQL rolls itself back -- it ends by RAISING -- so this is safe against the live
  * project and leaves nothing behind.
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 const SQL = join(import.meta.dirname, '..', 'supabase', 'verify-policies.sql');
-const url = process.env.SUPABASE_DB_URL;
+
+/**
+ * FIND A RUNNING LOCAL STACK, rather than making somebody paste a port.
+ *
+ * The container name is `supabase_db_<project_id>`, and `docker port` reports what the
+ * daemon actually published -- which is the only honest answer. `supabase start` prints a
+ * DB_URL in its final JSON, but only on the run that STARTS the stack: come back tomorrow to
+ * an already-running one, or use `db reset`, and there is no such line anywhere.
+ *
+ * It is a LOCAL convenience and cannot become a remote one: the URL it builds is hardcoded
+ * to 127.0.0.1 with the fixed local password, so the worst case is a connection refused.
+ * Inside the checks container there is no docker CLI, so this finds nothing and the lane
+ * skips loudly exactly as before -- the board's behaviour is unchanged on purpose.
+ */
+function localStackUrl() {
+  let project = 'runit';
+  try {
+    const toml = readFileSync(join(import.meta.dirname, '..', 'supabase', 'config.toml'), 'utf8');
+    // The FIRST project_id is the local one; a `[remotes.*]` block declares another below it.
+    const m = toml.match(/^project_id\s*=\s*"([^"]+)"/m);
+    if (m) project = m[1];
+  } catch {
+    /* fall back to the directory's own name */
+  }
+  try {
+    const out = execFileSync('docker', ['port', `supabase_db_${project}`, '5432/tcp'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    const port = out.split('\n')[0].trim().split(':').pop();
+    if (!/^\d+$/.test(port)) return null;
+    return {
+      url: `postgresql://postgres:postgres@127.0.0.1:${port}/postgres`,
+      port,
+      project,
+    };
+  } catch {
+    return null;
+  }
+}
+
+let url = process.env.SUPABASE_DB_URL;
+let discovered = null;
+
+if (!url) {
+  discovered = localStackUrl();
+  if (discovered) {
+    url = discovered.url;
+    // Named out loud. A lane that silently changed which database it measured would be the
+    // same failure as one that silently skipped.
+    console.log(
+      `\x1b[33mSUPABASE_DB_URL is not set; found the local stack on port ${discovered.port} ` +
+        `(supabase_db_${discovered.project}) and using it.\x1b[0m`,
+    );
+    console.log(
+      '  That proves the COMMITTED migration behaves. It cannot see production drift.',
+    );
+    console.log('');
+  }
+}
 
 if (!url) {
   console.log('\x1b[33mSKIPPED: policy verification (lane E)\x1b[0m');
-  console.log('  SUPABASE_DB_URL is not set, so THE RLS BEHAVIOUR ASSERTIONS WENT UNCHECKED.');
-  console.log('  Nothing else in this suite can see row-level security: lane B has no');
-  console.log('  backend and lane C is one emulator with one identity.');
+  console.log('  SUPABASE_DB_URL is not set and no local stack is running, so THE RLS');
+  console.log('  BEHAVIOUR ASSERTIONS WENT UNCHECKED. Nothing else in this suite can see');
+  console.log('  row-level security: lane B has no backend and lane C is one emulator with');
+  console.log('  one identity.');
   console.log('');
-  console.log('  NO PRODUCTION PASSWORD NEEDED — run it against a local stack instead:');
-  console.log('    npx supabase start');
-  console.log('    docker exec -i supabase_db_runit psql -U postgres -v ON_ERROR_STOP=1 \\');
-  console.log('      < supabase/migrations/00000000000000_schema.sql');
-  console.log('    SUPABASE_DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres \\');
-  console.log('      pnpm verify:policies');
-  console.log('  That proves the COMMITTED migration\'s policies behave. Only the live run');
-  console.log('  additionally proves production has not drifted from it. docs/lane-e.md');
+  console.log('  NO PRODUCTION PASSWORD NEEDED — start a local stack and re-run:');
+  console.log('    pnpm supabase start      # applies the migration itself since #48');
+  console.log('    pnpm verify:policies     # finds the stack and its port on its own');
+  console.log('');
+  console.log('  `pnpm supabase db reset` rebuilds it from supabase/migrations/, which is');
+  console.log('  also the from-scratch gate: two of this lane\'s three historical defects');
+  console.log('  were migrations that could not apply to an empty database. docs/lane-e.md');
   console.log('');
   console.log('  Set it and re-run before trusting a green board after a migration change.');
   process.exit(0);
