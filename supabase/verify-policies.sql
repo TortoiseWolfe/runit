@@ -2476,6 +2476,153 @@ begin
   -- asserts elsewhere. Nothing commits anyway; the closing RAISE is the whole design.
   delete from public.feedback where auth_user_id in (cuid, nuid);
 
+  ------------------------------------------------------- 2026-09-23 REVIEW: GRANTS SAY WHICH COLUMNS
+  -- Every assertion here is a refusal that used to be an acceptance. A policy says WHO may
+  -- write; these are the column grants, triggers and checks that say WHAT, on the tables
+  -- that had only the first half. Each was reachable by an anonymous session.
+
+  -- A GUEST CANNOT FILE A SONG ALREADY ACCEPTED. `requests_insert` admitted the row and
+  -- nothing constrained `status`/`vote_count`: past moderation, first in play_next.
+  perform set_config('request.jwt.claims', json_build_object('sub',guid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  begin
+    insert into public.song_requests (event_id, title, artist, requested_by_guest_id, requested_by_name, status, vote_count)
+    values (eid, 'Forged', 'Nobody', public.my_guest_id(eid), 'Ada', 'accepted', 99999);
+    out := out || 'FAIL a guest can insert a song request as accepted with 99999 votes';
+  exception when others then
+    out := out || format('%s a guest cannot name status or vote_count on a request (%s)',
+                         case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  -- AND THE NAME ON A REQUEST IS THE SEAT'S. The payload said 'Impostor'; the row says Ada.
+  insert into public.song_requests (event_id, title, artist, requested_by_guest_id, requested_by_name)
+  values (eid, 'Named by the seat', 'Test', public.my_guest_id(eid), 'Impostor');
+  -- Compared against the SEAT ROW, not a literal: an earlier assertion renamed this guest.
+  execute 'reset role';
+  select r.requested_by_name = g.nickname and r.requested_by_name <> 'Impostor' into pin
+    from public.song_requests r join public.guests g on g.id = r.requested_by_guest_id
+   where r.event_id = eid and r.title = 'Named by the seat';
+  out := out || format('%s a request carries the guest''s own nickname, not the payload''s',
+                       case when pin then 'PASS' else 'FAIL' end);
+  perform set_config('request.jwt.claims', json_build_object('sub',guid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+
+  -- A PHOTO CANNOT NAME BYTES IN ANOTHER EVENT. The sweep deletes what rows name.
+  begin
+    insert into public.photos (id,event_id,folder_id,uploaded_by_guest_id,uploaded_by_name,hue,storage_path)
+    values (gen_random_uuid(), eid, fid, public.my_guest_id(eid), 'Ada', 1, eid2||'/victim.jpg');
+    out := out || 'FAIL a photo row can point at another event''s bytes';
+  exception when others then
+    out := out || format('%s a photo row cannot name a path outside its own event (%s)',
+                         case when sqlstate = '23514' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+  begin
+    insert into public.photos (id,event_id,folder_id,uploaded_by_guest_id,uploaded_by_name,hue,storage_path)
+    values (gen_random_uuid(), eid, fid, public.my_guest_id(eid), 'Ada', 1, eid||'/../'||eid2||'/x.jpg');
+    out := out || 'FAIL a photo path can traverse';
+  exception when others then
+    out := out || format('%s nor traverse out of it (%s)',
+                         case when sqlstate = '23514' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  -- AND THE UPLOADER'S NAME COMES FROM HER SEAT. Payload says 'Impostor', row says Ada.
+  spho := gen_random_uuid();
+  insert into public.photos (id,event_id,folder_id,uploaded_by_guest_id,uploaded_by_name,hue,storage_path)
+  values (spho, eid, fid, public.my_guest_id(eid), 'Impostor', 1, eid||'/'||spho||'.jpg');
+  execute 'reset role';
+  select p.uploaded_by_name = g.nickname and p.uploaded_by_name <> 'Impostor' into pin
+    from public.photos p join public.guests g on g.id = p.uploaded_by_guest_id where p.id = spho;
+  out := out || format('%s a photo carries the uploader''s own nickname, not the payload''s',
+                       case when pin then 'PASS' else 'FAIL' end);
+  perform set_config('request.jwt.claims', json_build_object('sub',guid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+
+  -- A HOST APPROVES OR HIDES; SHE DOES NOT RENAME THE BYTES.
+  perform set_config('request.jwt.claims', json_build_object('sub',huid,'role','authenticated')::text, true);
+  begin
+    update public.photos set storage_path = eid||'/renamed.jpg' where id = spho;
+    out := out || 'FAIL a host can rewrite storage_path';
+  exception when others then
+    out := out || format('%s a host cannot rewrite a photo''s storage_path (%s)',
+                         case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  -- THE AUTHOR OF AN ANNOUNCEMENT IS THE SEAT THAT SENT IT. Forged author fields, a fake
+  -- seen_count and a back-dated created_at all arrive; the row records her own seat, 0, now.
+  -- No `id` in the payload: the app lets the default mint it, and the grant says so.
+  insert into public.broadcasts (event_id, author_host_id, author_name, author_role_label, kind, body, pinned)
+  values (eid, gen_random_uuid(), 'The Founder', 'Bride', 'announcement', 'forged author', false);
+  execute 'reset role';
+  select h.id into hst from public.hosts h where h.event_id = eid and h.auth_user_id = huid limit 1;
+  select author_host_id = hst and seen_count = 0 and created_at > now() - interval '1 minute' into pin
+    from public.broadcasts where event_id = eid and body = 'forged author';
+  out := out || format('%s an announcement is stamped with the sender''s own seat, seen by 0, dated now',
+                       case when pin then 'PASS' else 'FAIL' end);
+  perform set_config('request.jwt.claims', json_build_object('sub',huid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  begin
+    insert into public.broadcasts (event_id, author_host_id, author_name, author_role_label, kind, body, pinned, seen_count)
+    values (eid, hst, 'x', 'x', 'announcement', 'naming seen_count', false, 40);
+    out := out || 'FAIL a host can name seen_count on insert';
+  exception when others then
+    out := out || format('%s and cannot name seen_count at all (%s)',
+                         case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  -- INVITEES: the two columns the update grant protects are not writable on insert either.
+  begin
+    insert into public.invitees (event_id, email, invited_at) values (eid, 'x@example.com', now());
+    out := out || 'FAIL a host can stamp invited_at on insert';
+  exception when others then
+    out := out || format('%s a host cannot stamp invited_at on insert (%s)',
+                         case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  -- THE ALBUM CAP IS THE DATABASE'S. Pin the tier's cap to what the event already holds and
+  -- the next upload is refused -- as postgres, because tier_limits is writable by nobody else.
+  execute 'reset role';
+  select count(*) into n from public.photos where event_id = eid;
+  update public.tier_limits set max_photos = n where tier = (select tier from public.events where id = eid);
+  perform set_config('request.jwt.claims', json_build_object('sub',guid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  begin
+    insert into public.photos (id,event_id,folder_id,uploaded_by_guest_id,uploaded_by_name,hue,storage_path)
+    values (gen_random_uuid(), eid, fid, public.my_guest_id(eid), 'Ada', 1, null);
+    out := out || 'FAIL a full album still takes a photo';
+  exception when others then
+    out := out || format('%s a full album refuses the next photo in the database, not the client (%s)',
+                         case when sqlstate = '54023' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+  execute 'reset role';
+  update public.tier_limits set max_photos = null where tier = (select tier from public.events where id = eid);
+
+  -- FEEDBACK: the clock is the server's and the party is one you are in.
+  perform set_config('request.jwt.claims', json_build_object('sub',cuid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  begin
+    insert into public.feedback (auth_user_id, body, created_at) values (cuid, 'back-dated', now() - interval '2 hours');
+    out := out || 'FAIL a reporter can back-date a report';
+  exception when others then
+    out := out || format('%s a reporter cannot name created_at, so the hourly cap cannot be dodged (%s)',
+                         case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+  begin
+    insert into public.feedback (auth_user_id, body, event_id) values (cuid, 'about a party I am not in', eid);
+    out := out || 'FAIL a report can name a party the reporter is not in';
+  exception when others then
+    out := out || format('%s a report cannot name a party the reporter is not in (%s)',
+                         case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+  begin
+    insert into public.feedback (auth_user_id, body, context) values (cuid, 'huge', jsonb_build_object('x', repeat('a', 5000)));
+    out := out || 'FAIL a report can carry an unbounded context';
+  exception when others then
+    out := out || format('%s a report''s context is bounded (%s)',
+                         case when sqlstate = '23514' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+  execute 'reset role';
+  delete from public.feedback where auth_user_id = cuid;
+
   select count(*) into fails from unnest(out) x where x like 'FAIL%';
   raise exception using message =
     format('%s FAILURE(S). %s', fails, array_to_string(out, E'\n  '));

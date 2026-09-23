@@ -384,7 +384,7 @@ export function codeFromScan(
 function escapeText(v: string): string {
   return v
     .replace(/\\/g, '\\\\')
-    .replace(/;/g, '\;')
+    .replace(/;/g, '\\;')
     .replace(/,/g, '\\,')
     .replace(/\r?\n/g, '\\n');
 }

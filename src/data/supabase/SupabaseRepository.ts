@@ -33,7 +33,7 @@ import {
 } from '@/domain/entitlements';
 import { TIERS } from '@/domain/tiers';
 import { phoneKey } from '@/domain/phoneKey';
-import { inviteEmail, shareMessage } from '@/lib/invite';
+import { inviteEmail } from '@/lib/invite';
 import { composeInviteEmail } from '@/lib/share';
 
 /**
@@ -249,7 +249,13 @@ export class SupabaseRepository implements RunitRepository {
       a.startsAt === b.startsAt && a.timezone === b.timezone && a.doorsLabel === b.doorsLabel &&
       a.tier === b.tier && a.activeFolderId === b.activeFolderId &&
       a.nowScheduleItemId === b.nowScheduleItemId && a.guestCount === b.guestCount &&
-      a.invitedCount === b.invitedCount),
+      a.invitedCount === b.invitedCount &&
+      // EVERY FIELD THE MAPPER SETS, OR THE ONE LEFT OUT IS THE ONE THAT NEVER PUBLISHES.
+      // `photoModeration` was missing: a realtime UPDATE flipping only that column produced
+      // an event judged equal to the last, so the host's own "Approve photos" toggle never
+      // repainted from this observable. Lane H's first draft hit exactly that and blamed
+      // websocket latency. `SupabaseRepository.test.ts` holds the field list to the mapper.
+      a.photoModeration === b.photoModeration),
   );
   // A preview has no realtime channel behind it -- RLS would never deliver a change
   // on a row the caller is not a member of -- so this only ever moves when lookUp
@@ -512,7 +518,10 @@ export class SupabaseRepository implements RunitRepository {
     this.sigHosts.set(
       // roleLabel included: the console prints it, and stripping it here is why a seat
       // list could not show "Riley · Bride" without going through the Session.
-      this.cHosts.reconcile(this.hostRows).map((h) => ({ ...h })),
+      // No clone. `reconcile` hands back the SAME object for an unchanged row and
+      // `shallowArrayEqual` compares by identity, so cloning here made every recompute
+      // publish a "new" host list and re-render the console chrome on every message.
+      this.cHosts.reconcile(this.hostRows),
     );
 
     this.sigBlocked.set([...this.blockRows].sort(byBlockedNewestFirst));
@@ -1085,7 +1094,7 @@ export class SupabaseRepository implements RunitRepository {
       // Readable only now: events_read admits a member and nobody else, which is
       // also why the join screen cannot preview an event before joining.
       const { data: ev, error: evErr } = await this.db
-        .from('events').select('*').eq('code', code.trim().toUpperCase()).maybeSingle();
+        .from('events').select('id').eq('code', code.trim().toUpperCase()).maybeSingle();
       if (evErr) throw evErr;
       // NOT `unknown_code`: join_event already returned a guest id, so the code DID
       // match. Reaching here means events_read refused a row to someone who is
@@ -1735,7 +1744,10 @@ export class SupabaseRepository implements RunitRepository {
           const bytes = await res.arrayBuffer();
           // `{auth_user_id}/{uuid}.jpg` -- the prefix IS the authorisation, the same shape
           // `event-photos` uses with the event id.
-          const path = `${uid}/${crypto.randomUUID()}.jpg`;
+          // `Crypto` from expo-crypto, NOT the global: Hermes ships no `crypto` global, so the
+          // global form threw on device, the catch below swallowed it, and every screenshot
+          // from a phone was silently dropped while the words went through.
+          const path = `${uid}/${Crypto.randomUUID()}.jpg`;
           // contentType is required, not cosmetic: the bucket allows jpeg/png/webp only and
           // rejects the default application/octet-stream outright.
           const up = await this.db.storage.from('feedback').upload(path, bytes, {
@@ -2565,8 +2577,7 @@ export class SupabaseRepository implements RunitRepository {
     fullUrl: async (id: PhotoId) => {
       const local = this.overlay.get(id)?.localUri;
       if (local) return local;
-      const row = (this.tPhotos?.all() ?? []).find((r) => r.id === id);
-      const key = row?.storage_path ?? null;
+      const key = this.tPhotos?.get(id)?.storage_path ?? null;
       if (!key) return null;
       return this.signed.resolveOne(key);
     },

@@ -237,9 +237,10 @@ where e.code in ('HOUSE7','DEMO42')
 -- Then, once per event (repeat with the other code):
 --
 --   with s as (
---     select (select string_agg(substr('ABCDEFGHJKMNPQRSTUVWXYZ23456789',
---                                      1 + floor(random() * 31)::int, 1), '' order by g)
---               from generate_series(1,12) g) as secret,
+--     -- mint_token, NEVER random(): random() is a per-session PRNG and this is a
+--     -- credential that opens a host seat. mint_token is revoked from client roles and
+--     -- this runbook runs as postgres, so it is callable here.
+--     select public.mint_token(12) as secret,
 --            h.id as host_id
 --     from public.hosts h join public.events e on e.id = h.event_id
 --     where e.code = 'HOUSE7'

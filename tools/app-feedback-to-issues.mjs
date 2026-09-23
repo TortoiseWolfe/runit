@@ -59,6 +59,11 @@ const LABEL = 'from-a-customer';
 const PROJECT_REF = 'qwusbxallkbzfladvgfx';
 const DRY = process.argv.includes('--dry');
 
+// Read by hoisted functions below, so declared before anything runs (TDZ).
+const TRAILING_MARKER = /<!-- app-feedback:([0-9a-f-]{36}) -->\s*$/;
+const MAX_BODY = 2000;
+const MAX_CELL = 120;
+
 /** `gh auth token` locally; an env var in anything that is not a laptop. */
 function githubToken() {
   if (process.env.GITHUB_TOKEN) return process.env.GITHUB_TOKEN;
@@ -69,13 +74,31 @@ function githubToken() {
     process.exit(1);
   }
 }
-const token = githubToken();
+// Resolved on first use, not at import: `--selftest` and `--dry` must run with no token.
+let tokenCache = null;
+const tokenOf = () => (tokenCache ??= githubToken());
+
+/** Like `gh`, but a non-2xx is thrown to the caller rather than ending the process. */
+async function ghSoft(path, init = {}) {
+  const res = await fetch(`https://api.github.com${path}`, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${tokenOf()}`,
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      ...(init.headers ?? {}),
+    },
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`GitHub ${init.method ?? 'GET'} ${path} -> ${res.status}: ${text.slice(0, 200)}`);
+  return text ? JSON.parse(text) : null;
+}
 
 async function gh(path, init = {}) {
   const res = await fetch(`https://api.github.com${path}`, {
     ...init,
     headers: {
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${tokenOf()}`,
       Accept: 'application/vnd.github+json',
       'X-GitHub-Api-Version': '2022-11-28',
       ...(init.headers ?? {}),
@@ -117,24 +140,59 @@ async function sql(query) {
 
 const marker = (id) => `<!-- app-feedback:${id} -->`;
 
+/**
+ * ONLY A TRAILING MARKER COUNTS. The reporter's own words are in the body ABOVE the marker,
+ * and the first version matched the first marker-shaped thing anywhere in the issue -- so a
+ * report whose text contained `<!-- app-feedback:x -->` was recorded as "x", never as
+ * itself, and re-filed every hour forever. The real marker is the last line, and nothing a
+ * reporter writes can be the last line because `issueBody` puts it there.
+ */
+export function markerIn(body) {
+  const m = TRAILING_MARKER.exec(body ?? '');
+  return m ? m[1] : null;
+}
+
 async function alreadyFiled() {
   const seen = new Set();
-  for (let page = 1; page <= 10; page++) {
+  // No page cap: a cap is a silent "everything past here is new", which re-files old reports
+  // the day the label crosses it.
+  for (let page = 1; ; page++) {
     const batch = await gh(
       `/repos/${OWNER}/${REPO}/issues?state=all&per_page=100&page=${page}&labels=${LABEL}`,
     );
     for (const issue of batch) {
-      const m = /<!-- app-feedback:([^\s>]+) -->/.exec(issue.body ?? '');
-      if (m) seen.add(m[1]);
+      const id = markerIn(issue.body);
+      if (id) seen.add(id);
     }
     if (batch.length < 100) break;
   }
   return seen;
 }
 
+/**
+ * UNTRUSTED TEXT GOES IN A FENCE, AND THE THINGS GITHUB REACTS TO ARE DEFUSED FIRST. Inside
+ * a code fence GitHub does not render `@mentions` (no notifications), `#123` and
+ * `owner/repo#123` (no backlinks from this repo onto strangers' issues), or HTML comments
+ * (no forged marker). A fence can still be CLOSED by three backticks in the text, so those
+ * are broken up; and `<!--` is broken up as belt to that brace. Length is bounded here as
+ * well as in the database, because a 65k body is a 422 from GitHub and this ran unattended.
+ */
+export function fenced(text) {
+  const safe = String(text ?? '')
+    .slice(0, MAX_BODY)
+    .replace(/```/g, '`\u200b``')
+    .replace(/<!--/g, '<!\u200b--')
+    .replace(/\r/g, '');
+  return ['```text', safe, '```'].join('\n');
+}
+/** One table cell: no pipes, no newlines, bounded. Markdown tables have no escaping. */
+export function cell(v) {
+  return String(v ?? '').replace(/[|\r\n]+/g, ' ').replace(/<!--/g, '<!\u200b--').slice(0, MAX_CELL);
+}
+
 /** A title somebody can scan in a list: their own first line, trimmed. */
 function titleFor(body) {
-  const first = body.trim().split('\n')[0].trim();
+  const first = body.trim().split('\n')[0].trim().replace(/[@#<>`]/g, ' ').replace(/\s+/g, ' ');
   const short = first.length > 68 ? `${first.slice(0, 65)}…` : first;
   return `Customer: ${short}`;
 }
@@ -178,16 +236,18 @@ function issueBody(row) {
     ['Route', ctx.route],
     ['Seat', ctx.seat],
     ['Connection', ctx.connection],
-    ['Event', row.event_code],
+    // THE UUID, NEVER THE CODE. The six-character code is the admission credential; this
+    // issue is public. A maintainer with the service role can resolve the uuid.
+    ['Event', row.event_id],
     ['Sent', row.created_at],
-  ].filter(([, v]) => v);
+  ].filter(([, v]) => v !== null && v !== undefined && v !== '');
 
   return [
-    '> ' + row.body.trim().split('\n').join('\n> '),
+    fenced(row.body),
     '',
     '| | |',
     '|---|---|',
-    ...facts.map(([k, v]) => `| ${k} | ${v} |`),
+    ...facts.map(([k, v]) => `| ${cell(k)} | ${cell(v)} |`),
     '',
     // TWO CAUSES, NOT ONE -- the distinction the sibling tool draws and for the same
     // reason. "No picture" and "a picture we could not fetch" are different facts, and
@@ -220,14 +280,23 @@ function issueBody(row) {
  * and through the Management API otherwise. Both return the same shape, so nothing below
  * knows which ran. `events(code)` is the embedded foreign key `feedback.event_id` declares.
  */
-async function reports() {
+/**
+ * NEWEST FIRST, IN PAGES, UNTIL A PAGE IS ENTIRELY OLD NEWS. The first version read the
+ * 200 OLDEST rows and rows are never deleted -- so from the 201st report on nothing new was
+ * ever filed, and filling those slots was a way to switch the channel off. `created_at` is
+ * server-stamped now (feedback_guard), so newest-first is a trustworthy order.
+ */
+const PAGE = 200;
+async function reports(filed) {
   const { envLocal } = await import('./lib/env.mjs');
   const url = envLocal('EXPO_PUBLIC_SUPABASE_URL');
   const key = envLocal('SUPABASE_SERVICE_ROLE_KEY');
   if (url && key) {
+    const out = [];
+    for (let offset = 0; ; offset += PAGE) {
     const res = await fetch(
-      `${url}/rest/v1/feedback?select=id,body,context,screenshot_path,created_at,events(code)` +
-        '&order=created_at.asc&limit=200',
+      `${url}/rest/v1/feedback?select=id,body,context,screenshot_path,created_at,event_id` +
+        `&order=created_at.desc&limit=${PAGE}&offset=${offset}`,
       { headers: { apikey: key, Authorization: `Bearer ${key}` } },
     );
     const text = await res.text();
@@ -239,32 +308,62 @@ async function reports() {
       console.error(`  ${text.slice(0, 200)}`);
       process.exit(1);
     }
-    return JSON.parse(text).map((r) => ({
+    const page = JSON.parse(text).map((r) => ({
       id: String(r.id),
       body: r.body,
       context: r.context,
       screenshot_path: r.screenshot_path,
       created_at: String(r.created_at),
-      event_code: r.events?.code ?? null,
+      event_id: r.event_id ?? null,
     }));
+    out.push(...page);
+    if (page.length < PAGE || page.every((r) => filed.has(r.id))) break;
+    }
+    return out;
   }
   return sql(`
     select f.id::text, f.body, f.context, f.screenshot_path, f.created_at::text,
-           e.code as event_code
+           f.event_id::text as event_id
       from public.feedback f
-      left join public.events e on e.id = f.event_id
-     order by f.created_at
-     limit 200`);
+     order by f.created_at desc
+     limit 1000`);
 }
 
-const rows = await reports();
+/* --------------------------------------------------------------------- selftest */
+
+/**
+ * `--selftest` runs the text-handling with no network and no credential, because every
+ * real run takes the happy path and the hostile inputs below would otherwise be reachable
+ * only by a stranger. Same doctrine as `audit:auth-config --selftest`.
+ */
+if (process.argv.includes('--selftest')) {
+  const fails = [];
+  const check = (name, ok) => { if (!ok) fails.push(name); console.log(`  ${ok ? 'ok' : 'FAIL'}  ${name}`); };
+  const fake = '<!-- app-feedback:11111111-1111-4111-8111-111111111111 -->';
+  const real = '22222222-2222-4222-8222-222222222222';
+  const body = issueBody({ id: real, body: `hello ${fake}\n@octocat see owner/repo#1`, context: { platform: 'ios | web\nx' }, screenshot_path: null, event_id: 'e', created_at: 'now' });
+  check('the dedupe marker is the real id, not one typed in the report', markerIn(body) === real);
+  check('a forged marker cannot appear as a live comment', !body.includes(fake));
+  check('the words are inside a fence', /```text\n[\s\S]*```/.test(body));
+  check('a fence in the text cannot close ours', !fenced('```\n@x').split('```').some((_, i, a) => a.length > 3));
+  check('a pipe in a context value does not break the table', !/\| ios \| web/.test(body));
+  check('a body is bounded', fenced('a'.repeat(10000)).length < 2200);
+  check('the event is named by id and never by code', body.includes('| Event | e |'));
+  if (fails.length) { console.error(`${RED}FAIL${OFF}: ${fails.length} selftest case(s)`); process.exit(1); }
+  console.log(`${GREEN}ok${OFF}: feedback filer selftest, 7 cases`);
+  process.exit(0);
+}
+
+
+
+const filed = DRY ? new Set() : await alreadyFiled();
+const rows = await reports(filed);
 
 if (rows.length === 0) {
   console.log(`${GREEN}ok${OFF}: nothing has been reported.`);
   process.exit(0);
 }
 
-const filed = DRY ? new Set() : await alreadyFiled();
 const fresh = rows.filter((r) => !filed.has(r.id));
 
 console.log(`${rows.length} report(s), ${fresh.length} not yet filed`);
@@ -296,10 +395,18 @@ for (const row of fresh) {
     console.log(`  would file: ${title}`);
     continue;
   }
-  const issue = await gh(`/repos/${OWNER}/${REPO}/issues`, {
-    method: 'POST',
-    body: JSON.stringify({ title, body: issueBody(row), labels: [LABEL] }),
-  });
+  // A row GitHub refuses (a 422 over a body it will not take) is skipped and named, not
+  // fatal: `gh()` exits on any non-2xx, and one hostile row used to end every run after it.
+  let issue;
+  try {
+    issue = await ghSoft(`/repos/${OWNER}/${REPO}/issues`, {
+      method: 'POST',
+      body: JSON.stringify({ title, body: issueBody(row), labels: [LABEL] }),
+    });
+  } catch (e) {
+    console.error(`  ${YELLOW}skipped ${row.id}: ${String(e).slice(0, 120)}${OFF}`);
+    continue;
+  }
   console.log(`  #${issue.number}  ${title}`);
 }
 

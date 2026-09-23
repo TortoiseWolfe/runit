@@ -65,7 +65,28 @@ export function oklchToSrgbHex(l: number, c: number, h: number): string {
  * fade drags its children with it. Baking alpha into the colour keeps the
  * arithmetic explicit and the result identical. See FIDELITY.md deviation 9.
  */
-export function alpha(hex: string, a: number): string {
+/**
+ * MEMOISED, BECAUSE THE INPUT SPACE IS TINY AND THE CALL SITES ARE NOT. `alpha` has ~165
+ * JSX call sites over a few dozen token/level pairs; `albumTileColor` and `pendingPhotoColor`
+ * run per tile over 360 hues x 2 schemes; `mix` runs per primary Button render over two
+ * fills. The conversions are pure, so a Map keyed on the arguments returns the same string
+ * the arithmetic would -- `oklch.test.ts` round-trips every token through them unchanged.
+ */
+function memo1<A extends (string | number | boolean)[], R>(f: (...a: A) => R): (...a: A) => R {
+  const cache = new Map<string, R>();
+  return (...a: A) => {
+    const k = a.join('\u0000');
+    let v = cache.get(k);
+    if (v === undefined) {
+      v = f(...a);
+      cache.set(k, v);
+    }
+    return v;
+  };
+}
+
+export const alpha = memo1(alphaRaw);
+function alphaRaw(hex: string, a: number): string {
   const h = hex.replace('#', '');
   const full = h.length === 3 ? h.split('').map((ch) => ch + ch).join('') : h;
   const r = parseInt(full.slice(0, 2), 16);
@@ -78,7 +99,8 @@ export function alpha(hex: string, a: number): string {
  * Album-grid placeholder tint.
  * Canvas: `oklch(${isDark ? 35 : 80}% 0.05 ${hue})`
  */
-export function albumTileColor(hue: number, isDark: boolean): string {
+export const albumTileColor = memo1(albumTileColorRaw);
+function albumTileColorRaw(hue: number, isDark: boolean): string {
   return oklchToSrgbHex(isDark ? 0.35 : 0.8, 0.05, hue);
 }
 
@@ -86,7 +108,8 @@ export function albumTileColor(hue: number, isDark: boolean): string {
  * Host approval-queue thumbnail tint.
  * Canvas: `oklch(${isDark ? 40 : 78}% 0.07 ${hue})`
  */
-export function pendingPhotoColor(hue: number, isDark: boolean): string {
+export const pendingPhotoColor = memo1(pendingPhotoColorRaw);
+function pendingPhotoColorRaw(hue: number, isDark: boolean): string {
   return oklchToSrgbHex(isDark ? 0.4 : 0.78, 0.07, hue);
 }
 
@@ -170,7 +193,8 @@ export function oklabToSrgbHex(l: number, a: number, b: number): string {
  * `t` is how much of `b` lands: `mix(x, '#FFFFFF', 0.08)` is ScriptHammer's
  * `color-mix(in oklab, x 92%, #fff)`, the top stop of every raised button on that site.
  */
-export function mix(a: string, b: string, t: number): string {
+export const mix = memo1(mixRaw);
+function mixRaw(a: string, b: string, t: number): string {
   const k = Math.max(0, Math.min(1, t));
   const [l1, a1, b1] = srgbHexToOklab(a);
   const [l2, a2, b2] = srgbHexToOklab(b);
