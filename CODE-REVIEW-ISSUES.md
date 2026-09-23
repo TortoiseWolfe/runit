@@ -61,11 +61,11 @@ Untested by choice: `push.ts`, `share.ts`, `contacts.ts`, `pickScreenshot.ts` (n
 
 | Finding | Why not in a review |
 |---|---|
-| Code guessing is unbounded per identity (`join_event`/`event_preview`; ~8.9e8 codes; a hit returns a name, venue and time) | Needs a miss-counting table and a throttle rule — a schema design, not a fix. The false claim that it *was* bounded is corrected. |
-| Any host seat can move `starts_at` back and expire the album early | With the path constraint the sweep can no longer reach a *victim's* bytes; what remains is an insider on her own party. Restricting date edits to the founder is a product rule. |
-| Realtime snapshot reads have no `limit`; `max_rows = 1000` truncates silently past 1000 photos on paid tiers; hidden/played/resolved rows are downloaded and discarded; `loadFetchOnce` makes 7 reads after each invitee write | Pagination through a realtime replay is an architecture change. |
-| `recompute` runs synchronously per realtime message over all 8 tables; `sigReports`/`sigMine` rebuild objects each time | A microtask coalesce touches the reconnect path 700 tests lean on; measure first. |
-| Seven lists render with `.map` inside a `ScrollView` (photos up to 1000, requests uncapped) | FlatList rewrites change layout, `onLayout` read-tracking in Chat, and lane D pairs. |
-| `SignedUrls` gives a batch one expiry, so the album flashes to tiles hourly | Behaviour, not correctness. |
-| Feedback bucket uploads uncapped per identity; objects without a row never cleaned | Storage policies cannot count cheaply; needs a sweep. |
+| #89 — Code guessing is unbounded per identity (`join_event`/`event_preview`; ~8.9e8 codes; a hit returns a name, venue and time) | Needs a miss-counting table and a throttle rule — a schema design, not a fix. The false claim that it *was* bounded is corrected. |
+| #90 — Any host seat can move `starts_at` back and expire the album early | With the path constraint the sweep can no longer reach a *victim's* bytes; what remains is an insider on her own party. Restricting date edits to the founder is a product rule. |
+| #91 — Realtime snapshot reads have no `limit`; `max_rows = 1000` truncates silently past 1000 photos on paid tiers; hidden/played/resolved rows are downloaded and discarded; `loadFetchOnce` makes 7 reads after each invitee write (#95) | Pagination through a realtime replay is an architecture change. |
+| #92 — `recompute` runs synchronously per realtime message over all 8 tables; `sigReports`/`sigMine` rebuild objects each time | A microtask coalesce touches the reconnect path 700 tests lean on; measure first. |
+| #93 — Seven lists render with `.map` inside a `ScrollView` (photos up to 1000, requests uncapped) | FlatList rewrites change layout, `onLayout` read-tracking in Chat, and lane D pairs. |
+| #94 — `SignedUrls` gives a batch one expiry, so the album flashes to tiles hourly | Behaviour, not correctness. |
+| #96 — Feedback bucket uploads uncapped per identity; objects without a row never cleaned | Storage policies cannot count cheaply; needs a sweep. |
 | TestFlight screenshots still committed to the public repo | #87 — the owner's call. |
