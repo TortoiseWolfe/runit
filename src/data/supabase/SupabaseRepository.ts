@@ -501,9 +501,28 @@ export class SupabaseRepository implements RunitRepository {
         )
         .sort(byNewestFirst),
     );
-    // Entirely synthetic: an uploading or failed photo has no row (see the class
-    // docblock, difference 2).
-    this.sigMine.set(this.overlay.rows(this.myGuestId));
+    // The uploader's own view: synthetic uploading/failed rows (an in-flight photo has no
+    // row, see the class docblock, difference 2) PLUS the photos that have landed and are
+    // still waiting for a host. `photos_read` already returns an uploader their own rows,
+    // so `tPhotos` holds them; they were being dropped here, which left a guest with no
+    // trace of a photo they had just taken (spec 001).
+    //
+    // The null check is load-bearing: a host has no `guests` row, so `myGuestId` is null
+    // and, unguarded, `uploadedByGuestId === null` would hand her every seat-less upload.
+    // The id filter covers the settle window, when the row has landed and the overlay has
+    // not yet dropped it -- without it the tile would flash twice.
+    const overlayRows = this.overlay.rows(this.myGuestId);
+    const overlayIds = new Set(overlayRows.map((r) => r.id));
+    const landedPending =
+      this.myGuestId === null
+        ? []
+        : photos.filter(
+            (p) =>
+              p.status === 'pending' &&
+              p.uploadedByGuestId === this.myGuestId &&
+              !overlayIds.has(p.id),
+          );
+    this.sigMine.set([...overlayRows, ...landedPending].sort(byNewestFirst));
 
     // Fire-and-forget: anything not yet signed is signed now, and recompute() runs again
     // when it lands. Guarded inside resolve() so a batch with nothing new does no work

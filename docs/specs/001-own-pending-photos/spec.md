@@ -24,15 +24,15 @@ failed. `PhotosScreen.tsx` documents this as "a real gap".
 4. Photo states shown to the uploader: sending, waiting for host, in the album, failed
    (tap to retry). Existing sending and failed behaviour is unchanged.
 5. On events with approval off, no tile is ever marked waiting.
-6. The first-upload toast states the rule once: "Only you can see this until a host approves it."
+6. The existing upload toast ("...awaiting host approval") is unchanged; the tile carries the rest.
 
 ## Acceptance criteria
 - A guest uploads on a moderated event, reloads the app, and still sees the photo, marked.
 - A second guest's album does not contain it. The host queue still contains it.
 - Approve: mark removed on the uploader's device without a reload. Hide: tile removed.
-- The viewer opens a waiting photo full size for its uploader.
 - Works in MemoryRepository and SupabaseRepository identically (the fixture must not be
   kinder than the backend).
 
 ## Out of scope
+Opening a waiting photo in the full-size viewer (the viewer takes the approved list; follow-up 001b).
 Layout changes to the Photos screen (spec 002), the host approval UI, push notifications.

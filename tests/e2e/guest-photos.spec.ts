@@ -147,6 +147,25 @@ test.describe('Photos tab · shared album', () => {
     await expect(page.getByTestId('folder-fld_reception')).toHaveText('Reception · 97');
   });
 
+  test('the guest still sees their own photo while it waits, marked as waiting (spec 001)', async ({
+    page,
+  }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await openPhotos(page, scheme);
+
+    await page.getByTestId('shutter-small').click();
+    await expect(page.getByTestId('toast')).toContainText('awaiting host approval');
+
+    // Exactly one, in the grid, saying what is happening to it. Before this the toast was
+    // the only trace, and a guest who looked away had a photo that seemed never to exist.
+    // Counted with `:visible` because expo-router keeps popped screens mounted.
+    const waiting = page.locator('[data-testid^="waiting-"]:visible');
+    await expect(waiting).toHaveCount(1);
+    await expect(waiting).toHaveText('Waiting for host');
+    // It is a tile in the same grid but not an APPROVED tile: the room's count is unchanged.
+    await expect(page.getByTestId(/^tile-/)).toHaveCount(9);
+  });
+
   test('the upload really files into the active folder, not just the toast that says so', async ({
     page,
   }, testInfo) => {
