@@ -143,7 +143,9 @@ export function PhotosScreen() {
    *
    * ON A MODERATED EVENT THAT IS NOT A MOMENT, IT IS THE WHOLE NIGHT. Uploads land
    * `pending` and `pending` is not `approved`, so `visible` never fills from this guest's
-   * own photos -- she would never see Retry at all.
+   * own photos -- she would never see Retry at all. (Since spec 001 `mine` also carries
+   * the guest's landed-and-waiting photos, so on that night the grid branch is reached
+   * from the first upload and the guest sees the photo itself, not only its Retry.)
    *
    * The second thing it fixes was not in the issue: an upload IN FLIGHT from an empty
    * album showed nothing either. `mine` carries `uploading` as well as `failed`, so the
