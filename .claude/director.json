@@ -1,0 +1,16 @@
+{
+  "_comment": [
+    "Checks for ~/.claude/workflows/director.js. Run each from a worktree root; proven green on origin/main 13f37d3 (2026-09-30).",
+    "Where Docker's credential helper can't run (WSL interop off), prefix each with `export DOCKER_CONFIG=<dir with {\"auths\":{}}>;`.",
+    "CHECK_SUITE is the same `docker compose run --rm checks` that CLAUDE.md and checks.yml use (every gate: typecheck, lint, the audits, 729 jest tests, iOS bundle, web export + colour gate, QR decode, 540 Playwright journeys). About 3 minutes.",
+    "Three lanes skip LOUDLY without credentials (lane E RLS, auth config drift, live auth settings). The director's workers never hold secrets, so those stay with the owner.",
+    "-p runit-wf keeps the dev stack's volumes untouched; every compose call must keep it, or each worktree leaks a network. -v /app/node_modules gives each run its own install, so parallel worktrees never race on the shared volume; the pnpm store stays shared (content-addressed). -v $G:$G:ro lets git resolve a worktree's .git inside the container.",
+    "image: runit-checks:local is a fixed tag shared with the main checkout, so a worktree that changes docker/checks.Dockerfile and runs CHECK_IMAGE retags the image the main checkout uses.",
+    "While the re-spec sprint's work sits unmerged on claude/exciting-planck-umrj5a (see #1), run the director with base: origin/claude/exciting-planck-umrj5a for that work."
+  ],
+  "base": "origin/main",
+  "checks": {
+    "CHECK_SUITE": "G=$(git rev-parse --path-format=absolute --git-common-dir); docker compose -p runit-wf run --rm -T -v /app/node_modules -v \"$G\":\"$G\":ro checks",
+    "CHECK_IMAGE": "docker compose -p runit-wf build checks"
+  }
+}
