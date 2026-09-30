@@ -2288,6 +2288,17 @@ completes and mark every step exists / partial / missing. `?empty=1` is the work
 example: the failure was never "one button is dead", it was "the harness cannot render
 the state where three buttons are dead", and only a journey-level look sees that.
 
+**4. A screen changes because a spec says so.** `design/wireframes/` first (lo-fi, "today" beside
+"proposed"), then `docs/specs/NNN-name/{spec,plan,tasks}.md`, then tests, then code. Spec 001
+(`docs/specs/001-own-pending-photos/`) is the worked example. The order exists because the app was
+built from a canvas and a run of one-off fixes, and several screens (join, photos, create, host
+console: #98-#101) are individually correct and collectively clumsy -- no document said what a
+first-time guest or host is trying to do. Write that sentence first.
+
+**A CLOUD SESSION CANNOT RUN THE CHECKS UNLESS ITS NETWORK POLICY ALLOWS `registry.npmjs.org`,
+`nodejs.org` AND `mcr.microsoft.com` (#102).** Spec 001 was pushed unrun for that reason. Say so in
+the commit and in `tasks.md`; do not let green-by-absence read as verified.
+
 ### Operational facts that cost a session each
 
 - **`?empty=1` boots `emptySeed`** — a world where `event.current` is null, which is what
