@@ -91,6 +91,14 @@ export function PhotosScreen() {
   const moderated = useEvent()?.photoModeration ?? false;
 
   const visible = approved.filter((p) => p.folderId === active?.id);
+  /*
+   * SPEC 001 REQ 1: a waiting photo shows "in the folder they were filed into"
+   * (docs/specs/001-own-pending-photos/spec.md:18-19). `photos.mine` is folder-agnostic in
+   * both adapters, so the folder filter lives here, beside `visible`'s. Sending and failed
+   * transfers are deliberately NOT filtered: req 4 keeps their behaviour unchanged, and Retry
+   * must stay reachable from whichever folder the guest is looking at (#70).
+   */
+  const mineHere = mine.filter((p) => p.status !== 'pending' || p.folderId === active?.id);
   const totalPhotos = folders.reduce((a, f) => a + f.photoCount, 0);
   const onCapture = () => capture(active?.name ?? 'the album');
 
@@ -153,7 +161,7 @@ export function PhotosScreen() {
    * at :215 is finally reachable from a cold album. In-memory transfers complete
    * instantly, which is why only `?flaky=1` can see that half.
    */
-  if (visible.length === 0 && mine.length === 0) {
+  if (visible.length === 0 && mineHere.length === 0) {
     return (
       <View style={s.wrap}>
         <EventHeader eyebrow="Shared album" />
@@ -220,7 +228,7 @@ export function PhotosScreen() {
               failed one needs to be found without hunting. They sit in the same
               grid rather than a separate list so the album still reads as one
               roll -- which is also why they keep the hue tile underneath. */}
-          {mine.map((p) => (
+          {mineHere.map((p) => (
             <View
               key={p.id}
               testID={`upload-${p.id}`}
