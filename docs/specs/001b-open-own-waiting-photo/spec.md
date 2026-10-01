@@ -1,6 +1,6 @@
 # 001b — A guest can open their own waiting photo full size
 
-Status: DRAFT, awaiting owner review. Follow-up to spec 001 (`docs/specs/001-own-pending-photos/`), issue #97.
+Status: APPROVED by the owner 2026-10-01. Follow-up to spec 001 (`docs/specs/001-own-pending-photos/`), issue #97.
 
 ## Problem
 Since spec 001 a guest sees their own photo in the album straight away, marked "Waiting for
