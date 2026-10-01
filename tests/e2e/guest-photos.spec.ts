@@ -315,6 +315,7 @@ test.describe('Photos tab · shared album', () => {
     // Ceremony has 112 photos but none of the nine approved rows, so the grid
     // variant unmounts entirely and the empty-album shutter pane takes over.
     // Losing the tiles is the observable half of the switch.
+    // Since spec 001 it also proves the Reception upload stayed in Reception (spec.md:18-19).
     await expect(page.getByTestId('album')).toHaveCount(0);
     await expect(page.getByTestId(/^tile-/)).toHaveCount(0);
     await expect(page.getByTestId('shutter')).toBeVisible();
@@ -347,9 +348,25 @@ test.describe('Photos tab · shared album', () => {
       'Uploaded to Ceremony · awaiting host approval',
     );
 
-    // Two pending uploads later the album total is still 247: moderated
+    // SPEC 001 MOVED THIS ASSERTION, AND THE CLAIM SURVIVES THE MOVE. It read the 247 off
+    // the shutter pane, which stayed up because a pending upload used to leave no trace.
+    // Since spec 001 the guest's own waiting photo appears in the folder it was filed into
+    // (docs/specs/001-own-pending-photos/spec.md:18-19), so Ceremony now shows the grid with
+    // exactly ONE waiting tile -- this upload, not the Reception one -- and no approved tile.
+    await expect(page.getByTestId('album')).toBeVisible();
+    const waiting = page.locator('[data-testid^="waiting-"]:visible');
+    await expect(waiting).toHaveCount(1);
+    await expect(waiting).toHaveText('Waiting for host');
+    await expect(page.getByTestId(/^tile-/)).toHaveCount(0);
+
+    // Two pending uploads later every folder's count is unchanged: moderated
     // uploads do not touch a folder's count until a host approves them.
-    await expect(page.getByText(TOTAL_PHOTOS, { exact: true })).toBeVisible();
+    await expect(page.getByTestId(/^folder-/)).toHaveText(FOLDER_CHIPS);
+
+    // And the Reception upload is still where it was filed, beside the nine approved.
+    await page.getByTestId('folder-fld_reception').click();
+    await expect(waiting).toHaveCount(1);
+    await expect(page.getByTestId(/^tile-/)).toHaveCount(9);
   });
 });
 
@@ -435,10 +452,17 @@ test.describe('what the empty album promises (#67)', () => {
 
     // THE CONTRADICTION, STILL PINNED, NOW THE OTHER WAY UP. The screen promised approval,
     // so the photo must NOT be in the album -- a promise of a gate over a photo that went
-    // straight through is the same lie in mirror image. The empty-album branch is still
-    // what renders, because her own pending photo is not an approved one (#70).
+    // straight through is the same lie in mirror image. No approved tile:
     await expect(page.locator('[data-testid^="tile-"]')).toHaveCount(0);
-    await expect(page.getByTestId('album-blurb')).toContainText(/approve/i);
+    // SPEC 001 CHANGED WHICH BRANCH SAYS IT, NOT WHAT IS SAID. This read `album-blurb`, the
+    // empty-album pane, which stayed up because her pending photo left no trace. Now her
+    // photo is in the grid, marked (docs/specs/001-own-pending-photos/spec.md:18-19), and the
+    // grid's rule line `album-moderated` carries the same promise -- so two seconds later the
+    // screen still says approval AND shows her photo waiting for it.
+    const waiting = page.locator('[data-testid^="waiting-"]:visible');
+    await expect(waiting).toHaveCount(1);
+    await expect(waiting).toHaveText('Waiting for host');
+    await expect(page.getByTestId('album-moderated')).toContainText(/approve/i);
   });
 });
 

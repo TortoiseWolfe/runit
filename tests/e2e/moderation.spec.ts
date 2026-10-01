@@ -306,11 +306,14 @@ test.describe("approval is the host's choice, on any tier", () => {
     await page.getByTestId('tab-photos').click();
     await page.getByTestId('shutter').click();
     await expect(page.locator('[data-testid^="tile-"]')).toHaveCount(0);
-    // The EMPTY-album copy, not `album-moderated`: with nothing approved the screen is
-    // still on its shutter branch, and `album-blurb` is where that branch states the rule.
-    // Getting this wrong is the bug the blurb exists to fix -- an album that says photos
-    // go straight in while the guest's own photo is invisible.
-    await expect(page.getByTestId('album-blurb')).toContainText(/once a host approves/i);
+    // HER OWN PHOTO, MARKED, AND THE RULE THAT EXPLAINS THE MARK. This read the EMPTY-album
+    // copy (`album-blurb`), because before spec 001 her pending photo left no trace and the
+    // shutter pane stayed up. Now it is in her grid marked "Waiting for host"
+    // (docs/specs/001-own-pending-photos/spec.md:18-19), so the grid renders and its rule
+    // line, `album-moderated`, is where the screen states the rule. The bug the old line
+    // guarded is unchanged: an album saying photos go straight in over one that did not.
+    await expect(page.locator('[data-testid^="waiting-"]:visible')).toHaveCount(1);
+    await expect(page.getByTestId('album-moderated')).toContainText(/once a host approves/i);
 
     // It is waiting in the host's queue -- a segment that was permanently empty on every
     // event this app could create, because `house_party` auto-approved everything.
@@ -326,6 +329,8 @@ test.describe("approval is the host's choice, on any tier", () => {
     await page.getByTestId('role-switch').click();
     await page.getByTestId('tab-photos').click();
     await expect(page.locator('[data-testid^="tile-"]')).toHaveCount(1);
+    // ...and it has lost its mark (spec.md:22): an approved photo is no longer waiting.
+    await expect(page.locator('[data-testid^="waiting-"]:visible')).toHaveCount(0);
   });
 
   test('turning it back off lets the next photo straight through', async ({ page }, info) => {
