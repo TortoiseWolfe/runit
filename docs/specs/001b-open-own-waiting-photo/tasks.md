@@ -4,4 +4,4 @@
 - [x] T3 Viewer follows the photo id: approve while open keeps it; hide while open moves on or closes
 - [x] T4 Jest: viewer list order, controls per state, follow-by-id (MemoryRepository)
 - [x] T5 Playwright journey (dark + light): tap own waiting tile, mark shown, no Save/Report, "1 of M", swipe/next into approved shows Save/Report
-- [ ] T6 `pnpm checks:docker` green
+- [x] T6 `pnpm checks:docker` green
