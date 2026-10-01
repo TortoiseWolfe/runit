@@ -648,7 +648,10 @@ export class MemoryRepository implements RunitRepository {
       this.photoList
         .filter(
           (p) =>
-            (p.status === 'uploading' || p.status === 'failed') &&
+            // `pending` is here since spec 001: an uploader keeps sight of their own photo
+            // while it waits for a host. Only theirs -- the id test below is what stops
+            // it being every guest's.
+            (p.status === 'uploading' || p.status === 'failed' || p.status === 'pending') &&
             // The null check is load-bearing, not defensive: a host's upload carries
             // `uploadedByGuestId: null`, so without it a founder with no seat would find
             // every host photo in her own transfer list.

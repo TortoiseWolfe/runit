@@ -207,6 +207,32 @@ describe('photos', () => {
     expect(await free.photos.upload({ localUri: 'file:///tmp/a.jpg' })).toBe('approved');
   });
 
+  it('keeps a waiting photo in the uploader\'s own list, and no one else\'s (spec 001)', async () => {
+    const r = make();
+    await r.session.joinAsGuest({ code: 'SR1017', nickname: 'Ada' });
+    // The seed holds three pending photos by other guests: none may be Ada's.
+    expect(r.photos.mine.get()).toHaveLength(0);
+    await r.photos.upload({ localUri: 'file:///tmp/a.jpg' });
+    const mine = r.photos.mine.get();
+    expect(mine).toHaveLength(1);
+    expect(mine[0]).toMatchObject({ status: 'pending', uploadedByName: 'Ada' });
+    // Still in the host's queue: seeing your own photo must not take it out of review.
+    expect(r.photos.pending.get()).toHaveLength(4);
+
+    await r.photos.approve(mine[0]!.id);
+    expect(r.photos.mine.get()).toHaveLength(0);
+  });
+
+  it('a free event has nothing waiting, so nothing is ever marked', async () => {
+    const free = makeFree();
+    await free.session.joinAsGuest({ code: 'HP0842', nickname: 'Ada' });
+    // Approval is off here (spec 001 req 5): the photo goes straight to the album, so
+    // it is never `pending` and never lands in `mine` to be marked.
+    expect(await free.photos.upload({ localUri: 'file:///tmp/a.jpg' })).toBe('approved');
+    expect(free.photos.mine.get()).toHaveLength(0);
+    expect(free.photos.approved.get().some((p) => p.uploadedByName === 'Ada')).toBe(true);
+  });
+
   it('retry re-attempts and delivers, clearing the failure', async () => {
     const r = MemoryRepository.create(weddingSeed, {
       now: () => FIXED,
@@ -218,7 +244,9 @@ describe('photos', () => {
 
     await r.photos.retry(failed.id);
 
-    expect(r.photos.mine.get()).toHaveLength(0); // no longer in flight or failed
+    // No longer in flight or failed. On this (moderated) tier it is still HERS while it
+    // waits for a host, which is spec 001, so it stays in `mine` as `pending`.
+    expect(r.photos.mine.get().map((p) => [p.id, p.status])).toEqual([[failed.id, 'pending']]);
     const queued = r.photos.pending.get();
     expect(queued).toHaveLength(4);
     expect(queued.some((p) => p.id === failed.id && p.failureReason === null)).toBe(true);
@@ -228,12 +256,15 @@ describe('photos', () => {
     const r = make();
     await r.session.joinAsGuest({ code: 'SR1017', nickname: 'Ada' });
     await r.photos.upload({ localUri: 'file:///tmp/a.jpg' });
-    const delivered = r.photos.pending.get()[0]!;
+    // Spec 001: on this moderated tier a delivered photo stays in the uploader's own
+    // list as `pending` while it waits for a host.
+    const delivered = r.photos.mine.get()[0]!;
+    expect(delivered.status).toBe('pending');
     const before = r.photos.pending.get().length;
     await r.photos.retry(delivered.id);   // already pending
     await r.photos.retry('pho_does_not_exist');
     expect(r.photos.pending.get()).toHaveLength(before);
-    expect(r.photos.mine.get()).toHaveLength(0);
+    expect(r.photos.mine.get().map((p) => [p.id, p.status])).toEqual([[delivered.id, 'pending']]);
   });
 
   it('reports progress while in flight, and clears it once settled', async () => {
@@ -246,7 +277,10 @@ describe('photos', () => {
     r.photos.mine.subscribe((rows) => { if (rows[0]) seen.push(rows[0].progress); });
     await r.photos.upload({ localUri: 'file:///tmp/a.jpg' });
 
-    expect(seen).toEqual([0, 0.25, 0.75]);
+    // The trailing null is the settle: since spec 001 the photo stays in `mine` as
+    // `pending` (waiting for host), with its progress cleared.
+    expect(seen).toEqual([0, 0.25, 0.75, null]);
+    expect(r.photos.mine.get()[0]).toMatchObject({ status: 'pending', progress: null });
     // Null, not zero. Zero means "transferring, nothing moved yet"; a settled
     // photo is not transferring at all.
     expect(r.photos.pending.get()[0]!.progress).toBeNull();

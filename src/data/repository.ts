@@ -963,11 +963,14 @@ export interface RunitRepository {
     pending: Observable<Photo[]>;
     approved: Observable<Photo[]>;
     /**
-     * The CURRENT GUEST's own in-flight and failed uploads.
+     * The CURRENT GUEST's own photos that are not yet in the room's album: in flight,
+     * failed, and (spec 001) landed but still waiting for a host.
      *
      * Separate from `pending` because the audiences are different: this is "your
-     * photo is on its way / did not make it, here is a retry", which only the
-     * uploader should see, and only for their own photos.
+     * photo is on its way / did not make it, here is a retry / a host has not
+     * looked at it yet", which only the uploader should see, and only for their own
+     * photos. A photo is in BOTH lists while it waits -- `pending` is the host's
+     * queue and stays whole; this is the uploader's view of the same row.
      */
     mine: Observable<Photo[]>;
     /**

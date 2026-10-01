@@ -1869,15 +1869,18 @@ was green and the half a guest actually walks was dead.
   `GestureHandlerRootView` was already mounted, so it added nothing to the bundle -- but it is
   the first hand-written gesture in this codebase. Chromium cannot swipe, so the BUTTONS carry
   every assertion. That is why both exist.
-- **`photos.pending` is the host's queue and selects `'pending'` ONLY.** In-flight
-  and failed uploads go to `photos.mine`, scoped to the uploading guest. Putting
+- **`photos.pending` is the host's queue and selects `'pending'` ONLY.** `photos.mine` is
+  scoped to the uploading guest. It holds their in-flight and failed uploads, and since
+  spec 001 also their own landed photos that are still `pending`, so a guest sees what
+  they sent while it waits for the host (a solid "Waiting for host" chip). Putting
   `'uploading'` back into `pending` gives the host Approve/Hide over a photo with
   no bytes — it was that way once, and a test now fails if it returns.
-- **THE PHOTOS SCREEN BRANCHES ON `visible.length === 0 && mine.length === 0`, and the second
-  clause is load-bearing.** `visible` is APPROVED photos in the active folder; `mine` is this
-  guest's own uploading and failed transfers. The shutter pane references `mine` nowhere, and
-  the Retry control exists in exactly ONE place in the app -- inside `mine.map` in the grid
-  branch. With the first clause alone, a guest whose upload failed on an empty album was told
+- **THE PHOTOS SCREEN BRANCHES ON `visible.length === 0 && mineHere.length === 0`, and the second
+  clause is load-bearing.** `visible` is APPROVED photos in the active folder. `mineHere` is
+  `mine` with its `'pending'` photos kept only in the folder they were uploaded to (spec 001
+  req 1); uploading and failed transfers stay in every folder (req 4), so Retry is always
+  reachable. The shutter pane references `mineHere` nowhere, and the Retry control exists in
+  exactly ONE place in the app -- inside `mineHere.map` in the grid branch. With the first clause alone, a guest whose upload failed on an empty album was told
   "tap Retry" by `actions.ts:277` on a screen with no Retry on it; on a moderated event that is
   the whole night, because uploads land `pending` and `pending` is never `approved`, so
   `visible` never fills from her own photos (#70). Do not simplify it back: three mutations
@@ -2287,6 +2290,17 @@ expensive one.
 completes and mark every step exists / partial / missing. `?empty=1` is the worked
 example: the failure was never "one button is dead", it was "the harness cannot render
 the state where three buttons are dead", and only a journey-level look sees that.
+
+**4. A screen changes because a spec says so.** `design/wireframes/` first (lo-fi, "today" beside
+"proposed"), then `docs/specs/NNN-name/{spec,plan,tasks}.md`, then tests, then code. Spec 001
+(`docs/specs/001-own-pending-photos/`) is the worked example. The order exists because the app was
+built from a canvas and a run of one-off fixes, and several screens (join, photos, create, host
+console: #98-#101) are individually correct and collectively clumsy -- no document said what a
+first-time guest or host is trying to do. Write that sentence first.
+
+**A CLOUD SESSION CANNOT RUN THE CHECKS UNLESS ITS NETWORK POLICY ALLOWS `registry.npmjs.org`,
+`nodejs.org` AND `mcr.microsoft.com` (#102).** Spec 001 was pushed unrun for that reason. Say so in
+the commit and in `tasks.md`; do not let green-by-absence read as verified.
 
 ### Operational facts that cost a session each
 

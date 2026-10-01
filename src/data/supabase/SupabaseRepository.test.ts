@@ -713,6 +713,59 @@ describe('uploading a photo', () => {
   });
 });
 
+/* ------------------------------------- an uploader keeps sight of their own photo (spec 001) */
+
+describe('a photo that has landed and is waiting for a host', () => {
+  const OTHER = 'g0000000-0000-0000-0000-000000000002';
+  const row = (id: string, by: string | null, status: string, at = FIXED) => ({
+    id, event_id: EVENT, folder_id: FOLDER, uploaded_by_guest_id: by, uploaded_by_name: 'x',
+    status, hue: 10, storage_path: `${EVENT}/${id}.jpg`, thumb_path: null, created_at: at,
+  });
+  const emit = (c: FakeClient, eventType: 'INSERT' | 'UPDATE', r: object) =>
+    c.channels.find((ch) => ch.name === 'runit:photos')!.emit({ eventType, new: r });
+
+  it('is in the uploader\'s `mine`, and only theirs', async () => {
+    const c = ready();
+    const repo = await join(c);
+    emit(c, 'INSERT', row('p-mine', GUEST, 'pending'));
+    emit(c, 'INSERT', row('p-theirs', OTHER, 'pending'));
+    emit(c, 'INSERT', row('p-null', null, 'pending'));
+    // The other two are here on purpose: the guest's own id is the only thing that admits a
+    // row, and `null` (a host's upload) must not match a guest whose id is known.
+    expect(repo.photos.mine.get().map((p) => p.id)).toEqual(['p-mine']);
+    // Nothing about the host's queue moved: all three are still waiting for a host.
+    expect(repo.photos.pending.get()).toHaveLength(3);
+  });
+
+  it('leaves `mine` once a host approves it, and joins the album', async () => {
+    const c = ready();
+    const repo = await join(c);
+    emit(c, 'INSERT', row('p-mine', GUEST, 'pending'));
+    emit(c, 'UPDATE', row('p-mine', GUEST, 'approved'));
+    expect(repo.photos.mine.get()).toHaveLength(0);
+    expect(repo.photos.approved.get().map((p) => p.id)).toEqual(['p-mine']);
+  });
+
+  it('leaves `mine` when a host hides it, and never reaches the album', async () => {
+    const c = ready();
+    const repo = await join(c);
+    emit(c, 'INSERT', row('p-mine', GUEST, 'pending'));
+    emit(c, 'UPDATE', row('p-mine', GUEST, 'hidden'));
+    expect(repo.photos.mine.get()).toHaveLength(0);
+    expect(repo.photos.approved.get()).toHaveLength(0);
+  });
+
+  it('is not listed twice while the overlay still holds it', async () => {
+    const c = ready();
+    c.seed('events', [eventRow({ photo_moderation: true })]);
+    const repo = await join(c);
+    await repo.photos.upload({ localUri: 'file:///tmp/a.jpg' });
+    const id = (c.find('insert', 'photos')[0]!.payload as { id: string }).id;
+    emit(c, 'INSERT', row(id, GUEST, 'pending'));
+    expect(repo.photos.mine.get().filter((p) => p.id === id)).toHaveLength(1);
+  });
+});
+
 /* ---------------------------------------------------------- channel lifecycle */
 
 describe('realtime lifecycle', () => {

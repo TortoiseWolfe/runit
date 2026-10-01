@@ -70,19 +70,13 @@ export function PhotosScreen() {
    */
   const retentionDays = useEntitlements().tier.limits.albumRetentionDays;
   /**
-   * WHY A PHOTO IS NOT HERE YET, on the one screen a guest would look for it.
+   * WHY A PHOTO IS NOT IN THE ROOM'S ALBUM YET.
    *
-   * On a moderated tier every upload lands `pending` and stays invisible until a host
-   * approves it. The guest gets one toast at upload time ("awaiting host approval",
-   * `actions.ts:281`) and then nothing: `photos.mine` is fed from `UploadOverlay`, which
-   * holds in-flight and FAILED transfers only and drops a row the moment it lands
-   * (`SupabaseRepository.ts:457`). So a guest who missed the toast, or who checks the
-   * album five minutes later, finds no trace of their own photo and concludes it broke.
-   *
-   * This does not make their pending photo visible -- that is a real gap and needs the
-   * repository to read their own pending rows, which RLS already permits
-   * (`photos_read`, schema.sql:1185-1190). It states the RULE, which is the part that
-   * stops the album looking broken, and it costs nothing at a party to be told.
+   * On a moderated event every upload lands `pending` and stays invisible to everyone but
+   * its uploader and the hosts until a host approves it. The uploader sees it here, in
+   * `mine`, marked "Waiting for host" (spec 001) -- the toast at upload time is a
+   * one-off and a guest who checks the album five minutes later must still find their
+   * photo. The album's rule line below states the same rule for a guest with none yet.
    */
   /*
    * THE EVENT'S SWITCH, NOT THE TIER'S. It was `useEntitlements().tier.features
@@ -97,6 +91,14 @@ export function PhotosScreen() {
   const moderated = useEvent()?.photoModeration ?? false;
 
   const visible = approved.filter((p) => p.folderId === active?.id);
+  /*
+   * SPEC 001 REQ 1: a waiting photo shows "in the folder they were filed into"
+   * (docs/specs/001-own-pending-photos/spec.md:18-19). `photos.mine` is folder-agnostic in
+   * both adapters, so the folder filter lives here, beside `visible`'s. Sending and failed
+   * transfers are deliberately NOT filtered: req 4 keeps their behaviour unchanged, and Retry
+   * must stay reachable from whichever folder the guest is looking at (#70).
+   */
+  const mineHere = mine.filter((p) => p.status !== 'pending' || p.folderId === active?.id);
   const totalPhotos = folders.reduce((a, f) => a + f.photoCount, 0);
   const onCapture = () => capture(active?.name ?? 'the album');
 
@@ -149,7 +151,9 @@ export function PhotosScreen() {
    *
    * ON A MODERATED EVENT THAT IS NOT A MOMENT, IT IS THE WHOLE NIGHT. Uploads land
    * `pending` and `pending` is not `approved`, so `visible` never fills from this guest's
-   * own photos -- she would never see Retry at all.
+   * own photos -- she would never see Retry at all. (Since spec 001 `mine` also carries
+   * the guest's landed-and-waiting photos, so on that night the grid branch is reached
+   * from the first upload and the guest sees the photo itself, not only its Retry.)
    *
    * The second thing it fixes was not in the issue: an upload IN FLIGHT from an empty
    * album showed nothing either. `mine` carries `uploading` as well as `failed`, so the
@@ -157,7 +161,7 @@ export function PhotosScreen() {
    * at :215 is finally reachable from a cold album. In-memory transfers complete
    * instantly, which is why only `?flaky=1` can see that half.
    */
-  if (visible.length === 0 && mine.length === 0) {
+  if (visible.length === 0 && mineHere.length === 0) {
     return (
       <View style={s.wrap}>
         <EventHeader eyebrow="Shared album" />
@@ -224,7 +228,7 @@ export function PhotosScreen() {
               failed one needs to be found without hunting. They sit in the same
               grid rather than a separate list so the album still reads as one
               roll -- which is also why they keep the hue tile underneath. */}
-          {mine.map((p) => (
+          {mineHere.map((p) => (
             <View
               key={p.id}
               testID={`upload-${p.id}`}
@@ -261,6 +265,19 @@ export function PhotosScreen() {
                         { width: `${Math.round((p.progress ?? 0) * 100)}%`, backgroundColor: tokens.primary },
                       ]}
                     />
+                  </View>
+                </View>
+              ) : p.status === 'pending' ? (
+                // LANDED AND WAITING (spec 001). No scrim: this is the guest's own photo
+                // and the point is that they can see it. A solid chip rather than a
+                // translucent one, so its contrast is the token pair's and not whatever
+                // hue happens to be underneath.
+                <View style={s.waitingWrap} pointerEvents="none">
+                  <View
+                    testID={`waiting-${p.id}`}
+                    style={[s.waiting, { backgroundColor: tokens.base100, borderColor: tokens.base300 }]}
+                  >
+                    <Text style={[s.waitingText, { color: tokens.baseContent }]}>Waiting for host</Text>
                   </View>
                 </View>
               ) : (
@@ -506,6 +523,9 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 10,
   },
+  waitingWrap: { position: 'absolute', left: 0, right: 0, bottom: 6, alignItems: 'center' },
+  waiting: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, borderWidth: border },
+  waitingText: { fontSize: 11 },
   track: { width: '100%', height: 4, borderRadius: 2, overflow: 'hidden' },
   fill: { height: '100%' },
   // 28pt tall clears the 24x24 AA minimum on its own; the hitSlop is headroom

@@ -3082,3 +3082,22 @@ decision that belongs to the owner.
 insets and the phone build injects a 62pt Dynamic Island. The pairing gate is skipped there —
 `design/renders/` is the canvas, and the canvas drew no desktop, so there is nothing to pair
 against. These images are for the eye; the assertion is the spec.
+
+## BC. Your own photo, while it waits
+
+**The canvas draws the album as the ROOM'S photos.** `02-guest-photos-album` shows nine
+approved tiles, and `02-guest-photos-shutter` says photos "appear once a host approves
+them" -- so on an event with approval on (the default since 2026-09-20) a guest's photo
+vanished the moment it landed and the only trace was one toast. The app now shows the
+uploader their OWN waiting photos in the grid (`photos.mine`, spec 001), each carrying a
+solid "Waiting for host" chip and NO scrim, because the point is that they can see it.
+
+**Deliberately not in the canvas, and deliberately not recoloured:** the chip is
+`base100` on `base300`, opaque, so its contrast is the token pair's and not whatever hue
+tile happens to be underneath. It draws nothing on an event with approval off.
+
+**No render exists for it**, so lane D has nothing to compare against; `guest-photos.spec.ts`
+asserts the chip instead. The waiting tile is testID `upload-*`, never `tile-*`: the
+album's "nine tiles" count and its order assertions must not move.
+
+**What is NOT covered:** opening a waiting photo full size (#97).
