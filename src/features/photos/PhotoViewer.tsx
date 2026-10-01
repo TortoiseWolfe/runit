@@ -8,7 +8,8 @@ import { savePhotoToLibrary } from '@/lib/save';
 import { useRepository } from '@/state/RepositoryProvider';
 import { useToast } from '@/state/ToastProvider';
 import { albumTileColor } from '@/theme/oklch';
-import { alpha, useTheme, weight } from '@/theme';
+import { alpha, border, radius, useTheme, weight } from '@/theme';
+import { viewerControls } from './viewerList';
 
 /**
  * A photo, full screen — issue #38.
@@ -43,7 +44,7 @@ export function PhotoViewer({
   onClose,
   onReport,
 }: {
-  /** The album as it is on screen, in the order it is on screen. */
+  /** What the grid can open, in grid order: the guest's own waiting photos in this folder, then the approved ones (spec 001b). */
   photos: Photo[];
   /** Which one is open. `null` closes the viewer -- the old `photo: null` contract. */
   index: number | null;
@@ -60,6 +61,7 @@ export function PhotoViewer({
    * next one's thumbnail; nothing had ever handed it a different photo.
    */
   const photo = index === null ? null : (photos[index] ?? null);
+  const controls = viewerControls(photo);
   const hasPrev = index !== null && index > 0;
   const hasNext = index !== null && index < photos.length - 1;
   /**
@@ -179,6 +181,19 @@ export function PhotoViewer({
               />
             ) : null}
 
+            {/* SPEC 001b req 3: the same mark the grid tile carries. `viewer-waiting`, never
+                `waiting-*` -- the album specs count `[data-testid^="waiting-"]`. */}
+            {controls.waiting ? (
+              <View style={s.waitingWrap} pointerEvents="none">
+                <View
+                  testID="viewer-waiting"
+                  style={[s.waiting, { backgroundColor: tokens.base100, borderColor: tokens.base300 }]}
+                >
+                  <Text style={[s.waitingText, { color: tokens.baseContent }]}>Waiting for host</Text>
+                </View>
+              </View>
+            ) : null}
+
             {/* THE ARROWS SIT ON THE STAGE, INSIDE THE BACKDROP'S CHILD, and that placement
                 is the whole reason they work. `viewer-backdrop` is a full-screen Pressable
                 whose job is to dismiss; a sibling laid over it would be fighting it for the
@@ -257,44 +272,51 @@ export function PhotoViewer({
             it is there and the thumbnail before that, and saving early is the one case
             where a moment's patience is obviously right.
           */}
-          <Pressable
-            onPress={async () => {
-              const uri = full ?? photo?.localUri ?? null;
-              if (!uri || saving) return;
-              setSaving(true);
-              const result = await savePhotoToLibrary(uri);
-              setSaving(false);
-              // Each outcome says something DIFFERENT and true. A refusal is not a
-              // failure: they chose it, and telling them it broke would be a lie about
-              // their own decision.
-              show(
-                result === 'saved'
-                  ? 'Saved to your photos.'
-                  : result === 'denied'
-                    ? 'RunIt needs permission to add to your photos.'
-                    : 'Could not save that photo.',
-              );
-            }}
-            accessibilityRole="button"
-            accessibilityLabel="Save this photo to your phone"
-            testID="viewer-save"
-            hitSlop={10}
-          >
-            <Text style={[s.action, { color: alpha(tokens.baseContent, fade.muted) }]}>
-              {saving ? 'Saving…' : 'Save'}
-            </Text>
-          </Pressable>
-          <Pressable
-            onPress={() => {
-              if (photo) onReport(photo);
-            }}
-            accessibilityRole="button"
-            accessibilityLabel="Report this photo or block whoever posted it"
-            testID="viewer-report"
-            hitSlop={10}
-          >
-            <Text style={[s.action, { color: alpha(tokens.baseContent, fade.muted) }]}>Report</Text>
-          </Pressable>
+          {/* On a waiting photo neither Save nor Report is drawn: the room cannot see it, so
+              reporting it is meaningless, and Save waits until it is in the album (spec 001b
+              req 3, #97). Close is always drawn. */}
+          {controls.save ? (
+            <Pressable
+              onPress={async () => {
+                const uri = full ?? photo?.localUri ?? null;
+                if (!uri || saving) return;
+                setSaving(true);
+                const result = await savePhotoToLibrary(uri);
+                setSaving(false);
+                // Each outcome says something DIFFERENT and true. A refusal is not a
+                // failure: they chose it, and telling them it broke would be a lie about
+                // their own decision.
+                show(
+                  result === 'saved'
+                    ? 'Saved to your photos.'
+                    : result === 'denied'
+                      ? 'RunIt needs permission to add to your photos.'
+                      : 'Could not save that photo.',
+                );
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Save this photo to your phone"
+              testID="viewer-save"
+              hitSlop={10}
+            >
+              <Text style={[s.action, { color: alpha(tokens.baseContent, fade.muted) }]}>
+                {saving ? 'Saving…' : 'Save'}
+              </Text>
+            </Pressable>
+          ) : null}
+          {controls.report ? (
+            <Pressable
+              onPress={() => {
+                if (photo) onReport(photo);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Report this photo or block whoever posted it"
+              testID="viewer-report"
+              hitSlop={10}
+            >
+              <Text style={[s.action, { color: alpha(tokens.baseContent, fade.muted) }]}>Report</Text>
+            </Pressable>
+          ) : null}
           <Pressable
             onPress={onClose}
             accessibilityRole="button"
@@ -339,6 +361,9 @@ const s = StyleSheet.create({
   arrowLeft: { left: 8 },
   arrowRight: { right: 8 },
   arrowText: { fontSize: 26, lineHeight: 30, fontWeight: weight.semibold },
+  waitingWrap: { position: 'absolute', left: 0, right: 0, bottom: 12, alignItems: 'center' },
+  waiting: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: radius.pill, borderWidth: border },
+  waitingText: { fontSize: 13 },
   actions: { flexDirection: 'row', gap: 20 },
   action: { fontSize: 15, fontWeight: weight.semibold },
 });
