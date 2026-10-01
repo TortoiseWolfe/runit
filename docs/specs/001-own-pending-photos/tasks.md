@@ -10,7 +10,7 @@
 - [x] T7 Lane B journey (flaky/moderated seed): mark shown, absent for second context,
       cleared on approve, removed on hide
 - [ ] T8 Lane H: two-context check against the live project
-- [ ] T9 `pnpm checks:docker` green; update CLAUDE.md photo paragraph
+- [x] T9 `pnpm checks:docker` green; update CLAUDE.md photo paragraph (2026-10-01)
 
 NOTE: T1-T7 were written in a session with NO npm registry access (403), so NONE of them has
 been run. T8 and T9 are open, and T9 must run before this is trusted.
