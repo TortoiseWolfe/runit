@@ -528,3 +528,75 @@ test.describe('a failed upload on an empty album', () => {
     await expect(page.locator('[data-testid^="tile-"]')).toHaveCount(1);
   });
 });
+
+/**
+ * OPENING YOUR OWN WAITING PHOTO -- spec 001b (docs/specs/001b-open-own-waiting-photo/spec.md).
+ *
+ * Since spec 001 a guest sees her own photo in the album marked "Waiting for host", and the
+ * tile did nothing when tapped while every approved tile opened. The viewer's list is her
+ * waiting photos in this folder, then the approved ones, so on the wedding's Reception it is
+ * 1 + 9 = 10. Approve and hide WHILE OPEN cannot be driven from one guest's browser (the host
+ * console is behind the modal); `followViewing` carries those in jest.
+ */
+test.describe('your own waiting photo opens full size (spec 001b)', () => {
+  test('the waiting tile opens the viewer, marked, with no Save or Report, and Next reaches the album', async ({
+    page,
+  }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await openPhotos(page, scheme);
+
+    await page.getByTestId('shutter-small').click();
+    await expect(page.getByTestId('toast')).toContainText('awaiting host approval');
+
+    const waitingTile = page.locator('[data-testid^="upload-pho_"]:visible');
+    await expect(waitingTile).toHaveCount(1);
+    await expect(page.getByTestId('viewer-stage')).toHaveCount(0);
+    await waitingTile.click();
+
+    await expect(page.getByTestId('viewer-stage')).toBeVisible();
+    await expect(page.getByTestId('viewer-waiting')).toHaveText('Waiting for host');
+    await expect(page.getByTestId('viewer-position')).toHaveText('1 of 10');
+    await expect(page.getByTestId('viewer-by')).toHaveText('Ada');
+    // A photo the room cannot see offers nothing that only makes sense for one it can.
+    await expect(page.getByTestId('viewer-save')).toHaveCount(0);
+    await expect(page.getByTestId('viewer-report')).toHaveCount(0);
+    await expect(page.getByTestId('viewer-prev')).toHaveCount(0);
+
+    // Next is the newest APPROVED photo: the mark goes, Save and Report come back.
+    await page.getByTestId('viewer-next').click();
+    await expect(page.getByTestId('viewer-position')).toHaveText('2 of 10');
+    await expect(page.getByTestId('viewer-waiting')).toHaveCount(0);
+    await expect(page.getByTestId('viewer-save')).toBeVisible();
+    await expect(page.getByTestId('viewer-report')).toBeVisible();
+    await expect(page.getByTestId('viewer-by')).not.toHaveText('Ada');
+
+    // And back: the mark and the missing controls are per photo, not per open.
+    await page.getByTestId('viewer-prev').click();
+    await expect(page.getByTestId('viewer-position')).toHaveText('1 of 10');
+    await expect(page.getByTestId('viewer-waiting')).toBeVisible();
+    await expect(page.getByTestId('viewer-save')).toHaveCount(0);
+    await expect(page.getByTestId('viewer-report')).toHaveCount(0);
+  });
+
+  test('a failed tile is not a control and does not open the viewer', async ({ page }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await page.goto('/join?flaky=1');
+    await ready(page, scheme);
+    await page.getByTestId('join-nickname').fill('Ada');
+    await page.getByTestId('join-submit').click();
+    await expect(page.getByTestId('chat-feed')).toBeVisible();
+    await page.getByTestId('tab-photos').click();
+    await expect(page.getByTestId('album')).toBeVisible();
+
+    await page.getByTestId('shutter-small').click();
+    await expect(page.getByTestId('toast')).toContainText('Upload failed');
+
+    const failedTile = page.locator('[data-testid^="upload-pho_"]:visible');
+    await expect(failedTile).toHaveCount(1);
+    await expect(failedTile).not.toHaveAttribute('role', 'button');
+    // A corner, clear of Retry: the tile itself must do nothing (spec 001b req 5).
+    await failedTile.click({ position: { x: 4, y: 4 } });
+    await expect(page.getByTestId('viewer-stage')).toHaveCount(0);
+    await expect(page.getByTestId(/^retry-pho_/)).toHaveCount(1);
+  });
+});

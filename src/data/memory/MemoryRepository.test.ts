@@ -3,6 +3,7 @@ import { weddingSeed } from './fixtures/wedding';
 import { housePartySeed } from './fixtures/houseParty';
 import { flakyTransfer } from './fixtures/flakyTransfer';
 import { EntitlementError, JoinError, ScheduleError } from '../repository';
+import { followViewing, viewerControls, viewerList } from '../../features/photos/viewerList';
 
 const FIXED = '2026-10-17T20:00:00.000Z';
 const make = (opts: Parameters<typeof MemoryRepository.create>[1] = {}) =>
@@ -221,6 +222,45 @@ describe('photos', () => {
 
     await r.photos.approve(mine[0]!.id);
     expect(r.photos.mine.get()).toHaveLength(0);
+  });
+
+  it('a waiting photo leads the viewer list and the viewer follows it by id through approve and hide (spec 001b)', async () => {
+    const r = make();
+    await r.session.joinAsGuest({ code: 'SR1017', nickname: 'Ada' });
+    await r.photos.upload({ localUri: 'file:///tmp/a.jpg' });
+    // What PhotosScreen builds for Reception, the active folder.
+    const listNow = () =>
+      viewerList(
+        r.photos.mine.get().filter((p) => p.status !== 'pending' || p.folderId === 'fld_reception'),
+        r.photos.approved.get().filter((p) => p.folderId === 'fld_reception'),
+      );
+
+    const before = listNow();
+    expect(before).toHaveLength(10);
+    expect(before[0]).toMatchObject({ status: 'pending', uploadedByName: 'Ada' });
+    expect(viewerControls(before[0]!)).toEqual({ waiting: true, save: false, report: false });
+    const id = before[0]!.id;
+
+    // Approve while open: the same photo stays, and loses its mark.
+    await r.photos.approve(id);
+    const afterApprove = listNow();
+    expect(afterApprove).toHaveLength(10);
+    const followed = followViewing(afterApprove, { id, at: 0 });
+    expect(followed?.id).toBe(id);
+    expect(viewerControls(afterApprove[followed!.at]!)).toEqual({ waiting: false, save: true, report: true });
+
+    // Hide while open: the viewer moves onto the photo that was next.
+    const nextId = afterApprove[followed!.at + 1]?.id ?? null;
+    await r.photos.hide(id);
+    const afterHide = listNow();
+    expect(afterHide).toHaveLength(9);
+    expect(followViewing(afterHide, followed)?.id ?? null).toBe(nextId);
+
+    // Hide the LAST photo while it is open: there is no next, so the viewer closes.
+    const lastAt = afterHide.length - 1;
+    const last = afterHide[lastAt]!;
+    await r.photos.hide(last.id);
+    expect(followViewing(listNow(), { id: last.id, at: lastAt })).toBeNull();
   });
 
   it('a free event has nothing waiting, so nothing is ever marked', async () => {

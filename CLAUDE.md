@@ -1856,6 +1856,14 @@ was green and the half a guest actually walks was dead.
   beside the backdrop (a sibling laid over `viewer-backdrop` fights it for the same tap and
   the later sibling wins), and carry a **measured 44x44 rather than `hitSlop`**, which is what
   `audit:targets`' own warning asks for where controls overlap.
+- **SINCE SPEC 001b THE VIEWER'S LIST IS `viewerList(mineHere, visible)`, AND THE SCREEN HOLDS AN
+  ID, NOT AN INDEX.** The guest's own waiting photos in the active folder come first, then the
+  approved ones, so "N of M" counts both; sending and failed tiles are not in it and are not
+  controls. `PhotosScreen` holds `{ id, at }` and `followViewing` re-anchors it on every render:
+  approve while open keeps the same photo (its mark goes), hide while open moves onto whatever took
+  its slot, or closes. On a `pending` photo `viewerControls` draws the `viewer-waiting` mark and NO
+  Save or Report -- the room cannot see that photo (#97). The mark is `viewer-waiting`, never
+  `waiting-*`: the album specs count `[data-testid^="waiting-"]`.
 - **`viewer-prev` and `viewer-next` must never be named `tile-something`.** `photo-viewer.spec.ts`
   counts `/^tile-/` to assert the album is nine, and a second node per tile matching that prefix
   silently doubled it once already. Mutation-checked: renaming them to `tile-prev`/`tile-next`

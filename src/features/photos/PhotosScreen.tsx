@@ -3,6 +3,7 @@ import { Image, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, Vi
 
 import { EventHeader } from '@/features/chat/EventHeader';
 import { PhotoViewer } from './PhotoViewer';
+import { followViewing, viewerList, type Viewing } from './viewerList';
 import { ReportLink } from '@/components/ui/ReportLink';
 import { ReportSheet } from '@/features/moderation/ReportSheet';
 import { usePhotoActions } from '@/state/actions';
@@ -10,7 +11,7 @@ import {
   useActiveFolder, useApprovedPhotos, useEntitlements, useEvent, useFolders, useMyReports,
   useMyUploads,
 } from '@/state/hooks';
-import { subjectKey, type Photo } from '@/data/types';
+import { subjectKey, type Photo, type PhotoId } from '@/data/types';
 import { albumTileColor, alpha, border, radius, tracking, useTheme, weight } from '@/theme';
 
 /**
@@ -55,14 +56,12 @@ export function PhotosScreen() {
   // grid -- otherwise reporting the thing that just got hidden crashes the sheet.
   const [reporting, setReporting] = useState<Photo | null>(null);
   /**
-   * AN INDEX INTO `visible`, NOT A PHOTO -- so the viewer can move.
-   *
-   * `visible` is already the exact list on screen in the exact order on screen
-   * (approved, this folder, newest first), so the index the grid renders IS the index the
-   * carousel navigates. Holding a `Photo` here instead would mean the viewer had no way to
-   * know what came next, which is how it shipped as a dead end.
+   * THE PHOTO'S ID, PLUS THE INDEX IT WAS LAST SEEN AT (spec 001b). Before 001b this was an
+   * index into `visible`; the viewer's list is now own-waiting-then-approved, and the viewer
+   * must follow the photo when the host approves or hides it while it is open, which an
+   * index cannot do. See `followViewing`.
    */
-  const [viewing, setViewing] = useState<number | null>(null);
+  const [viewing, setViewing] = useState<Viewing | null>(null);
   /**
    * `null` means unlimited -- the $599 tier -- and there is nothing honest to warn about
    * then, so the line is not drawn at all rather than saying "kept forever", which is a
@@ -99,6 +98,24 @@ export function PhotosScreen() {
    * must stay reachable from whichever folder the guest is looking at (#70).
    */
   const mineHere = mine.filter((p) => p.status !== 'pending' || p.folderId === active?.id);
+  /*
+   * SPEC 001b. The viewer's list is what the grid can open: this guest's own waiting photos
+   * in this folder, then the approved ones, so "N of M" counts both (req 2).
+   */
+  const viewerPhotos = viewerList(mineHere, visible);
+  /*
+   * FOLLOW THE PHOTO, NOT THE SLOT (req 4). `followViewing` returns the same object when
+   * nothing moved, so this is a conditional state adjustment during render -- React's
+   * documented pattern -- and settles in one extra render. It must run BEFORE the early
+   * return below: a hold left on a vanished photo would otherwise pop the viewer open on a
+   * different photo the next time the list grows.
+   */
+  const followed = followViewing(viewerPhotos, viewing);
+  if (followed !== viewing) setViewing(followed);
+  const openViewer = (id: PhotoId) => {
+    const at = viewerPhotos.findIndex((p) => p.id === id);
+    if (at >= 0) setViewing({ id, at });
+  };
   const totalPhotos = folders.reduce((a, f) => a + f.photoCount, 0);
   const onCapture = () => capture(active?.name ?? 'the album');
 
@@ -228,75 +245,98 @@ export function PhotosScreen() {
               failed one needs to be found without hunting. They sit in the same
               grid rather than a separate list so the album still reads as one
               roll -- which is also why they keep the hue tile underneath. */}
-          {mineHere.map((p) => (
-            <View
-              key={p.id}
-              testID={`upload-${p.id}`}
-              style={[
-                s.tile,
-                { width: tileSize, height: tileSize, backgroundColor: albumTileColor(p.hue, isDark) },
-              ]}
-            >
-              {/*
-                LOCAL BYTES FIRST, then the signed URL (#10). A guest who just took this
-                photo has it on disk and should not wait on a network round trip to see
-                her own picture; everyone else gets the 400px copy from the bucket. The
-                hue tile stays the layer underneath when there is neither -- a seeded row,
-                a pending photo somebody else uploaded, and a signature still in flight
-                all render identically, which is correct.
-              */}
-              {p.localUri ?? p.displayUrl ? (
-                <Image
-                  source={{ uri: (p.localUri ?? p.displayUrl)! }}
-                  style={s.tileImage}
-                  resizeMode="cover"
-                />
-              ) : null}
-              {p.status === 'uploading' ? (
-                <View style={[s.overlay, { backgroundColor: alpha(tokens.base100, 0.62) }]}>
-                  {/* A determinate bar, not a spinner. The guest is waiting on a
-                      known quantity of bytes, and a spinner cannot distinguish
-                      "nearly there" from "stuck". */}
-                  <View style={[s.track, { backgroundColor: alpha(tokens.baseContent, 0.25) }]}>
+          {mineHere.map((p) => {
+            const body = (
+              <>
+                {/*
+                  LOCAL BYTES FIRST, then the signed URL (#10). A guest who just took this
+                  photo has it on disk and should not wait on a network round trip to see
+                  her own picture; everyone else gets the 400px copy from the bucket. The
+                  hue tile stays the layer underneath when there is neither -- a seeded row,
+                  a pending photo somebody else uploaded, and a signature still in flight
+                  all render identically, which is correct.
+                */}
+                {p.localUri ?? p.displayUrl ? (
+                  <Image
+                    source={{ uri: (p.localUri ?? p.displayUrl)! }}
+                    style={s.tileImage}
+                    resizeMode="cover"
+                  />
+                ) : null}
+                {p.status === 'uploading' ? (
+                  <View style={[s.overlay, { backgroundColor: alpha(tokens.base100, 0.62) }]}>
+                    {/* A determinate bar, not a spinner. The guest is waiting on a
+                        known quantity of bytes, and a spinner cannot distinguish
+                        "nearly there" from "stuck". */}
+                    <View style={[s.track, { backgroundColor: alpha(tokens.baseContent, 0.25) }]}>
+                      <View
+                        testID={`upload-progress-${p.id}`}
+                        style={[
+                          s.fill,
+                          { width: `${Math.round((p.progress ?? 0) * 100)}%`, backgroundColor: tokens.primary },
+                        ]}
+                      />
+                    </View>
+                  </View>
+                ) : p.status === 'pending' ? (
+                  // LANDED AND WAITING (spec 001). No scrim: this is the guest's own photo
+                  // and the point is that they can see it. A solid chip rather than a
+                  // translucent one, so its contrast is the token pair's and not whatever
+                  // hue happens to be underneath.
+                  <View style={s.waitingWrap} pointerEvents="none">
                     <View
-                      testID={`upload-progress-${p.id}`}
-                      style={[
-                        s.fill,
-                        { width: `${Math.round((p.progress ?? 0) * 100)}%`, backgroundColor: tokens.primary },
-                      ]}
-                    />
+                      testID={`waiting-${p.id}`}
+                      style={[s.waiting, { backgroundColor: tokens.base100, borderColor: tokens.base300 }]}
+                    >
+                      <Text style={[s.waitingText, { color: tokens.baseContent }]}>Waiting for host</Text>
+                    </View>
                   </View>
-                </View>
-              ) : p.status === 'pending' ? (
-                // LANDED AND WAITING (spec 001). No scrim: this is the guest's own photo
-                // and the point is that they can see it. A solid chip rather than a
-                // translucent one, so its contrast is the token pair's and not whatever
-                // hue happens to be underneath.
-                <View style={s.waitingWrap} pointerEvents="none">
-                  <View
-                    testID={`waiting-${p.id}`}
-                    style={[s.waiting, { backgroundColor: tokens.base100, borderColor: tokens.base300 }]}
-                  >
-                    <Text style={[s.waitingText, { color: tokens.baseContent }]}>Waiting for host</Text>
+                ) : (
+                  <View style={[s.overlay, { backgroundColor: alpha(tokens.base100, 0.72) }]}>
+                    <Pressable
+                      onPress={() => retry(p.id)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Retry upload${p.failureReason ? `. ${p.failureReason}` : ''}`}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      testID={`retry-${p.id}`}
+                      style={[s.retry, { borderColor: tokens.base300 }]}
+                    >
+                      <Text style={[s.retryText, { color: tokens.baseContent }]}>Retry</Text>
+                    </Pressable>
                   </View>
-                </View>
-              ) : (
-                <View style={[s.overlay, { backgroundColor: alpha(tokens.base100, 0.72) }]}>
-                  <Pressable
-                    onPress={() => retry(p.id)}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Retry upload${p.failureReason ? `. ${p.failureReason}` : ''}`}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                    testID={`retry-${p.id}`}
-                    style={[s.retry, { borderColor: tokens.base300 }]}
-                  >
-                    <Text style={[s.retryText, { color: tokens.baseContent }]}>Retry</Text>
-                  </Pressable>
-                </View>
-              )}
-            </View>
-          ))}
-          {visible.map((p, i) => (
+                )}
+              </>
+            );
+            // SPEC 001b req 1 and 5: only a WAITING tile opens the viewer. Sending and failed
+            // tiles keep their progress bar and Retry and are not controls.
+            return p.status === 'pending' ? (
+              <Pressable
+                key={p.id}
+                testID={`upload-${p.id}`}
+                onPress={() => openViewer(p.id)}
+                accessibilityRole="button"
+                accessibilityLabel="Open your photo, waiting for host"
+                style={[
+                  s.tile,
+                  { width: tileSize, height: tileSize, backgroundColor: albumTileColor(p.hue, isDark) },
+                ]}
+              >
+                {body}
+              </Pressable>
+            ) : (
+              <View
+                key={p.id}
+                testID={`upload-${p.id}`}
+                style={[
+                  s.tile,
+                  { width: tileSize, height: tileSize, backgroundColor: albumTileColor(p.hue, isDark) },
+                ]}
+              >
+                {body}
+              </View>
+            );
+          })}
+          {visible.map((p) => (
             // The testID stays on the OUTER node deliberately. The e2e suite
             // counts `tile-*` and asserts their order; wrapping the image in a
             // new parent and moving the testID would break both. The hue tile is
@@ -316,7 +356,7 @@ export function PhotosScreen() {
             <Pressable
               key={p.id}
               testID={`tile-${p.id}`}
-              onPress={() => setViewing(i)}
+              onPress={() => openViewer(p.id)}
               accessibilityRole="button"
               accessibilityLabel={`Open the photo from ${p.uploadedByName}`}
               style={[
@@ -407,9 +447,12 @@ export function PhotosScreen() {
       </ScrollView>
 
       <PhotoViewer
-        photos={visible}
-        index={viewing}
-        onIndex={setViewing}
+        photos={viewerPhotos}
+        index={followed === null ? null : followed.at}
+        onIndex={(i) => {
+          const p = viewerPhotos[i];
+          if (p) setViewing({ id: p.id, at: i });
+        }}
         onClose={() => setViewing(null)}
         onReport={(p) => {
           // Close the viewer FIRST. Two modals stacked leaves the report sheet behind a
