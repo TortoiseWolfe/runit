@@ -120,6 +120,13 @@ export class FakeClient {
   signInCalls = 0;
   signOutCalls = 0;
   /** Fails the NEXT storage upload, so a failed transfer can be driven. */
+  /**
+   * An RPC that must refuse ONCE with this PostgREST-shaped error, keyed by function name.
+   * `set_event_tier` answers 42501 to a co-host and 55000 once the beta closes; the adapter
+   * must throw those through with the code intact, and nothing short of a refusal here can
+   * prove it does.
+   */
+  failNextRpc = new Map<string, { code: string; message: string }>();
   failNextUpload: string | null = null;
   /** Fails the NEXT anonymous sign-in, so a provider outage can be driven. */
   failNextSignIn: unknown = null;
@@ -142,6 +149,13 @@ export class FakeClient {
   }
 
   private run = (op: Op): Result => {
+    if (op.kind === 'rpc') {
+      const refusal = this.failNextRpc.get(op.table);
+      if (refusal) {
+        this.failNextRpc.delete(op.table);
+        return { data: null, error: refusal };
+      }
+    }
     this.ops.push(op);
     for (const r of this.responders) {
       const hit = r(op);

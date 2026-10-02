@@ -761,7 +761,13 @@ export interface RunitRepository {
      * what is already in the album.
      */
     setPhotoModeration(on: boolean): Promise<void>;
-    /** Dev-only, so the paywall is reachable while the demo sits on Event. */
+    /**
+     * Change the plan (spec 002). The FOUNDER only, any tier on the ladder, and only while
+     * the beta is open -- the backend decides all three and refuses the rest, so an adapter
+     * that quietly succeeded for a co-host would be the kinder-than-the-backend failure this
+     * seam exists to prevent. Refused with 55000 once the beta closes, until a purchase path
+     * exists (#30).
+     */
     setTier(tier: RunitEvent['tier']): Promise<void>;
   };
 

@@ -1500,8 +1500,24 @@ export class MemoryRepository implements RunitRepository {
       this.recompute();
     },
 
+    /**
+     * SPEC 002, with the backend's refusals and not one fewer. `set_event_tier` admits the
+     * FOUNDER only -- read here the way `deletionImpact` reads it, `hostList[0]` being the
+     * seat `create_event` mints -- and only a tier the ladder has. A fixture that let a
+     * co-host change the plan would be kinder than the backend, which is the one thing this
+     * adapter exists not to be.
+     */
     setTier: async (tier: TierId) => {
-      this.ev = { ...this.requireEvent(), tier };
+      const ev = this.requireEvent();
+      const session = this.sigSession.get();
+      const founder = this.hostList[0];
+      if (session.kind !== 'host' || !founder || session.hostId !== founder.id) {
+        throw Object.assign(new Error('not_the_founder'), { code: '42501' });
+      }
+      if (!(tier in TIERS)) {
+        throw Object.assign(new Error('unknown_tier'), { code: '22023' });
+      }
+      this.ev = { ...ev, tier };
       this.recompute();
     },
   };

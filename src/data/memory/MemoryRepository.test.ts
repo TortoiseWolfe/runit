@@ -5,6 +5,20 @@ import { flakyTransfer } from './fixtures/flakyTransfer';
 import { EntitlementError, JoinError, ScheduleError } from '../repository';
 import { followViewing, viewerControls, viewerList } from '../../features/photos/viewerList';
 
+/**
+ * SPEC 002 made `setTier` the founder's act in the fixture too (a co-host is refused 42501,
+ * exactly as `set_event_tier` refuses). Nine tests here use it as a LEVER to shape the world
+ * -- "put the wedding on the free plan" -- under whatever session the seed starts in. This
+ * takes the founder's seat (`hst_riley`, `hostList[0]`, the seat `create_event` mints) for one
+ * call and restores the guest view if that is where the test was standing.
+ */
+async function asFounder(r: ReturnType<typeof MemoryRepository.create>, act: () => Promise<void>) {
+  const before = r.session.current.get();
+  await r.session.becomeHost('hst_riley');
+  await act();
+  if (before.kind === 'guest') await r.session.becomeGuest();
+}
+
 const FIXED = '2026-10-17T20:00:00.000Z';
 const make = (opts: Parameters<typeof MemoryRepository.create>[1] = {}) =>
   MemoryRepository.create(weddingSeed, { now: () => FIXED, ...opts });
@@ -448,7 +462,9 @@ describe('chat', () => {
    */
   it('pins on the free tier, because pinning is not something anyone buys', async () => {
     const r = make();
-    await r.event.setTier('house_party');
+    // SPEC 002: changing the plan is the FOUNDER's act now, in the fixture as in the backend,
+    // so the lever takes her seat for the one call and hands the view back afterwards.
+    await asFounder(r, () => r.event.setTier('house_party'));
     await r.chat.send({ body: 'Pizza is here', pinned: true });
     const posted = r.chat.feed.get().find((b) => b.body === 'Pizza is here');
     expect(posted).toBeDefined();
@@ -476,7 +492,9 @@ describe('chat', () => {
     const r = make();
     await r.chat.send({ body: 'Cake in ten', pinned: false });
     const b = r.chat.feed.get().find((x) => x.body === 'Cake in ten')!;
-    await r.event.setTier('house_party');
+    // SPEC 002: changing the plan is the FOUNDER's act now, in the fixture as in the backend,
+    // so the lever takes her seat for the one call and hands the view back afterwards.
+    await asFounder(r, () => r.event.setTier('house_party'));
 
     await expect(r.chat.setPinned(b.id, true)).resolves.toBeUndefined();
     expect(r.chat.feed.get().find((x) => x.id === b.id)?.pinned).toBe(true);
@@ -499,7 +517,9 @@ describe('chat', () => {
     const b = r.chat.feed.get().find((x) => x.body === 'Cake in ten')!;
     expect(b.pinned).toBe(true);
 
-    await r.event.setTier('house_party'); // the downgrade
+    // SPEC 002: changing the plan is the FOUNDER's act now, in the fixture as in the backend,
+    // so the lever takes her seat for the one call and hands the view back afterwards.
+    await asFounder(r, () => r.event.setTier('house_party')); // the downgrade
     await expect(r.chat.setPinned(b.id, false)).resolves.toBeUndefined();
     expect(r.chat.feed.get().find((x) => x.id === b.id)?.pinned).toBe(false);
   });
@@ -550,7 +570,9 @@ describe('joining', () => {
 
   it('refuses once the plan is full', async () => {
     const r = make();
-    await r.event.setTier('house_party'); // caps at 10, and 172 are already in
+    // SPEC 002: changing the plan is the FOUNDER's act now, in the fixture as in the backend,
+    // so the lever takes her seat for the one call and hands the view back afterwards.
+    await asFounder(r, () => r.event.setTier('house_party')); // caps at 10, and 172 are already in
     await expect(r.session.joinAsGuest({ code: 'SR1017', nickname: 'Ada' })).rejects.toThrow(/full/);
   });
 });
@@ -558,7 +580,9 @@ describe('joining', () => {
 describe('entitlements are enforced in the repository, not the button', () => {
   it('blocks a folder past the cap and names the upgrade', async () => {
     const r = make();
-    await r.event.setTier('party'); // 3 folders, 3 already exist
+    // SPEC 002: changing the plan is the FOUNDER's act now, in the fixture as in the backend,
+    // so the lever takes her seat for the one call and hands the view back afterwards.
+    await asFounder(r, () => r.event.setTier('party')); // 3 folders, 3 already exist
     await expect(r.photos.addFolder({ name: 'Dancing' })).rejects.toBeInstanceOf(EntitlementError);
     await r.photos.addFolder({ name: 'Dancing' }).catch((e: EntitlementError) => {
       expect(e.denial).toMatchObject({ kind: 'limit', limit: 'folders', upgradeTo: 'event' });
@@ -588,7 +612,9 @@ describe('entitlements are enforced in the repository, not the button', () => {
    */
   it('does NOT gate approving a photo, on any tier', async () => {
     const r = make();
-    await r.event.setTier('house_party');
+    // SPEC 002: changing the plan is the FOUNDER's act now, in the fixture as in the backend,
+    // so the lever takes her seat for the one call and hands the view back afterwards.
+    await asFounder(r, () => r.event.setTier('house_party'));
     // The wedding fixture has approval ON, so `pho_1` is pending and this is a real
     // approval rather than a no-op that any implementation would satisfy.
     expect(r.photos.pending.get().some((p) => p.id === 'pho_1')).toBe(true);
@@ -598,7 +624,9 @@ describe('entitlements are enforced in the repository, not the button', () => {
 
   it('does NOT gate taking a photo down, on any tier (#65)', async () => {
     const r = make();
-    await r.event.setTier('house_party');
+    // SPEC 002: changing the plan is the FOUNDER's act now, in the fixture as in the backend,
+    // so the lever takes her seat for the one call and hands the view back afterwards.
+    await asFounder(r, () => r.event.setTier('house_party'));
     await expect(r.photos.hide('pho_1')).resolves.toBeUndefined();
     // It leaves the album, which is the whole remedy: `approved` is what a guest sees.
     expect(r.photos.approved.get().some((p) => p.id === 'pho_1')).toBe(false);
@@ -629,7 +657,9 @@ describe('entitlements are enforced in the repository, not the button', () => {
    */
   it('names the tier that lifts a refused denial, so the paywall can highlight it', async () => {
     const r = make();
-    await r.event.setTier('house_party');
+    // SPEC 002: changing the plan is the FOUNDER's act now, in the fixture as in the backend,
+    // so the lever takes her seat for the one call and hands the view back afterwards.
+    await asFounder(r, () => r.event.setTier('house_party'));
     await r.hosts.invite({ displayName: 'Dee', role: 'host', roleLabel: 'Host' }).catch(
       (e: EntitlementError) => {
         expect(e.denial.kind).toBe('limit');
@@ -673,7 +703,9 @@ describe('entitlements are enforced in the repository, not the button', () => {
 
   it('blocks a non-host role below the tier that offers roles', async () => {
     const r = make();
-    await r.event.setTier('party');
+    // SPEC 002: changing the plan is the FOUNDER's act now, in the fixture as in the backend,
+    // so the lever takes her seat for the one call and hands the view back afterwards.
+    await asFounder(r, () => r.event.setTier('party'));
     await expect(r.hosts.invite({ displayName: 'Sam', role: 'dj' })).rejects.toBeInstanceOf(EntitlementError);
   });
 
@@ -1503,5 +1535,32 @@ describe('deleting an account, and what the fixture can honestly say about it (#
     // Back where `?empty=1` starts: an identity with nothing, which is what a person who
     // has just deleted their account is.
     expect(r.session.current.get()).toEqual({ kind: 'anonymous' });
+  });
+});
+
+
+describe('event.setTier (spec 002)', () => {
+  it('lets the founder move the party onto another plan', async () => {
+    const r = make();
+    await r.session.becomeHost('hst_riley');
+    await r.event.setTier('event');
+    expect(r.event.current.get()?.tier).toBe('event');
+  });
+
+  it('refuses a co-host, DJ or planner, as the backend does (42501)', async () => {
+    const r = make();
+    await r.session.becomeHost('hst_marco');
+    await expect(r.event.setTier('event')).rejects.toMatchObject({ code: '42501' });
+  });
+
+  it('refuses a guest', async () => {
+    const r = make();
+    await expect(r.event.setTier('event')).rejects.toMatchObject({ code: '42501' });
+  });
+
+  it('refuses a plan the ladder does not have (22023)', async () => {
+    const r = make();
+    await r.session.becomeHost('hst_riley');
+    await expect(r.event.setTier('platinum' as never)).rejects.toMatchObject({ code: '22023' });
   });
 });

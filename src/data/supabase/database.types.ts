@@ -316,6 +316,14 @@ export type Database = {
           events_deleted: number; events_kept: number; photos: number; guests: number;
         }[];
       };
+      set_event_tier: {
+        Args: { p_event: string; p_tier: string };
+        Returns: string;
+      };
+      beta_open: {
+        Args: Record<string, never>;
+        Returns: boolean;
+      };
       file_report: {
         Args: {
           p_event_id: string; p_kind: string; p_subject_id: string;
