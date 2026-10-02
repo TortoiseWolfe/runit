@@ -2274,6 +2274,8 @@ export class SupabaseRepository implements RunitRepository {
       // nothing, affects zero rows and raises nothing. Without this the switch would
       // flip on screen and mean nothing on the server.
       SupabaseRepository.assertWrote(data, 'setPhotoModeration');
+      // Same socket dependence as setTier, same fix: read her own row back now.
+      await this.tEvents?.refresh();
     },
 
     // The parameter is declared even though it is ignored. A zero-arg version still
@@ -2291,6 +2293,8 @@ export class SupabaseRepository implements RunitRepository {
       const eventId = this.requireEvent();
       const { error } = await this.db.rpc('set_event_tier', { p_event: eventId, p_tier: tier });
       if (error) throw error;
+      // Her own write, read straight back -- the label must not wait on the socket.
+      await this.tEvents?.refresh();
     },
   };
 
