@@ -7,5 +7,6 @@
 - [x] T5 UI: Plan row + PlanSheet; audit:targets, gutter gate, audit:feedback stay green
 - [x] T6 e2e: choose-plan.spec.ts (founder changes plan; guest has no control)
 - [x] T7 docs: CLAUDE.md, runbook-tier-bump.md
-- [ ] T8 board: pnpm checks:docker
-- [ ] T9 deploy web; apply the delta to production; read back
+- [x] T8 board: pnpm checks:docker (753 unit, 554 journeys, lane E 258/258 from scratch)
+- [x] T9 deploy web; apply the delta to production; read back (beta_open = true; set_event_tier present)
+- [x] T10 live proof on production: a real host changed a real event's plan; row repainted in 552 ms, no reload. First attempt found the label waiting on the realtime socket; `RealtimeTable.refresh()` is the fix. Both proof events swept.
