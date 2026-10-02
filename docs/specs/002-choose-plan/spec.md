@@ -1,6 +1,6 @@
 # 002 — A host chooses her plan, free during the beta
 
-Status: APPROVED by the owner 2026-10-02 (shape and permission decided in session). No
+Status: SHIPPED 2026-10-02 (approved, built, proven on production the same evening). No
 wireframe: the surface is one row and one sheet on an existing panel, drawn below in text.
 
 ## Problem
