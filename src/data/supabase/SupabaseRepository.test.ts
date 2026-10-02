@@ -2089,3 +2089,33 @@ describe('event.setTier', () => {
     await expect(repo.event.setTier('venue')).rejects.toMatchObject({ code: '55000' });
   });
 });
+
+
+/**
+ * A HOST'S OWN WRITE MUST NOT WAIT ON THE SOCKET. Measured on production 2026-10-02:
+ * `set_event_tier` succeeded, the toast said so, and the plan row still read "House party"
+ * thirty seconds later because the `events` UPDATE had not arrived over realtime. The
+ * adapter re-selects the row after its own write now. The fake answers a select with the
+ * seeded rows, so reseeding BEFORE the write is how a test stands in for the database having
+ * changed -- if the observable then reads the new tier, the repaint came from the read.
+ */
+describe('after its own event write, the adapter reads the row back', () => {
+  it('setTier publishes the new plan without a realtime message', async () => {
+    const c = ready();
+    const repo = await join(c);
+    const selectsBefore = c.find('select', 'events').length;
+    c.seed('events', [eventRow({ tier: 'event' })]);
+    await repo.event.setTier('event');
+    expect(c.find('select', 'events').length).toBe(selectsBefore + 1);
+    expect(repo.event.current.get()?.tier).toBe('event');
+  });
+
+  it('setPhotoModeration publishes the new switch without a realtime message', async () => {
+    const c = ready();
+    c.seed('events', [eventRow({ photo_moderation: false })]);
+    const repo = await join(c);
+    c.seed('events', [eventRow({ photo_moderation: true })]);
+    await repo.event.setPhotoModeration(true);
+    expect(repo.event.current.get()?.photoModeration).toBe(true);
+  });
+});

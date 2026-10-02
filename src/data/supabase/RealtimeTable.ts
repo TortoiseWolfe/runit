@@ -153,6 +153,31 @@ export class RealtimeTable<T extends TableName> {
     this.onHealth({ live: true });
   }
 
+  /**
+   * RE-SELECT THE SNAPSHOT NOW, for a write THIS CLIENT just made.
+   *
+   * A row's own change reaches it two ways: the realtime socket, or a read. The socket
+   * usually lands in 240ms-1.2s and sometimes never (#45), and a host who just tapped
+   * Change plan is looking at the label while that happens. Measured on production
+   * 2026-10-02: `set_event_tier` succeeded, the toast said so, and the row still read
+   * "House party" thirty seconds later. The caps were already real -- only the label waited.
+   *
+   * So after its own write the adapter asks for the row again, the same select `start()`
+   * runs, and publishes. The socket's copy arrives afterwards and the comparator makes it
+   * a no-op. This is a READ, not a resubscribe: `start()` is subscribe -> buffer -> select
+   * -> replay and a retry is never smaller than that; this is only the third step.
+   */
+  async refresh(): Promise<void> {
+    if (!this.started) return;
+    const query = this.loose.from(this.table).select('*');
+    const { data, error } = await (this.filter
+      ? query.eq(this.filter.column, this.filter.value)
+      : query);
+    if (error) throw error;
+    this.rows = new Map(((data ?? []) as RowOf<T>[]).map((row) => [this.key(row), row]));
+    this.onChange();
+  }
+
   async start(): Promise<void> {
     if (this.started) return;
     this.started = true;
