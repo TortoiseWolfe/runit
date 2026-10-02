@@ -1996,9 +1996,40 @@ back in the $79 copy. See PUSH IS BUILT below, which is the current word.
 `pnpm audit:tiers` reports 10 features, 2 granted, every one enforced, no yellow line. It was
 12 two days ago: `photoModeration` and then `pinnedAnnouncements` both left the ladder — see
 PHOTO APPROVAL IS NOT A TIER FEATURE and PINNING IS FREE under "Things that will bite you".
-Still open: #30 (every paid tier is unreachable — the pricing screen is cut and no
-purchase path exists) · #41 (`eventTtlHours` still has zero readers: a free event never
+Still open: #30 (the PURCHASE path -- see A HOST CHOOSES HER PLAN below for what is
+reachable without one) · #41 (`eventTtlHours` still has zero readers: a free event never
 goes read-only).
+
+**A HOST CHOOSES HER PLAN, FREE DURING THE BETA (spec 002, 2026-10-02), AND THE TIER IS
+STILL NOT A COLUMN ANYBODY CAN WRITE.** Every event is minted `house_party` -- 10 guests, 1
+host, 100 photos -- and until this the only way a real wedding existed was a developer running
+an UPDATE per event (`docs/runbook-tier-bump.md`, now the fallback rather than the route).
+`set_event_tier(p_event, p_tier)` is SECURITY DEFINER and is the ONE door: the FOUNDER only
+(`is_event_founder`, the same seat that may delete the party, #73), a tier the ladder has, and
+only while `app_settings.beta_open` is true. `events.tier` stays outside every column grant
+exactly as #30 left it; `SupabaseRepository.event.setTier` calls the RPC instead of throwing.
+
+**55000 IS "NOT FOR SALE YET", AND IT IS WHERE THE PURCHASE CHECK GOES.** Close the beta
+(`update public.app_settings set value = 'false' where key = 'beta_open'`, service role) and
+the same founder is refused `plan_not_for_sale`; the action turns that into a sentence. The
+day a receipt exists, the function checks it in that branch and nothing else moves -- not the
+grant, not the client, not the lane E assertions. Lane E holds five: guest refused, stranger
+refused, unknown tier refused, founder succeeds, closed beta refuses.
+
+**THE FIXTURE REFUSES WHAT THE BACKEND REFUSES, which cost nine tests their lever.**
+`MemoryRepository.setTier` used to be a dev affordance any session could call; it now refuses
+a non-founder (42501) and an unknown tier (22023), reading the founder the way `deletionImpact`
+does (`hostList[0]`, the seat `create_event` mints). Nine Memory tests used `setTier` purely to
+put the wedding on the free plan, under the seed's guest session; they take the founder's seat
+for that one call now (`asFounder`). A fixture kinder than the backend is the failure this
+adapter exists to avoid, fourth time.
+
+**THE SHEET SHOWS CAPS, NEVER PRICES.** `PlanSheet` lists the four plans by what they hold,
+read from `TIERS` (held to the migration's seed by `tiers.test.ts`), with no Choose on the
+current plan and no `$` anywhere -- the pricing screen was cut because prices with no purchase
+path invite App Review 3.1.1, and `choose-plan.spec.ts` asserts the sheet never grows one back.
+The Change plan control is drawn for ANY host seat, the way Delete is: the client has no field
+that tells a founder from a co-host, so the database decides and a co-host gets a sentence.
 
 **THE RETENTION SWEEP EXISTS AND IS ARMED (#40).** `supabase/functions/sweep-photos`, called
 by `run_photo_sweep()` through pg_net on a `pg_cron` schedule at 04:17 daily. It could not be

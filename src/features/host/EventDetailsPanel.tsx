@@ -15,6 +15,7 @@ import { MyEventsList } from '@/components/ui/MyEventsList';
 import { Disclosure } from '@/components/ui/Disclosure';
 import { ZonePicker } from '@/components/ui/ZonePicker';
 import { DeleteEventSheet } from './DeleteEventSheet';
+import { PlanSheet } from './PlanSheet';
 
 /**
  * The event's own details, which nothing could edit until now.
@@ -48,8 +49,9 @@ const ROLE_CHOICES: { role: HostRole; label: string }[] = [
 export function EventDetailsPanel() {
   const { tokens, fade, depthCss } = useTheme();
   const router = useRouter();
-  const { impact } = useEventActions();
+  const { impact, changePlan } = useEventActions();
   const [deleting, setDeleting] = useState(false);
+  const [choosingPlan, setChoosingPlan] = useState(false);
   const [counting, setCounting] = useState(false);
   const [counts, setCounts] = useState<EventDeletionImpact | null>(null);
 
@@ -363,6 +365,45 @@ export function EventDetailsPanel() {
       <Text style={[s.helper, { color: alpha(tokens.baseContent, fade.muted) }]}>
         The invitation reads name, then date, then this line, then the venue.
       </Text>
+
+      {/* THE PLAN (spec 002). What this party holds, and -- for a host seat -- the door to a
+          bigger one. Drawn for any host seat the way Delete is, and for the same reason: the
+          client cannot tell the founder from a co-host (no field says so), so the DATABASE
+          decides on the way through and a co-host gets a sentence, not silence. Caps come
+          from `TIERS`, never a literal. */}
+      {event ? (
+        <View style={s.planRow} testID="plan-row">
+          <View style={s.planBody}>
+            <Text style={[s.sectionTitle, { color: alpha(tokens.baseContent, fade.muted) }]}>PLAN</Text>
+            <Text style={[s.planName, { color: tokens.baseContent }]} testID="plan-name">
+              {tier.name}
+            </Text>
+            <Text style={[s.helper, { color: alpha(tokens.baseContent, fade.muted) }]} testID="plan-caps">
+              {Number.isFinite(tier.limits.maxGuests) ? `${tier.limits.maxGuests} guests` : 'Unlimited guests'}
+              {' · '}
+              {Number.isFinite(tier.limits.maxPhotos) ? `${tier.limits.maxPhotos} photos` : 'unlimited photos'}
+            </Text>
+          </View>
+          <Pressable
+            onPress={() => setChoosingPlan(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Change plan"
+            testID="plan-change"
+            style={[s.planChange, { borderColor: tokens.base300 }]}
+          >
+            <Text style={[s.planChangeText, { color: tokens.baseContent }]}>Change plan</Text>
+          </Pressable>
+        </View>
+      ) : null}
+      <PlanSheet
+        visible={choosingPlan}
+        current={event?.tier ?? 'house_party'}
+        onPick={async (id) => {
+          setChoosingPlan(false);
+          await changePlan(id);
+        }}
+        onClose={() => setChoosingPlan(false)}
+      />
 
       {/* PHOTO APPROVAL -- a safety switch, on every tier, default off.
 
@@ -883,6 +924,11 @@ export function EventDetailsPanel() {
 }
 
 const s = StyleSheet.create({
+  planRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 18, marginBottom: 6 },
+  planBody: { flex: 1, minWidth: 0 },
+  planName: { fontSize: 16, fontWeight: weight.semibold, marginTop: 2 },
+  planChange: { minHeight: 44, paddingHorizontal: 14, borderWidth: border, borderRadius: radius.field, alignItems: 'center', justifyContent: 'center' },
+  planChangeText: { fontSize: 14, fontWeight: weight.semibold },
   scroll: { flex: 1 },
   danger: { marginTop: 18, paddingTop: 14, borderTopWidth: border, borderTopColor: 'transparent' },
   dangerText: { fontSize: 13, fontWeight: weight.semibold, paddingVertical: 8 },

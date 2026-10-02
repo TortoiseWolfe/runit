@@ -860,14 +860,19 @@ describe('realtime lifecycle', () => {
 /* ------------------------------------------------- writes with no server route */
 
 describe('writes the schema has no route for', () => {
-  it('refuse loudly rather than appearing to work', async () => {
+  it('are none now -- and the tier still never travels as a column', async () => {
     const c = ready();
     const repo = await join(c);
-    // `events.tier` is outside the column grant, so an update naming it fails with 42501
-    // and one that did not name it would change nothing while returning success. It is
-    // the last write here with no server-side route; `hosts.invite` used to be the other
-    // and now goes through invite_host (#16).
-    await expect(repo.event.setTier('venue')).rejects.toThrow(/column grant/);
+    // `events.tier` is STILL outside the column grant (#30 closed that door deliberately: an
+    // update naming it fails with 42501, one that did not would change nothing and return
+    // success). What changed in spec 002 is that the write has a server-side route, the
+    // SECURITY DEFINER `set_event_tier`. This used to be the last routeless write here;
+    // `hosts.invite` was the other and went through invite_host (#16). The property that
+    // outlives both: a tier change is never an UPDATE naming the column.
+    await repo.event.setTier('venue');
+    const updates = c.find('update', 'events').map((op) => op.payload as Record<string, unknown>);
+    expect(updates.some((u) => u && 'tier' in u)).toBe(false);
+    expect(c.find('rpc', 'set_event_tier')).toHaveLength(1);
   });
 });
 
@@ -2059,5 +2064,28 @@ describe('the events observable publishes every mapped column', () => {
     events!.emit({ eventType: 'UPDATE', new: { ...(row as object), [column]: value } });
 
     expect(repo.event.current.get()).not.toBe(before);
+  });
+});
+
+
+/**
+ * SPEC 002. `events.tier` stays outside every column grant; the ONE door is the RPC, and the
+ * backend decides who may walk through it. What the adapter must prove is that the call it
+ * sends is the one the function declares (`audit:rpc` holds the names) and that a refusal
+ * reaches the caller rather than being shrugged.
+ */
+describe('event.setTier', () => {
+  it('asks the database through set_event_tier with the event id and the tier', async () => {
+    const c = ready();
+    const repo = await join(c);
+    await repo.event.setTier('event');
+    expect(c.find('rpc', 'set_event_tier')[0]!.payload).toEqual({ p_event: EVENT, p_tier: 'event' });
+  });
+
+  it('throws the refusal through, code intact, so the action can name it', async () => {
+    const c = ready();
+    const repo = await join(c);
+    c.failNextRpc.set('set_event_tier', { code: '55000', message: 'plan_not_for_sale' });
+    await expect(repo.event.setTier('venue')).rejects.toMatchObject({ code: '55000' });
   });
 });

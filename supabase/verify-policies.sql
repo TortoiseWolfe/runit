@@ -70,6 +70,8 @@ declare
   -- #68 fixtures: the announcement a host takes back, and the run-of-show row whose
   -- deletion must clear the cursor that points at it.
   bdel uuid; sch1 uuid; sch2 uuid; cur uuid;
+  -- spec 002: the founder's uid at eid, and the tier to put back.
+  fuid uuid; otier text; rtier text;
   -- #19 fixtures: what deletion would destroy, read before it is confirmed.
   imp record;
   -- #41 fixtures: the event whose window is shut, and a photo id to try under it.
@@ -2475,6 +2477,67 @@ begin
   -- RLS is even consulted -- for the owner as much as for a guest, which this file already
   -- asserts elsewhere. Nothing commits anyway; the closing RAISE is the whole design.
   delete from public.feedback where auth_user_id in (cuid, nuid);
+
+  ------------------------------------------------------------- SPEC 002: CHOOSING A PLAN
+  -- One door, founder-only, held open by the beta switch. `events.tier` stays outside every
+  -- grant (asserted elsewhere); this is the function that changes it.
+  execute 'reset role';
+  -- The seeded hosts at eid were inserted directly, so none carries `founder`; only
+  -- `create_event` writes it. Mark huid as the founder for this section and unmark after.
+  update public.hosts set founder = true where event_id = eid and auth_user_id = huid;
+  fuid := huid;
+  select tier into otier from public.events where id = eid;
+
+  perform set_config('request.jwt.claims', json_build_object('sub',guid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  begin
+    perform public.set_event_tier(eid, 'event');
+    out := out || 'FAIL a guest can change the plan';
+  exception when others then
+    out := out || format('%s a guest cannot change the plan (%s)',
+                         case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  perform set_config('request.jwt.claims', json_build_object('sub',nuid,'role','authenticated')::text, true);
+  begin
+    perform public.set_event_tier(eid, 'event');
+    out := out || 'FAIL a stranger can change the plan';
+  exception when others then
+    out := out || format('%s nor can somebody who is not at the party (%s)',
+                         case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  perform set_config('request.jwt.claims', json_build_object('sub',fuid,'role','authenticated')::text, true);
+  begin
+    perform public.set_event_tier(eid, 'platinum');
+    out := out || 'FAIL the founder can pick a plan the ladder does not have';
+  exception when others then
+    out := out || format('%s a plan the ladder does not have is refused (%s)',
+                         case when sqlstate = '22023' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+
+  rtier := public.set_event_tier(eid, 'event');
+  execute 'reset role';
+  select tier into rtier from public.events where id = eid;
+  out := out || format('%s the founder moves her party onto the event plan during the beta (%s)',
+                       case when rtier = 'event' then 'PASS' else 'FAIL' end, rtier);
+
+  -- CLOSE THE BETA, and the same founder is refused with the code the client maps to a
+  -- sentence. This is the branch the purchase path will one day open; it must be reachable.
+  update public.app_settings set value = 'false'::jsonb where key = 'beta_open';
+  perform set_config('request.jwt.claims', json_build_object('sub',fuid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  begin
+    perform public.set_event_tier(eid, 'party');
+    out := out || 'FAIL a closed beta still hands out plans';
+  exception when others then
+    out := out || format('%s with the beta closed the founder is refused, plans are not for sale (%s)',
+                         case when sqlstate = '55000' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+  execute 'reset role';
+  update public.app_settings set value = 'true'::jsonb where key = 'beta_open';
+  update public.events set tier = otier where id = eid;
+  update public.hosts set founder = false where event_id = eid and auth_user_id = huid;
 
   ------------------------------------------------------- 2026-09-23 REVIEW: GRANTS SAY WHICH COLUMNS
   -- Every assertion here is a refusal that used to be an acceptance. A policy says WHO may

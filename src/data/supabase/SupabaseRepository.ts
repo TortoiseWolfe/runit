@@ -60,9 +60,12 @@ import { composeInviteEmail } from '@/lib/share';
  *    UploadOverlay, as genuinely synthetic rows.
  *
  * 3. **Some writes are refused rather than performed.** `hosts` has no INSERT
- *    policy and `events.tier` is not in the column grant, so `hosts.invite` and
- *    `event.setTier` THROW. They do not quietly succeed. A denied write affects
- *    zero rows and raises nothing, so a method that shrugged would be the exact
+ *    policy and `events.tier` is not in the column grant. Both used to make
+ *    `hosts.invite` and `event.setTier` THROW; both now go through a SECURITY
+ *    DEFINER function instead (`invite_host`, #16; `set_event_tier`, spec 002),
+ *    which is the same rule from the other side -- the column still cannot be
+ *    named by a client, and the function decides. A denied write affects zero
+ *    rows and raises nothing, so a method that shrugged would be the exact
  *    silent failure this adapter is trying not to have.
  */
 
@@ -2277,14 +2280,17 @@ export class SupabaseRepository implements RunitRepository {
     // satisfies the interface -- TypeScript accepts a function that takes fewer
     // arguments -- but it makes the concrete class reject the very call the interface
     // promises, and it hides what a caller is meant to pass.
-    setTier: async (_tier: RunitEvent['tier']) => {
-      // Refused, loudly. `tier` is not in the column grant, so an update naming it
-      // fails with 42501 -- and one that did not name it would change nothing while
-      // returning success. Dev-only affordance with no server-side route.
-      throw new Error(
-        'setTier is not available against Supabase: events.tier is outside the ' +
-          'column grant. Change the tier with a service-role update instead.',
-      );
+    /**
+     * SPEC 002. ONE DOOR, SERVER-SIDE: `set_event_tier` is SECURITY DEFINER, so `events.tier`
+     * stays outside every column grant exactly as #30 left it, and the function decides --
+     * the founder only, a tier the ladder has, and only while the beta is open. 55000 is
+     * its "plans are not for sale yet", which the action turns into a sentence. The row
+     * repaints from the `events` channel; the comparator compares `tier`.
+     */
+    setTier: async (tier: RunitEvent['tier']) => {
+      const eventId = this.requireEvent();
+      const { error } = await this.db.rpc('set_event_tier', { p_event: eventId, p_tier: tier });
+      if (error) throw error;
     },
   };
 

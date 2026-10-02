@@ -2503,6 +2503,59 @@ on conflict (tier) do update set
   album_retention_days = excluded.album_retention_days,
   event_ttl_hours      = excluded.event_ttl_hours;
 
+-- ============================================================================ CHOOSING A PLAN
+-- SPEC 002. Every event a host creates is `house_party`, `events.tier` sits outside every
+-- client grant (deliberately -- #30 closed that door so a column grant could never leak a
+-- tier), and the only way a real wedding has ever existed was a developer running an UPDATE
+-- per event (`docs/runbook-tier-bump.md`). That is a person, not a product.
+--
+-- THE FUNCTION IS THE ONE DOOR, AND THE BETA SWITCH IS WHAT HOLDS IT OPEN. `set_event_tier`
+-- is SECURITY DEFINER, so the column stays out of every grant; it refuses anyone but the
+-- FOUNDER (the seat that created the event -- the same rule as deleting it, #73), refuses
+-- a tier the ladder does not have, and refuses everything when `app_settings.beta_open` is
+-- false. That last refusal is where a purchase check goes the day one exists: the client,
+-- the grant and the lane E assertions do not change for it.
+create table if not exists public.app_settings (
+  key   text primary key,
+  value jsonb not null,
+  updated_at timestamptz not null default now()
+);
+alter table public.app_settings enable row level security;
+-- No policy for any client role: read through `beta_open()`, written by the service role.
+revoke all on public.app_settings from public, anon, authenticated;
+insert into public.app_settings (key, value) values ('beta_open', 'true'::jsonb)
+on conflict (key) do nothing;
+
+create or replace function public.beta_open() returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce((select (value)::boolean from public.app_settings where key = 'beta_open'), false);
+$$;
+revoke execute on function public.beta_open() from public, anon;
+grant execute on function public.beta_open() to authenticated;
+
+create or replace function public.set_event_tier(p_event uuid, p_tier text) returns text
+language plpgsql security definer set search_path = public as $$
+begin
+  if not public.is_event_founder(p_event) then
+    raise exception 'not_the_founder' using errcode = '42501';
+  end if;
+  if not exists (select 1 from public.tier_limits where tier = p_tier) then
+    raise exception 'unknown_tier' using errcode = '22023';
+  end if;
+  -- 55000 object_not_in_prerequisite_state: the plan exists and is not for sale yet.
+  if not public.beta_open() then
+    raise exception 'plan_not_for_sale' using errcode = '55000';
+  end if;
+  update public.events set tier = p_tier where id = p_event;
+  if not found then
+    raise exception 'unknown_event' using errcode = '22023';
+  end if;
+  return p_tier;
+end $$;
+revoke execute on function public.set_event_tier(uuid, text) from public, anon;
+grant execute on function public.set_event_tier(uuid, text) to authenticated;
+
+
 -- THE EVENT decides, and the database asks it. `before insert` only: UPDATE on `photos` is
 -- already host-only by `photos_moderate` above, so a guest has no second door to reopen
 -- what this refused -- checked rather than assumed, because #26 shipped exactly that bug

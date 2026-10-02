@@ -20,13 +20,24 @@ import { canPickContacts, pickContact } from '@/lib/contacts';
 import { addressFromInput, bccList } from '@/lib/invite';
 import { registerForPush } from '@/lib/push';
 import { checkLimit } from '@/domain/entitlements';
+import { TIERS } from '@/domain/tiers';
 import { useEntitlements } from './hooks';
 import type {
   DeletionImpact,
   EventDeletionImpact,
   GuestListId,
-  BroadcastId, FolderId, GuestId, InviteeId, PhotoId, ReportId, ReportReason, ReportResolution,
-  ReportSubject, ScheduleItemId, SongRequestId,
+  BroadcastId,
+  FolderId,
+  GuestId,
+  InviteeId,
+  PhotoId,
+  ReportId,
+  ReportReason,
+  ReportResolution,
+  ReportSubject,
+  ScheduleItemId,
+  SongRequestId,
+  TierId,
 } from '@/data/types';
 import { useRepository } from './RepositoryProvider';
 import { useToast } from './ToastProvider';
@@ -506,6 +517,32 @@ export function useEventActions() {
         } catch {
           // NULL IS "WE COULD NOT COUNT", and the sheet draws no confirm button over it.
           return null;
+        }
+      },
+      /**
+       * SPEC 002. The toast names the plan she now has rather than echoing the tap, and the
+       * two refusals the backend can send each get their own sentence: 42501 is "not the
+       * founder" (a co-host or DJ holds a seat, not the party), 55000 is "the beta is closed
+       * and plans are not for sale yet", which is the sentence the purchase path (#30) will
+       * one day replace. Anything else is the generic one -- never silence.
+       */
+      changePlan: async (tier: TierId): Promise<boolean> => {
+        try {
+          await repo.event.setTier(tier);
+          const t = TIERS[tier];
+          const guests = Number.isFinite(t.limits.maxGuests) ? `up to ${t.limits.maxGuests} guests` : 'unlimited guests';
+          show(`${t.name} plan: ${guests}. Free during the beta.`);
+          return true;
+        } catch (e) {
+          const code = (e as { code?: string } | null)?.code;
+          show(
+            code === '42501'
+              ? 'Only the person who created this party can change its plan.'
+              : code === '55000'
+                ? 'Plans are not for sale yet. The beta has closed; this will come back with a purchase path.'
+                : 'Could not change the plan. Try again in a moment.',
+          );
+          return false;
         }
       },
       /** True on success. The screen navigates; this does not. */
