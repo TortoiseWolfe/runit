@@ -1,0 +1,194 @@
+<title>Pick From a List</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: one journey per section; each row pairs a "now" phone with a "proposed" phone plus the reasoning. Lo-fi greys, one amber for annotation. */
+:root{
+  --bg:#f3f4f6; --panel:#ffffff; --ink:#1f2430; --mute:#5d6577; --line:#c3c8d3;
+  --wire:#e4e7ed; --wire2:#cfd4dd; --accent:#b45309; --accent-bg:#fef3c7; --ok:#166534; --ok-bg:#dcfce7; --bad:#991b1b; --bad-bg:#fee2e2;
+  --sans:'IBM Plex Sans',system-ui,sans-serif; --mono:'IBM Plex Mono',ui-monospace,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#12151c; --panel:#1a1e28; --ink:#e6e9f0; --mute:#9aa3b6; --line:#3a4152;
+  --wire:#2a3040; --wire2:#3b4256; --accent:#fbbf24; --accent-bg:#3a2e0a; --ok:#86efac; --ok-bg:#12321e; --bad:#fca5a5; --bad-bg:#3b1414; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#12151c; --panel:#1a1e28; --ink:#e6e9f0; --mute:#9aa3b6; --line:#3a4152;
+  --wire:#2a3040; --wire2:#3b4256; --accent:#fbbf24; --accent-bg:#3a2e0a; --ok:#86efac; --ok-bg:#12321e; --bad:#fca5a5; --bad-bg:#3b1414; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.5;margin:0;padding-inline:16px;padding-block:32px 64px}
+main{max-width:1080px;margin-inline:auto}
+h1{font-size:28px;line-height:1.2;margin:0 0 8px;text-wrap:balance}
+h2{font-size:21px;margin:56px 0 4px;text-wrap:balance}
+h3{font-size:13px;font-family:var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--mute);margin:0 0 10px;font-weight:500}
+p{margin:0 0 10px;max-width:68ch}
+.lede{color:var(--mute);font-size:16px;max-width:70ch}
+.sub{color:var(--mute);margin-bottom:20px}
+.row{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px 28px;margin-block:20px;align-items:start}
+.cell{min-width:0}
+.tag{display:inline-block;font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;padding:2px 8px;border-radius:4px;margin-bottom:10px}
+.tag.now{background:var(--bad-bg);color:var(--bad)} .tag.new{background:var(--ok-bg);color:var(--ok)} .tag.q{background:var(--accent-bg);color:var(--accent)}
+.notes{margin:14px 0 0;padding:0;list-style:none;display:grid;gap:6px;font-size:13.5px;color:var(--mute)}
+.notes li{padding-left:14px;position:relative} .notes li::before{content:"";position:absolute;left:0;top:.62em;width:6px;height:6px;border-radius:50%;background:var(--accent)}
+.notes b{color:var(--ink);font-weight:600}
+.callout{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin-block:20px}
+.callout h3{margin-bottom:6px}
+.callout ul{margin:6px 0 0;padding-left:18px;color:var(--mute)} .callout li{margin-bottom:4px}
+.scroll{overflow-x:auto}
+/* phone wireframe primitives */
+.phone{width:232px;height:480px;border:2px solid var(--wire2);border-radius:28px;background:var(--panel);padding:34px 12px 10px;display:flex;flex-direction:column;gap:8px;position:relative;overflow:hidden;margin-inline:auto 0}
+.cell .phone{margin-inline:0}
+.phone::before{content:"";position:absolute;top:9px;left:50%;width:56px;height:14px;margin-left:-28px;border-radius:8px;background:var(--wire2)}
+.phone.scrolls::after{content:"↓ scrolls";position:absolute;right:10px;bottom:56px;font:500 10px var(--mono);background:var(--bad);color:var(--panel);padding:2px 6px;border-radius:4px}
+.eyebrow{height:6px;width:40%;background:var(--wire2);border-radius:3px}
+.title{height:14px;width:78%;background:var(--ink);opacity:.8;border-radius:3px}
+.title.two{height:30px;background:none;display:grid;gap:4px}.title.two i{display:block;height:13px;background:var(--ink);opacity:.8;border-radius:3px}.title.two i:last-child{width:55%}
+.ln{height:7px;background:var(--wire2);border-radius:3px}.ln.s{width:60%}.ln.m{width:80%}
+.chip{height:22px;border:1.5px solid var(--wire2);border-radius:11px;font:500 9px/19px var(--mono);color:var(--mute);padding-inline:9px;white-space:nowrap;display:inline-block}
+.chip.on{background:var(--wire2);color:var(--ink)}
+.card{border:1.5px solid var(--wire2);border-radius:12px;padding:10px;display:grid;gap:7px}
+.field{height:26px;border:1.5px solid var(--wire2);border-radius:7px;font:400 9px/23px var(--mono);color:var(--mute);padding-inline:8px;white-space:nowrap;overflow:hidden}
+.field.focus{border-color:var(--ink);color:var(--ink)}
+.btn{height:34px;border-radius:9px;background:var(--wire2);color:var(--mute);font:500 10px/34px var(--mono);text-align:center}
+.btn.weak{opacity:.55} .btn.strong{background:var(--ink);color:var(--panel)}
+.btn.thin{height:16px;line-height:16px;font-size:9px;border-radius:5px}
+.lnk{font:500 9px var(--mono);color:var(--mute);text-decoration:underline}
+.void{flex:1;border:1.5px dashed var(--bad);border-radius:8px;display:grid;place-items:center;font:500 9px var(--mono);color:var(--bad);background:repeating-linear-gradient(135deg,transparent 0 6px,var(--bad-bg) 6px 7px)}
+.tabs{margin-top:auto;display:grid;grid-template-columns:repeat(3,1fr);border-top:1.5px solid var(--wire2);padding-top:6px;font:500 9px var(--mono);color:var(--mute);text-align:center}
+.tabs b{color:var(--ink)}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
+.tile{aspect-ratio:1/1.1;background:var(--wire);border-radius:6px;position:relative;font:500 8px var(--mono);color:var(--mute)}
+.tile.pend{background:var(--wire2);outline:2px dashed var(--accent);outline-offset:-2px;opacity:.75}
+.tile.pend::after{content:"waiting";position:absolute;left:0;right:0;bottom:3px;text-align:center;color:var(--accent);font-size:8px}
+.tile.up::after{content:"sending…";position:absolute;inset:auto 0 3px;text-align:center}
+.tile.fail{outline:2px solid var(--bad);outline-offset:-2px}.tile.fail::after{content:"retry ↻";position:absolute;inset:auto 0 3px;text-align:center;color:var(--bad)}
+.shutter{width:52px;height:52px;border-radius:50%;border:4px solid var(--wire2);background:var(--panel);display:grid;place-items:center;margin-inline:auto}
+.shutter i{width:34px;height:34px;border-radius:50%;background:var(--ink);opacity:.8;display:block}
+.shutter.big{width:110px;height:110px;border-width:8px}.shutter.big i{width:78px;height:78px}
+.bar{display:flex;gap:5px;align-items:center;justify-content:space-between}
+.note{position:absolute;font:500 9px var(--mono);color:var(--accent);background:var(--accent-bg);padding:2px 5px;border-radius:3px}
+.center{text-align:center;display:grid;gap:5px;justify-items:center}
+.big{font:600 34px var(--sans);color:var(--ink);opacity:.8;line-height:1}
+.row-item{display:flex;justify-content:space-between;gap:6px;border-bottom:1px solid var(--wire);padding-block:5px}
+.row-item .ln{flex:1}.row-item .ln.r{flex:none;width:22px}
+.strip{border:1.5px solid var(--ink);border-radius:10px;padding:8px;display:grid;gap:6px;background:var(--wire)}
+.strip .l{font:500 9px var(--mono);color:var(--ink)}
+.states{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:12px}
+.states div{text-align:center;font:500 10px var(--mono);color:var(--mute)}
+.states .tile{margin-bottom:5px}
+</style>
+<style>
+.sw{width:26px;height:15px;border-radius:8px;background:var(--wire2);position:relative;flex:none}
+.sw::after{content:"";position:absolute;top:2px;left:2px;width:11px;height:11px;border-radius:50%;background:var(--panel)}
+.sw.on{background:var(--ink)} .sw.on::after{left:13px}
+.prow{display:flex;align-items:center;gap:8px;font:400 9.5px var(--mono);color:var(--ink)}
+.prow span{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.prow em{font-style:normal;color:var(--mute);font-size:8.5px}
+.prow.off span{color:var(--mute);text-decoration:line-through}
+.sheet{margin-top:auto;border-top:1.5px solid var(--wire2);border-radius:14px 14px 0 0;padding-top:10px;display:grid;gap:7px}
+</style>
+<main>
+<h1>Pick from a list</h1>
+<p class="lede">Spec 008. A saved list says who <b>belongs</b>; this sheet says who from it is <b>coming this time</b>.
+A one-off add says who is coming who is <b>not on the list</b>; a co-host seat says what somebody <b>does</b>.
+Four questions, four controls, none of them standing in for another.</p>
+
+<h2>Attaching a list</h2>
+<p class="sub">Host console → Event → Who is invited.</p>
+<div class="row">
+  <div class="cell">
+    <span class="tag now">Today</span>
+    <div class="phone">
+      <div class="title"></div>
+      <div class="card">
+        <div class="ln m"></div>
+        <div class="btn">+ Family (7)</div>
+        <div class="lnk">tap = all 7 copied in</div>
+      </div>
+      <div class="card">
+        <div class="prow"><span>Sam</span><em>remove</em></div>
+        <div class="prow"><span>Riley</span><em>remove</em></div>
+        <div class="prow"><span>Alex</span><em>remove</em></div>
+        <div class="ln s"></div>
+      </div>
+    </div>
+    <ul class="notes">
+      <li><b>All or nothing.</b> <code>attach_guest_list</code> copies every member into the event.</li>
+      <li>The only way to leave someone out is to remove them afterwards, one by one.</li>
+      <li>Nothing shows who is on the list before it lands.</li>
+    </ul>
+  </div>
+  <div class="cell">
+    <span class="tag new">Proposed</span>
+    <div class="phone">
+      <div class="title"></div>
+      <div class="sheet">
+        <div class="eyebrow"></div>
+        <div class="prow"><div class="sw on"></div><span>Grandma</span></div>
+        <div class="prow"><div class="sw on"></div><span>Sam</span></div>
+        <div class="prow"><div class="sw on"></div><span>Riley</span></div>
+        <div class="prow off"><div class="sw"></div><span>Jordan</span></div>
+        <div class="prow"><div class="sw on"></div><span>Alex</span></div>
+        <div class="prow"><div class="sw on"></div><span>Casey</span></div>
+        <div class="prow"><span>(555) 010-…</span><em>already invited</em></div>
+        <div class="btn strong">Add 5 to this party</div>
+        <div class="lnk">Cancel</div>
+      </div>
+    </div>
+    <ul class="notes">
+      <li><b>Every switch starts on.</b> A host leaves people out; she does not opt them in.</li>
+      <li><b>Off is for this event only.</b> Jordan stays on Family.</li>
+      <li><b>Already invited is text, not a switch.</b> A control that can only do nothing is not drawn.</li>
+      <li>The count on the button is the count that lands.</li>
+    </ul>
+  </div>
+</div>
+
+<h2>The roommate at Thanksgiving</h2>
+<div class="row">
+  <div class="cell">
+    <span class="tag q">Rejected</span>
+    <div class="phone">
+      <div class="title"></div>
+      <div class="card">
+        <div class="eyebrow"></div>
+        <div class="prow"><div class="sw on"></div><span>Grandma</span></div>
+        <div class="prow"><div class="sw on"></div><span>Sam</span></div>
+        <div class="prow off"><div class="sw"></div><span>Roommate</span><em>usually off</em></div>
+      </div>
+    </div>
+    <ul class="notes">
+      <li><b>A "usually off" member.</b> Family stops meaning family and starts meaning "people I might invite".</li>
+      <li>Every event then starts with a chore: switch her off again.</li>
+    </ul>
+  </div>
+  <div class="cell">
+    <span class="tag new">Proposed</span>
+    <div class="phone">
+      <div class="title"></div>
+      <div class="card">
+        <div class="btn">+ Family (7)</div>
+        <div class="field">Add someone by name, email or phone</div>
+        <div class="prow"><span>Roommate</span><em>added for this party</em></div>
+      </div>
+      <div class="card">
+        <div class="eyebrow"></div>
+        <div class="prow"><span>Roommate</span><em>co-host · key shown once</em></div>
+      </div>
+    </div>
+    <ul class="notes">
+      <li><b>Invited by a one-off add</b>, the control that already exists.</li>
+      <li><b>Made co-host separately</b>, in the co-host section that already exists. A role is not a list.</li>
+      <li>If she comes to most things, she gets her own small list (<b>Household</b>), attached beside Family.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="callout">
+  <h3>Out of scope</h3>
+  <ul>
+    <li>Editing a list's members (add, rename, delete): a later screen.</li>
+    <li>Pushing list edits into events that already attached it.</li>
+    <li>A per-member "default off" flag: rejected above.</li>
+  </ul>
+</div>
+<p class="sub">Contains no real event code and no credential. The names are illustrative.</p>
+</main>
