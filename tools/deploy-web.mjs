@@ -170,8 +170,15 @@ if (DRY) {
   process.exit(0);
 }
 
-execFileSync('npx', ['--yes', 'wrangler@latest', 'pages', 'deploy', stage,
-  `--project-name=${PROJECT}`, '--branch=main', '--commit-dirty=true'], { stdio: 'inherit' });
+// RUN FROM INSIDE THE STAGE, NOT FROM THE REPO ROOT. Pages Functions are compiled from a
+// `functions/` directory next to wrangler's WORKING DIRECTORY, not from inside the directory
+// being deployed -- so `web/functions/api/music.js`, staged correctly as `functions/api/
+// music.js`, was uploaded as a static file and never compiled, and the live route served the
+// app's HTML shell under a cheerful "Deployment complete!". The fifth silent success found in
+// this script. Lane G reads the route back; wrangler's "Compiled Worker successfully" is the
+// line to look for here.
+execFileSync('npx', ['--yes', 'wrangler@latest', 'pages', 'deploy', '.',
+  `--project-name=${PROJECT}`, '--branch=main', '--commit-dirty=true'], { stdio: 'inherit', cwd: stage });
 
 rmSync(stage, { recursive: true, force: true });
 console.log(green('\nOK: deployed. Verify with `pnpm verify:links` (lane G).'));
