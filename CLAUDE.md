@@ -1336,6 +1336,14 @@ tester found a bug would make a green board a claim about tester silence.
   eventually consistent, so a workflow and a manual run firing on the same item would
   both decide it was new. The list endpoint reads the database.
 - **`testerEmail` is deliberately dropped.** The name is enough; git history is forever.
+- **AN APP STORE CONNECT INVITATION EXPIRES, AND THE BOARD SAID "WAITING ON THEM" OVER A DEAD
+  LINK FOR THREE WEEKS.** Both outstanding invitations had expired on 2026-09-12; nobody could
+  have accepted. `tools/testflight-testers.mjs` now prints `EXPIRED <date>` with the one command
+  that makes a live one (`invite`), and `(link expires <date>)` while it is alive. The
+  acceptance link exists only inside Apple's email -- the API never returns it, and it is tied
+  to the invited Apple ID -- so it cannot be texted; what can be is the TestFlight App Store
+  link. Found 2026-10-02, the night before a real event, when the question was "can she get
+  that email on her phone" and the honest answer was no.
 - The EAS workflow trigger is `beta_feedback: { types: [...] }` — a bare list is what the
   prose docs imply and `eas workflow:validate` rejects it. Validate before believing.
 - `eas testflight:feedback` needs **eas-cli >= 21.3.0**; `eas.json` declares a floor of
