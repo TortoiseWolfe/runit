@@ -113,7 +113,15 @@ if (!existsSync(DIST)) {
        *                                            dist/ (harness)   dist-guest/
        *   qr-simulate                                     1               0
        *   scheme-probe                                    1               0
-       *   "Scanning needs the RunIt app on a phone"        1               1
+       *   "Close the scanner and type the code instead"    1               1
+       *   getUserMedia (the real camera scanner)           0               1
+       *
+       * The shared marker was the old honest copy, "Scanning needs the RunIt app on a phone",
+       * until 2026-10-03, when the browser got a real scanner and that sentence stopped being
+       * true. The cancel control's label replaced it: it is drawn on both paths, so it is in
+       * both bundles. `getUserMedia` is the new presence check for the guest build -- the
+       * harness never opens a camera, so it folds away there, and a guest bundle WITHOUT it is
+       * one that shipped the refusal again.
        *
        * TWO PRESENCE MARKERS, NOT ONE, and they live in different files -- QrScanner.web.tsx
        * and _layout.tsx. A single marker that gets renamed leaves this gate green having
@@ -131,15 +139,21 @@ if (!existsSync(DIST)) {
           );
         }
       }
-      if (!src.includes('Scanning needs the RunIt app on a phone')) {
+      if (!src.includes('Close the scanner and type the code instead')) {
         problems.push(
-          `${b} does not carry the honest web scanner copy, which is in BOTH builds. Either ` +
+          `${b} does not carry the scanner's cancel label, which is in BOTH builds. Either ` +
             'QrScanner.web.tsx was reworded or these markers have gone stale -- and a stale ' +
             'marker is a gate that reports green having measured nothing.',
         );
       }
+      if (!src.includes('getUserMedia')) {
+        problems.push(
+          `${b} has no \`getUserMedia\`: the browser scanner is not in this guest build, so a ` +
+            'guest who taps Scan is told to go and install an app.',
+        );
+      }
     }
-    bundleVerdict = `${bundles.length} bundle(s) in dist-guest/ carry the honest web copy and no harness control.`;
+    bundleVerdict = `${bundles.length} bundle(s) in dist-guest/ carry the camera scanner and no harness control.`;
   }
 }
 

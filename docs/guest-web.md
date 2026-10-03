@@ -18,7 +18,8 @@ is a harness switch, and four web halves branch on it:
 
 - `capture.web.ts:113` hands back a synthetic 1×1 PNG instead of the camera roll.
 - `musicSearch.web.ts:67` serves four fixture songs instead of a catalogue.
-- `QrScanner.web.tsx:27` draws a fake scan button that feeds a hardcoded code.
+- `QrScanner.web.tsx` draws a simulated scan button instead of opening the camera (the guest
+  build opens the real camera and decodes with jsQR; `pnpm prove:web-scan` proves it).
 - `save.web.ts:19` reports a save and writes nothing.
 
 Every one is right in a harness and wrong in front of a person. Metro **inlines** the flag at

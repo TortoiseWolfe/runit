@@ -2029,8 +2029,11 @@ ever disagree — the only place that can catch it, since the plist is prebuild 
 `QrScanner.web.tsx` is the same shape as `capture.web.ts`: headless Chromium refuses
 `getUserMedia`, so the web sibling keeps `CameraView` out of the browser bundle entirely and,
 under `EXPO_PUBLIC_FIDELITY=1` only, offers one control that feeds `codeFromScan` the exact
-string `joinLink()` produces. That proves the wiring and nothing about a lens. Outside the
-harness it says plainly that scanning needs the phone.
+string `joinLink()` produces. That proves the wiring and nothing about a lens. ~~Outside the
+harness it says plainly that scanning needs the phone.~~ **Since 2026-10-03 it scans:** outside
+the harness it opens the back camera with `getUserMedia` and decodes frames with `jsqr`, and
+`pnpm prove:web-scan` witnesses a real QR read through a (fake) camera in the guest build. The
+refusal was written when the browser existed to be measured; #78 made it the guest route.
 
 **Lane C could witness the real thing** — the emulator has a virtual scene the camera can be
 pointed at, and it is how photo capture was witnessed end to end. That has not been done for
