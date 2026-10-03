@@ -74,6 +74,8 @@ signer.end();
 const JWT = `${head}.${claim}.${signer.sign({ key, dsaEncoding: 'ieee-p1363' }).toString('base64url')}`;
 
 const API = 'https://api.appstoreconnect.apple.com';
+/** Users and Access. Cancelling or resending an invitation is a web-UI act for this key (403). */
+const USERS_URL = 'https://appstoreconnect.apple.com/access/users';
 
 /** Every call checks. A swallowed error here becomes a wrong answer to "who can install". */
 async function call(method, path, body) {
@@ -161,7 +163,7 @@ async function board() {
       const exp = inviteExpiry.get(email);
       const dead = exp && new Date(exp).getTime() < Date.now();
       next = dead
-        ? `Apple's email EXPIRED ${String(exp).slice(0, 10)} — the link in her inbox is dead; RUN: node tools/testflight-testers.mjs invite ${email} <First> <Last>`
+        ? `Apple's email EXPIRED ${String(exp).slice(0, 10)} — the link in her inbox is dead; RUN: node tools/testflight-testers.mjs invite ${email} <First> <Last> (a 409 means Resend it at ${USERS_URL})`
         : `WAITING ON THEM to accept Apple’s email — cannot be forced${exp ? ` (link expires ${String(exp).slice(0, 10)})` : ''}`;
     } else {
       stage = 'UNKNOWN';
@@ -184,6 +186,24 @@ async function board() {
 }
 
 async function invite(email, firstName, lastName) {
+  // AN EXPIRED INVITATION CAN BLOCK A NEW ONE, AND THIS KEY CANNOT CLEAR IT. Measured
+  // 2026-10-03, the night before a real event: POST answered 409 "The email is already being
+  // used" for an address whose only invitation had expired three weeks earlier, and
+  // DELETE /v1/userInvitations/{id} answered 403 "The API key in use does not allow this
+  // request". (The same POST had succeeded beside an expired invitation for another address the
+  // night before, so it is not every address.) The way out is a person in the web UI. A live
+  // invitation is left alone and reported: a second one only confuses the inbox it lands in.
+  const existing = await call('GET', '/v1/userInvitations?limit=100&fields[userInvitations]=email,expirationDate');
+  for (const i of existing.data ?? []) {
+    if (lower(i.attributes?.email) !== lower(email)) continue;
+    const exp = i.attributes?.expirationDate;
+    if (exp && new Date(exp) > new Date()) {
+      console.log(`already invited ${email} · link live until ${exp}. Nothing sent.`);
+      return;
+    }
+    console.log(`an EXPIRED invitation for ${email} is still on Apple's list (expired ${exp ?? 'unknown'}).`);
+    console.log(`If the line below is a 409, resend it by hand: ${USERS_URL}`);
+  }
   const out = await call('POST', '/v1/userInvitations', {
     data: {
       type: 'userInvitations',

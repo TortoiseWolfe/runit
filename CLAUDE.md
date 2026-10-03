@@ -493,10 +493,15 @@ re-litigates it wastes an evening -- as one did.
 **READ THE INBOX WITH THE GMAIL TOOL, AND SEND TO A PLUS-ADDRESS.** The connector reads
 `jonpohlner@gmail.com`, so the last half of every mail claim -- arrival, the body, the
 `Authentication-Results` header -- is measurable here rather than being handed to a person.
-Send to `jonpohlner+runit-rehearsal@gmail.com`, NEVER the bare address: it already holds a
-non-anonymous `auth.users` row with no host seat from a 2026-09-10 test signup, so attaching
-it from a phone holding a real seat gets `email_exists`, falls to `sign_in`, and lands in that
-empty identity with the host's party apparently gone.
+Send to `jonpohlner+runit-rehearsal@gmail.com`, NEVER the bare address. Until 2026-10-03 it
+held a non-anonymous `auth.users` row with no host seat (a test signup from 2026-09-13, not
+09-10 as this said), so attaching it from a phone holding a real seat got `email_exists`, fell
+to `sign_in`, and landed in that empty identity with the host's party apparently gone. **That
+row is deleted** -- read back first: no hosts, guests, lists, feedback or objects -- so the
+owner can attach the address to his REAL host identity from his phone. **The rule stands for
+the opposite reason now:** a rehearsal against the bare address either mints a new account
+under the owner's name or, once he has attached it, signs a test client into his real
+parties.
 
 **A 200 FROM THE SEND IS STILL NOT A DELIVERY.** GoTrue answers the moment it hands the message
 to SMTP. Acceptance, arrival and `dkim=pass d=runit.scripthammer.com` are three claims, and
@@ -1345,6 +1350,20 @@ tester found a bug would make a green board a claim about tester silence.
   to the invited Apple ID -- so it cannot be texted; what can be is the TestFlight App Store
   link. Found 2026-10-02, the night before a real event, when the question was "can she get
   that email on her phone" and the honest answer was no.
+- **AND AN EXPIRED INVITATION CAN BLOCK A NEW ONE, WHICH THIS KEY CANNOT CLEAR** (2026-10-03).
+  For one address `POST /v1/userInvitations` answered **409** *"The email is already being
+  used"* while its only invitation had expired three weeks earlier, and
+  `DELETE /v1/userInvitations/{id}` answered **403** *"The API key in use does not allow this
+  request"*. The same POST had succeeded beside an expired invitation for a different address
+  the night before, so it is not every address. The way out is a person at
+  https://appstoreconnect.apple.com/access/users -- Resend. `invite` now reports a live
+  invitation instead of sending a second, warns before the POST when a dead one is on the list,
+  and the board's EXPIRED line names the link.
+- **NEVER INFER WHO A PERSON IS FROM AN EMAIL HANDLE.** On 2026-10-02 an invitation, a drafted
+  message and a Muse note all went to the wrong person because an Apple ID whose handle named
+  a profession was taken to belong to the event planner. It belonged to a relative;
+  the planner's own invitation was the expired one above. Confirm the person before inviting
+  or drafting to them.
 - The EAS workflow trigger is `beta_feedback: { types: [...] }` — a bare list is what the
   prose docs imply and `eas workflow:validate` rejects it. Validate before believing.
 - `eas testflight:feedback` needs **eas-cli >= 21.3.0**; `eas.json` declares a floor of
