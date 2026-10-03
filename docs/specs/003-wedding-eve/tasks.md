@@ -3,3 +3,4 @@
 - [x] T3 approve all: seam, adapters, action, button, unit + journey
 - [x] T4 board green (754 unit, 560 journeys), landed 94cd96b, deployed aa03d204, production default read back false, iOS build 16 VALID on TestFlight (uploaded 2026-10-02, submitted automatically)
 - [ ] T5 reword the App Store description line about approval (owner's words)
+- [x] T6 the song type-ahead works in the browser: `web/functions/api/music.js` is a same-origin Cloudflare Pages Function in front of the iTunes Search API, `musicSearch.web.ts` calls it outside the harness, lane G reads `/api/music` back. Landed 563c515 (+ two deploy-web fixes: wrangler runs from inside the stage so Functions compile, and is handed the token explicitly), deployed b592346c, a browser guest on production saw Journey suggestions, board 560 journeys green, pushed 2026-10-03
