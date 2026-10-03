@@ -177,8 +177,20 @@ if (DRY) {
 // app's HTML shell under a cheerful "Deployment complete!". The fifth silent success found in
 // this script. Lane G reads the route back; wrangler's "Compiled Worker successfully" is the
 // line to look for here.
+// AND THE TOKEN GOES WITH IT EXPLICITLY. From the repo root wrangler had been reading the
+// local env file on its own; from the stage there is no such file, and it refuses with "set a
+// CLOUDFLARE_API_TOKEN". Read inside this process, passed to the child, printed nowhere.
+const cf = {
+  CLOUDFLARE_API_TOKEN: envLocal('CLOUDFLARE_API_TOKEN') ?? '',
+  CLOUDFLARE_ACCOUNT_ID: envLocal('CLOUDFLARE_ACCOUNT_ID') ?? '',
+};
+if (!cf.CLOUDFLARE_API_TOKEN) {
+  console.error(red('FAIL: no CLOUDFLARE_API_TOKEN in the environment or the local env file; nothing uploaded.'));
+  process.exit(1);
+}
 execFileSync('npx', ['--yes', 'wrangler@latest', 'pages', 'deploy', '.',
-  `--project-name=${PROJECT}`, '--branch=main', '--commit-dirty=true'], { stdio: 'inherit', cwd: stage });
+  `--project-name=${PROJECT}`, '--branch=main', '--commit-dirty=true'],
+  { stdio: 'inherit', cwd: stage, env: { ...process.env, ...cf } });
 
 rmSync(stage, { recursive: true, force: true });
 console.log(green('\nOK: deployed. Verify with `pnpm verify:links` (lane G).'));
