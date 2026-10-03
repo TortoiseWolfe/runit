@@ -107,6 +107,9 @@ async function board() {
   const builds = await call('GET', `/v1/builds?filter[app]=${APP}&limit=1&sort=-uploadedDate&fields[builds]=version,processingState,expired,uploadedDate`);
 
   const invited = new Set((invitations.data ?? []).map((i) => lower(i.attributes.email)));
+  // WHEN THE EMAIL DIES. Apple's invitation link expires; after that the email in her inbox
+  // is a dead door and only a fresh `invite` makes a live one. The board says which.
+  const inviteExpiry = new Map((invitations.data ?? []).map((i) => [String(i.attributes?.email ?? '').toLowerCase(), i.attributes?.expirationDate ?? null]));
   const accepted = new Set((users.data ?? []).map((u) => lower(u.attributes.username)));
   const inGroup = new Map((members.data ?? []).map((m) => [lower(m.attributes.email), m.attributes.state]));
 
@@ -146,7 +149,11 @@ async function board() {
       next = `RUN: node tools/testflight-testers.mjs add ${email} <First> <Last>`;
     } else if (invited.has(email)) {
       stage = 'INVITED';
-      next = 'WAITING ON THEM to accept Apple’s email — cannot be forced';
+      const exp = inviteExpiry.get(email);
+      const dead = exp && new Date(exp).getTime() < Date.now();
+      next = dead
+        ? `Apple's email EXPIRED ${String(exp).slice(0, 10)} — the link in her inbox is dead; RUN: node tools/testflight-testers.mjs invite ${email} <First> <Last>`
+        : `WAITING ON THEM to accept Apple’s email — cannot be forced${exp ? ` (link expires ${String(exp).slice(0, 10)})` : ''}`;
     } else {
       stage = 'UNKNOWN';
       next = 'not in any stage';
