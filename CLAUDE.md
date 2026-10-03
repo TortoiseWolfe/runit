@@ -923,7 +923,8 @@ ABSENCE marker that catches the gate itself going stale. Six mutations, all dead
 
 **AND THE FLAG CUTS THE OTHER WAY, WHICH IS WHERE THE LIVE DEFECT WAS.** Two web halves are
 keyed `!== '1'`, so they go dead when the harness flag is ABSENT -- the guest build.
-`musicSearch.web.ts` returning `[]` is honest and documented (no CORS on the iTunes endpoint).
+`musicSearch.web.ts` returning `[]` was honest and documented (no CORS on the iTunes endpoint)
+until 2026-10-03; it calls the same-origin `/api/music` proxy outside the harness now.
 `pickScreenshot.web.ts` returning `null` was not: `FeedbackSheet.tsx:103` draws "Add a picture"
 unconditionally, so a browser visitor tapped a control and **nothing happened** -- the
 drawn-control-that-does-nothing failure `empty-world.spec.ts` exists to catch, invisible to
@@ -1728,6 +1729,16 @@ line. The deploy script prints its staged count for exactly that reason, and it 
 `audit:guest-build` rather than trusting that somebody did -- `dist-live` would hand a guest a
 synthetic 1x1 photo, four fixture songs and a fake scan button.
 
+**PAGES FUNCTIONS COMPILE FROM A `functions/` DIRECTORY BESIDE WRANGLER'S WORKING DIRECTORY,
+NOT FROM INSIDE THE DIRECTORY BEING UPLOADED** -- the fifth silent success in this one script
+(2026-10-03). `web/functions/api/music.js` was staged correctly as `functions/api/music.js`,
+wrangler ran from the repo root, uploaded it as a STATIC FILE, printed "Deployment complete!",
+and the live `/api/music` served the app's HTML shell under a 200. `deploy-web.mjs` runs
+wrangler with `cwd` set to the stage now, and because the stage has no local env file it hands
+the Cloudflare token to the child explicitly (read in-process, printed nowhere). The line that
+proves a function shipped is **"Compiled Worker successfully"**; lane G then reads `/api/music`
+back and fails unless it is JSON with a `results` array.
+
 **THE INVITATION HOST IS DEPLOYED (#52).** `runit-app.pages.dev` went up on 2026-09-07 by
 DIRECT UPLOAD -- `wrangler pages deploy web --project-name=runit-app` -- not git integration,
 so **a push to `main` does not redeploy it**; re-run that command when `web/` changes. Lane G
@@ -1832,10 +1843,15 @@ was green and the half a guest actually walks was dead.
   in the queue" beside "Not this time" is two sentences arguing on one strip. #70 · 5 of 5.
 - **THE SONG TYPE-AHEAD CALLS A THIRD PARTY, AND IT IS THE ONLY THING IN THE APP THAT DOES.**
   `src/lib/musicSearch.ts` hits the iTunes Search API -- no key, no account, nothing to leak.
-  Everything else goes through supabase-js. **It sends no CORS headers**, so it works on a
-  device and never in a browser, which is why there is a `.web.ts` half serving a four-song
-  fixture under `EXPO_PUBLIC_FIDELITY=1`; no test here may depend on a third party's uptime,
-  ranking or rate limit. `musicSearchConstants.ts` exists for the reason `captureConstants.ts`
+  Everything else goes through supabase-js. **It sends no CORS headers**, so a browser cannot
+  call it directly -- which is why there is a `.web.ts` half serving a four-song fixture under
+  `EXPO_PUBLIC_FIDELITY=1` (no test here may depend on a third party's uptime, ranking or rate
+  limit), and why, outside the harness, that half calls **our own origin** instead:
+  `web/functions/api/music.js` is a Cloudflare Pages Function at `/api/music` that forwards
+  the term, caches an hour per term at the edge, and returns `trackName`/`artistName` only --
+  the first server code this product runs outside Supabase (spec 003 T6, 2026-10-03). It
+  always answers 200 with an `upstream` field, so a dead iTunes is an empty list and not a red
+  composer. `musicSearchConstants.ts` exists for the reason `captureConstants.ts`
   states outright -- Metro resolves `./musicSearch` from inside `musicSearch.web.ts` back to
   itself, so a value import there is a cycle; the type is `import type` and erased.
   **#8 named MusicBrainz "the cheap win" and that is wrong for this job**, measured: queried
