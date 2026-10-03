@@ -109,7 +109,16 @@ async function board() {
   const invited = new Set((invitations.data ?? []).map((i) => lower(i.attributes.email)));
   // WHEN THE EMAIL DIES. Apple's invitation link expires; after that the email in her inbox
   // is a dead door and only a fresh `invite` makes a live one. The board says which.
-  const inviteExpiry = new Map((invitations.data ?? []).map((i) => [String(i.attributes?.email ?? '').toLowerCase(), i.attributes?.expirationDate ?? null]));
+  // THE LATEST ONE PER ADDRESS. Apple keeps the expired invitation on the list beside the
+  // fresh one, and a Map built in list order showed EXPIRED for a person whose live link was
+  // sent an hour earlier -- the board lying in the other direction. Keep the max expiry.
+  const inviteExpiry = new Map();
+  for (const i of invitations.data ?? []) {
+    const email = String(i.attributes?.email ?? '').toLowerCase();
+    const exp = i.attributes?.expirationDate ?? null;
+    const prev = inviteExpiry.get(email);
+    if (!prev || (exp && new Date(exp) > new Date(prev))) inviteExpiry.set(email, exp);
+  }
   const accepted = new Set((users.data ?? []).map((u) => lower(u.attributes.username)));
   const inGroup = new Map((members.data ?? []).map((m) => [lower(m.attributes.email), m.attributes.state]));
 
