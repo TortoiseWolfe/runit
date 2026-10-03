@@ -49,6 +49,12 @@ attached beside Family. A list never grants a role and a role never edits a list
 7. `MemoryRepository` mirrors the filter and refuses what the backend refuses (not your list,
    not a host of this event). The fixture must not be kinder than the backend.
 
+8. **The saved lists come FIRST in "Who is invited"**, above the address field, and the
+   empty-state line names them: "Nobody yet. Add your Family list (7), or add people below."
+   Measured 2026-10-03: on the owner's phone the section read "Nobody yet" over an email
+   field, and a list button (when the build draws one) sits below "+ Add from contacts" --
+   the one thing he came to do was the last thing on the screen.
+
 ## Out of scope
 - A screen that edits a list's membership (add, rename, delete members).
 - Pushing list edits into events that already attached the list.
