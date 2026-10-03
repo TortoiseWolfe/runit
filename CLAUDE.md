@@ -915,7 +915,7 @@ exports a working browser app, measured.
 **`export:web:live` SETS BOTH FLAGS AND IS THE ONE YOU WILL COPY**, because it is the only
 other script that talks to Supabase. `EXPO_PUBLIC_FIDELITY=1` is the harness switch, and four
 web halves branch on it: a synthetic 1x1 PNG for the camera roll (`capture.web.ts:113`), four
-fixture songs (`musicSearch.web.ts:67`), a fake scan button (`QrScanner.web.tsx:27`) and a save
+fixture songs (`musicSearch.web.ts:67`), a simulated scan button in place of the camera (`QrScanner.web.tsx`) and a save
 that reports success and writes nothing (`save.web.ts:19`). All correct in a harness, all wrong
 in front of a person. **Metro INLINES the flag**, so by the time there is a bundle the decision
 is invisible and no amount of reading it will say which build you have.
@@ -923,8 +923,26 @@ is invisible and no amount of reading it will say which build you have.
 **THE MARKERS WERE MEASURED IN BOTH DIRECTIONS AND THE FIRST GUESS WAS WRONG.** Matching the
 flag NAME passes on both bundles, because it is inlined away. What survives minification does
 discriminate: `qr-simulate` and `scheme-probe` are in `dist/` and absent from `dist-guest/`,
-while the honest copy *"Scanning needs the RunIt app on a phone"* is in both -- so it is the
-ABSENCE marker that catches the gate itself going stale. Six mutations, all dead.
+while the scanner's cancel label *"Close the scanner and type the code instead"* is in both -- so
+it is the ABSENCE marker that catches the gate itself going stale. Six mutations, all dead. (The
+shared marker was the old refusal copy until 2026-10-03; see THE BROWSER SCANS QR CODES below.)
+`getUserMedia` must be in `dist-guest/` too: a guest bundle without it shipped the refusal again.
+
+**THE BROWSER SCANS QR CODES NOW (2026-10-03), and it said it could not for a month.**
+`QrScanner.web.tsx` refused with *"Scanning needs the RunIt app on a phone"*, on the premise
+that the web export existed to be measured. #78 made the browser the guest route, and the first
+wedding planner ran her event from Safari on an iPhone behind that sentence. It opens the back
+camera with `getUserMedia`, draws frames to a canvas and decodes with `jsqr` (Safari has no
+`BarcodeDetector`; `jsqr` moved from dev to runtime dependencies), through the same
+`codeFromScan` the native sheet uses. iOS needs `playsInline` and `muted` or the preview goes
+fullscreen and the canvas reads nothing. The camera lives in a child that mounts only while the
+sheet is open, so every exit stops the tracks. **`pnpm prove:web-scan` is the proof**: the guest
+build in Chromium with a fake camera showing a QR generated from `joinLink()` -- ours fills the
+field and releases the camera, a foreign QR is called not ours, a denial says how to allow it.
+**Headless Chromium answers `NotSupportedError` to every camera request without
+`--use-fake-ui-for-media-stream`**, even with the permission granted, and it cannot produce a
+real denial at all -- three red cases that looked like an app bug were that. Safari's own
+prompt and autoplay rules are proved only on an iPhone.
 
 **AND THE FLAG CUTS THE OTHER WAY, WHICH IS WHERE THE LIVE DEFECT WAS.** Two web halves are
 keyed `!== '1'`, so they go dead when the harness flag is ABSENT -- the guest build.
