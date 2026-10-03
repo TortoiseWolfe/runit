@@ -1337,7 +1337,7 @@ export class MemoryRepository implements RunitRepository {
         // right way to be wrong here: a host who had approval off sees it on until the
         // event is loaded properly, which costs a tap; the other way round shows the room
         // photographs a host had chosen to gate.
-        photoModeration: true,
+        photoModeration: false, // `create_event`'s default since 2026-10-02 (owner's call)
       };
       this.broadcastList = [];
       this.scheduleList = [];
@@ -1422,9 +1422,11 @@ export class MemoryRepository implements RunitRepository {
         invitedCount: 0,
         // The column default, and it changed: approval is ON for a new event. An album is
         // the one surface where a stranger's mistake is instantly in front of the whole
-        // room, and the host answers for it -- so she removes the gate in one tap rather
-        // than having to predict she needed it. The store listing promises this too.
-        photoModeration: true,
+        // room, and the host answers for it -- which argued for ON. The owner reversed it on
+        // 2026-10-02: a host mid-event has no hands free to approve, so OFF, and she adds the
+        // gate in one tap when she wants it. The store listing's "approves them before they
+        // appear" line has to be reworded to match.
+        photoModeration: false, // `create_event`'s default since 2026-10-02 (owner's call)
       };
       this.hostList = [
         { id: hostId, displayName: input.hostName.trim() || 'Host', role: 'host', roleLabel: 'Host' },
@@ -1963,6 +1965,17 @@ export class MemoryRepository implements RunitRepository {
       // name both increment. Matched by id here.
       this.bumpFolder(p.folderId, 1);
       this.recompute();
+    },
+    approveAll: async () => {
+      // Parity with the adapter: every pending photo at this event, one pass, count back.
+      const waiting = this.photoList.filter((x) => x.status === 'pending');
+      if (waiting.length === 0) return 0;
+      this.photoList = this.photoList.map((x) =>
+        x.status === 'pending' ? { ...x, status: 'approved' as const } : x,
+      );
+      for (const p of waiting) this.bumpFolder(p.folderId, 1);
+      this.recompute();
+      return waiting.length;
     },
 
     hide: async (id: PhotoId) => {

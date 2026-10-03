@@ -87,7 +87,10 @@ create table public.events (
   -- and flipping moderation under a party that is already running would be exactly the
   -- surprise this feature exists to prevent. The host still turns it off in one tap;
   -- `events_host_update` grants the column.
-  photo_moderation     boolean not null default true,
+  -- OFF BY DEFAULT, by the owner's call on 2026-10-02 (it was on from 09-20 to 10-02): a host
+  -- mid-event has no hands free to approve, and there is no bulk approve she could reach
+  -- for. Her switch, any time, in the Event panel.
+  photo_moderation     boolean not null default false,
   -- Maintained by trigger from `guests`, like every other count here. Stored
   -- rather than derived because the "{n} here" pill is read on every render.
   guest_count          integer not null default 0,

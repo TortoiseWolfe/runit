@@ -2633,6 +2633,20 @@ export class SupabaseRepository implements RunitRepository {
       if (error) throw error;
       SupabaseRepository.assertWrote(data, 'photos.approve');
     },
+    approveAll: async () => {
+      const eventId = this.requireEvent();
+      // ONE statement, filtered on the server. `status` is the one column the update grant
+      // carries, and `photos_moderate` is what restricts the write to hosts. A non-host's
+      // update matches zero rows and raises nothing -- which is why the count is read back
+      // off the rows rather than assumed.
+      const { data, error } = await this.db
+        .from('photos').update({ status: 'approved' })
+        .eq('event_id', eventId).eq('status', 'pending').select('id');
+      if (error) throw error;
+      const n = (data ?? []).length;
+      await this.tPhotos?.refresh();
+      return n;
+    },
 
     hide: async (id: PhotoId) => {
       // NOT GATED ON A TIER -- #65. It was gated on `photoModeration`, which made

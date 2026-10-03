@@ -1,6 +1,12 @@
 import { useMemo, useRef, useState } from 'react';
 import {
-  Platform, ScrollView, StyleSheet, Text, TextInput, View,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 
@@ -33,7 +39,7 @@ import type { CreatedEvent } from '@/data/repository';
 export function CreateEventScreen() {
   const { tokens, fade, depthCss } = useTheme();
   const router = useRouter();
-  const { createEvent } = useCreateActions();
+  const { createEvent, copy } = useCreateActions();
 
   const [hostName, setHostName] = useState('');
   const [name, setName] = useState('');
@@ -119,25 +125,50 @@ export function CreateEventScreen() {
           <Text style={[s.title, { color: tokens.baseContent }]}>{name.trim()}</Text>
 
           {label('GUESTS JOIN WITH')}
-          <Text testID="created-code" style={[s.code, { color: tokens.baseContent }]}>
-            {made.code}
-          </Text>
+          {/* COPY BESIDE THE VALUE, and the value is selectable for a long press. These two
+              strings are the whole point of this screen; a screen that only lets you read
+              them asks a host to transcribe a twelve-character key by hand. */}
+          <View style={s.copyRow}>
+            <Text testID="created-code" selectable style={[s.code, s.copyValue, { color: tokens.baseContent }]}>
+              {made.code}
+            </Text>
+            <Pressable
+              onPress={() => copy(made.code, 'Code')}
+              accessibilityRole="button"
+              accessibilityLabel="Copy the join code"
+              testID="created-code-copy"
+              style={[s.copyButton, { borderColor: tokens.base300 }]}
+            >
+              <Text style={[s.copyText, { color: tokens.baseContent }]}>Copy</Text>
+            </Pressable>
+          </View>
 
           {label('YOUR KEY BACK IN')}
-          <Text testID="created-key" style={[s.code, { color: tokens.baseContent }]}>
-            {made.hostKey}
-          </Text>
+          <View style={s.copyRow}>
+            <Text testID="created-key" selectable style={[s.code, s.copyValue, { color: tokens.baseContent }]}>
+              {made.hostKey}
+            </Text>
+            <Pressable
+              onPress={() => copy(made.hostKey, 'Recovery key')}
+              accessibilityRole="button"
+              accessibilityLabel="Copy the recovery key"
+              testID="created-key-copy"
+              style={[s.copyButton, { borderColor: tokens.base300 }]}
+            >
+              <Text style={[s.copyText, { color: tokens.baseContent }]}>Copy</Text>
+            </Pressable>
+          </View>
           <Text style={[s.helper, { color: alpha(tokens.baseContent, fade.body) }]}>
-            Write this down. It is the only way back into this event on another phone, and
-            it is not shown again — we keep a one-way hash of it, so nobody can look it up
-            for you. You do not need it on this phone.
+            Copy it somewhere safe — a note, a text to yourself. It is the only way back into
+            this event on another phone, and it is not shown again: we keep a one-way hash of
+            it, so nobody can look it up for you. You do not need it on this phone.
           </Text>
 
           <Button
             onPress={() => router.replace('/host/broadcast')}
             testID="created-continue"
             style={s.ctaGap}
-            label="I have written it down"
+            label="I have saved it"
           />
         </ScrollView>
         <Toast />
@@ -308,6 +339,10 @@ export function CreateEventScreen() {
 }
 
 const s = StyleSheet.create({
+  copyRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  copyValue: { flex: 1, minWidth: 0 },
+  copyButton: { minHeight: 44, paddingHorizontal: 16, borderWidth: border, borderRadius: radius.field, alignItems: 'center', justifyContent: 'center' },
+  copyText: { fontSize: 14, fontWeight: weight.semibold },
   // paddingHorizontal 20, the same gutter every other scrolling screen sets --
   // ChatScreen, MusicScreen, BroadcastPanel, DjQueuePanel, PhotoApprovalsPanel and
   // EventDetailsPanel, which this screen was derived from. <Screen> deliberately sets

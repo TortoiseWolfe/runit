@@ -1292,9 +1292,9 @@ describe('a host turns photo approval on for her own party', () => {
    * host buys, and `create_event` mints no other tier. Keeping both in one object is what
    * stops a future tier gate reappearing under a passing test.
    */
-  it('starts ON, on the only tier create_event mints', async () => {
+  it('starts OFF, on the only tier create_event mints (the owner reversed the 09-20 default on 2026-10-02)', async () => {
     const r = await created();
-    expect(r.event.current.get()).toMatchObject({ tier: 'house_party', photoModeration: true });
+    expect(r.event.current.get()).toMatchObject({ tier: 'house_party', photoModeration: false });
   });
 
   it('lets a photo straight into the album once she turns approval off', async () => {
@@ -1361,6 +1361,8 @@ describe('a host turns photo approval on for her own party', () => {
 
   it('and a free-tier host can then approve what is waiting', async () => {
     const r = await created();
+    // Approval is OFF by default now, so the queue has to be switched on for anything to wait.
+    await r.event.setPhotoModeration(true);
     // The founder takes a guest seat on demand (#37) -- she has no `guests` row from
     // `create_event`, which is the same route the role switch drives on screen.
     await r.session.becomeGuest();
