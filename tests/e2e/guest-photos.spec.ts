@@ -400,6 +400,10 @@ test.describe('what the empty album promises (#67)', () => {
     await page.getByTestId('create-time').fill('19:00');
     await page.getByTestId('create-submit').click();
     await page.getByTestId('created-continue').click();
+    // Approval is OFF by default (owner's call, 2026-10-02); this journey needs the gate up.
+    await page.getByTestId('host-segment-event').click();
+    await page.getByTestId('moderation-toggle').click();
+    await expect(page.getByTestId('moderation-toggle')).toContainText(/on/i);
     await page.getByTestId('role-switch').click();
     await page.getByTestId('tab-photos').click();
 
@@ -423,6 +427,9 @@ test.describe('what the empty album promises (#67)', () => {
     await page.getByTestId('created-continue').click();
 
     await page.getByTestId('host-segment-event').click();
+    // OFF by default now: put the gate up first, then take it down -- the promise must follow.
+    await page.getByTestId('moderation-toggle').click();
+    await expect(page.getByTestId('moderation-toggle')).toContainText(/on/i);
     await page.getByTestId('moderation-toggle').click();
     await expect(page.getByTestId('moderation-toggle')).toContainText(/off/i);
 
@@ -445,6 +452,10 @@ test.describe('what the empty album promises (#67)', () => {
     await page.getByTestId('create-time').fill('19:00');
     await page.getByTestId('create-submit').click();
     await page.getByTestId('created-continue').click();
+    // Approval is OFF by default (owner's call, 2026-10-02); this journey needs the gate up.
+    await page.getByTestId('host-segment-event').click();
+    await page.getByTestId('moderation-toggle').click();
+    await expect(page.getByTestId('moderation-toggle')).toContainText(/on/i);
     await page.getByTestId('role-switch').click();
     await page.getByTestId('tab-photos').click();
 

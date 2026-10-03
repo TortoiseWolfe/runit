@@ -330,6 +330,12 @@ export function usePhotoActions() {
       // so routing this through the paywall guard could only mislead.
       retry: (id: PhotoId) => repo.photos.retry(id),
       approve: (id: PhotoId) => guarded(() => repo.photos.approve(id)),
+      /** The toast carries the COUNT, because "approved" over an empty queue is a lie. */
+      approveAll: () =>
+        guarded(async () => {
+          const n = await repo.photos.approveAll();
+          show(n === 0 ? 'Nothing was waiting.' : n === 1 ? '1 photo approved.' : `${n} photos approved.`);
+        }),
       hide: (id: PhotoId) => guarded(() => repo.photos.hide(id)),
       addFolder: (name: string) => guarded(() => repo.photos.addFolder({ name })),
       selectFolder: (id: FolderId) => repo.event.setActiveFolder(id),
@@ -359,6 +365,24 @@ export function useCreateActions() {
        * a person can act on. An unhandled rejection would leave a host looking at a
        * spinner that stopped.
        */
+      /**
+       * COPY, NOT TRANSCRIBE. The created screen used to show a twelve-character recovery
+       * key and a button reading "I have written it down" -- a key that exists exactly once
+       * (`create_event`'s return value, only the hash is stored) and had to be copied by
+       * hand or screenshotted. One tap puts it on the clipboard; the toast says which one.
+       * A clipboard that refuses (a browser without permission) is said out loud, because
+       * "copied" over a key that was not is the one thing this screen must never claim.
+       */
+      copy: async (text: string, what: string): Promise<boolean> => {
+        try {
+          await Clipboard.setStringAsync(text);
+          show(`${what} copied.`);
+          return true;
+        } catch {
+          show(`Could not copy the ${what.toLowerCase()} — press and hold it to select it instead.`);
+          return false;
+        }
+      },
       createEvent: async (input: NewEvent): Promise<CreatedEvent | null> => {
         try {
           const made = await repo.event.create(input);

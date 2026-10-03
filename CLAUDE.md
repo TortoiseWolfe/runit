@@ -1534,8 +1534,16 @@ that lives in a button handler is bypassed by the second caller.
   will throw: `loadFetchOnce` did, and only creating an event exposed it. `loadBlocks` is
   the pattern to copy -- a null guest id is a real state with an empty answer, not a
   fallback.
-- **PHOTO APPROVAL IS ON BY DEFAULT SINCE 2026-09-20, AND THE OLD DEFAULT HAD A GOOD
-  ARGUMENT.** `events.photo_moderation` shipped `default false` on the reasoning below: a
+- **PHOTO APPROVAL IS OFF BY DEFAULT AGAIN SINCE 2026-10-02, BY THE OWNER'S CALL, and the
+  paragraph below records the twelve days it was on and why.** The night before a real
+  wedding beta the owner reversed it: a host mid-event has no hands free to approve, and until
+  that same night there was no bulk approve she could reach for (there is now -- `Approve all`
+  on the queue). `create_event` mints `photo_moderation = false`; existing rows untouched.
+  **The App Store listing's *"the host approves them before they appear"* is a claim again
+  rather than a fact** -- #69's rule, a claim and the code disagreeing, now points the other
+  way, and the listing is what has to move (it is writable from here).
+- **PHOTO APPROVAL WAS ON BY DEFAULT FROM 2026-09-20 TO 2026-10-02, AND THE OLD DEFAULT HAD A
+  GOOD ARGUMENT.** `events.photo_moderation` shipped `default false` on the reasoning below: a
   party of eight that has to approve itself is friction nobody asked for. Two things
   outweighed it. An album is the one surface where a stranger's mistake is instantly in front
   of the whole room and the host is who answers for it -- off-by-default asks her to PREDICT

@@ -14,7 +14,7 @@ export function PhotoApprovalsPanel() {
   const folders = useFolders();
   const active = useActiveFolder();
   const event = useEvent();
-  const { approve, hide, addFolder, selectFolder } = usePhotoActions();
+  const { approve, hide, addFolder, selectFolder, approveAll } = usePhotoActions();
 
   const tier = TIERS[event?.tier ?? 'house_party'];
   const folderCap = capLabel(
@@ -25,9 +25,25 @@ export function PhotoApprovalsPanel() {
 
   return (
     <ScrollView style={s.scroll} contentContainerStyle={s.content} testID="host-photos">
-      <Text style={[s.section, { color: alpha(tokens.baseContent, fade.muted) }]}>
-        Awaiting approval · {pending.length}
-      </Text>
+      <View style={s.headRow}>
+        <Text style={[s.section, s.headTitle, { color: alpha(tokens.baseContent, fade.muted) }]}>
+          Awaiting approval · {pending.length}
+        </Text>
+        {/* APPROVE ALL, drawn only while there is more than one to approve: over a single
+            photo the per-row button is the same tap, and over none it is a door that will
+            not open. The count is in the label so she knows what one tap does. */}
+        {pending.length > 1 ? (
+          <Pressable
+            onPress={() => approveAll()}
+            accessibilityRole="button"
+            accessibilityLabel={`Approve all ${pending.length} waiting photos`}
+            testID="approve-all"
+            style={[s.approveAll, { backgroundColor: tokens.success }]}
+          >
+            <Text style={[s.approveText, { color: tokens.successContent }]}>Approve all {pending.length}</Text>
+          </Pressable>
+        ) : null}
+      </View>
 
       {pending.map((p) => (
         <View
@@ -149,6 +165,9 @@ export function PhotoApprovalsPanel() {
 }
 
 const s = StyleSheet.create({
+  headRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  headTitle: { flex: 1, minWidth: 0 },
+  approveAll: { minHeight: 36, paddingHorizontal: 14, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
   scroll: { flex: 1 },
   content: { paddingVertical: 16, paddingHorizontal: 20, gap: 12 },
   section: { ...eyebrow.section, fontSize: 12 },

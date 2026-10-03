@@ -1,0 +1,5 @@
+- [x] T1 Copy on the created screen + journey
+- [x] T2 default off: migration, fixture, tests, CLAUDE.md
+- [x] T3 approve all: seam, adapters, action, button, unit + journey
+- [ ] T4 board green, land, deploy, production ALTER, build 16
+- [ ] T5 reword the App Store description line about approval (owner's words)

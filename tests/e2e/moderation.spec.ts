@@ -181,7 +181,8 @@ test.describe('Guideline 1.2 · taking it down (#65)', () => {
     // off, which is a thing hosts do and is exactly the state where a reported photo has
     // no queue to be pulled from. The bug is unchanged; the route to it is one tap longer.
     await page.getByTestId('host-segment-event').click();
-    await page.getByTestId('moderation-toggle').click();
+    // OFF by default since 2026-10-02, so the queue is empty without a tap; the assertion below
+    // is what used to be reached by turning it off.
     await expect(page.getByTestId('moderation-toggle')).toContainText(/off/i);
     await page.getByTestId('host-segment-broadcast').click();
 
@@ -279,12 +280,12 @@ test.describe("approval is the host's choice, on any tier", () => {
    * event this app could create. The friction argument survives as the NEXT test: she takes
    * the gate down in one tap.
    */
-  test('it is ON by default, because the room sees a photo before the host can', async ({
+  test('it is OFF by default, by the owner\'s call: a host mid-event has no hands free to approve', async ({
     page,
   }, info) => {
     await newEvent(page, info.project.name as 'dark' | 'light');
     await page.getByTestId('host-segment-event').click();
-    await expect(page.getByTestId('moderation-toggle')).toContainText(/on/i);
+    await expect(page.getByTestId('moderation-toggle')).toContainText(/off/i);
   });
 
   test('a free-tier host can turn it on, and a guest photo then waits for her', async ({
@@ -296,7 +297,7 @@ test.describe("approval is the host's choice, on any tier", () => {
     // OFF AND ON AGAIN, so this exercises the SWITCH rather than the default. Asserting
     // straight from a fresh event would now pass on a toggle wired to nothing -- which is
     // the exact failure the "ON FIRST, AND ASSERTED" note below was written about.
-    await page.getByTestId('moderation-toggle').click();
+    // Starts OFF now; one tap puts the gate up.
     await expect(page.getByTestId('moderation-toggle')).toContainText(/off/i);
     await page.getByTestId('moderation-toggle').click();
     await expect(page.getByTestId('moderation-toggle')).toContainText(/on/i);
@@ -341,6 +342,8 @@ test.describe("approval is the host's choice, on any tier", () => {
     // before the tap is doing the same job the second tap used to. Measured when it was
     // written -- stubbing `onPress` to `() => {}` left this journey green until the
     // before-and-after pair existed.
+    // Starts OFF now: up, then back down.
+    await page.getByTestId('moderation-toggle').click();
     await expect(page.getByTestId('moderation-toggle')).toContainText(/on/i);
     await page.getByTestId('moderation-toggle').click();
     await expect(page.getByTestId('moderation-toggle')).toContainText(/off/i);

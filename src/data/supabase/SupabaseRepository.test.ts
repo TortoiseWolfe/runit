@@ -2119,3 +2119,19 @@ describe('after its own event write, the adapter reads the row back', () => {
     expect(repo.event.current.get()?.photoModeration).toBe(true);
   });
 });
+
+
+describe('photos.approveAll', () => {
+  it('approves every waiting photo at this event in one statement, and counts what moved', async () => {
+    const c = ready();
+    const repo = await join(c);
+    c.on((op) =>
+      op.kind === 'update' && op.table === 'photos' ? { data: [{ id: 'p1' }, { id: 'p2' }, { id: 'p3' }], error: null } : undefined,
+    );
+    const n = await repo.photos.approveAll();
+    expect(n).toBe(3);
+    const op = c.find('update', 'photos')[0]!;
+    expect(op.payload).toEqual({ status: 'approved' });
+    expect(op.filters).toEqual([['event_id', EVENT], ['status', 'pending']]);
+  });
+});

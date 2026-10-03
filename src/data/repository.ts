@@ -1008,6 +1008,14 @@ export interface RunitRepository {
      */
     retry(id: PhotoId): Promise<void>;
     approve(id: PhotoId): Promise<void>;
+    /**
+     * Every photo waiting in this event, approved in one statement. Resolves to how many
+     * moved. Exists because a host mid-event has no hands free to tap forty times, and
+     * because the owner's first question about the queue was "it's not a bulk approve
+     * either, is it?" -- it was not. Same policy as `approve`: `photos_moderate` admits
+     * hosts and nobody else; the backend decides, the count is read back off the rows.
+     */
+    approveAll(): Promise<number>;
     hide(id: PhotoId): Promise<void>;
     addFolder(input: { name: string }): Promise<void>;
   };
