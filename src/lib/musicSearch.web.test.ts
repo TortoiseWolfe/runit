@@ -19,7 +19,7 @@ describe('searchSongs on web', () => {
     }
   };
 
-  it('answers nothing at all without the harness flag, because CORS blocks the real call', async () => {
+  it('answers nothing without the harness flag when the proxy is unreachable, because CORS blocks the direct call', async () => {
     await withFidelity(false, async () => {
       await expect(searchSongs('dont stop')).resolves.toEqual([]);
     });
@@ -103,6 +103,58 @@ describe('searchSongs on web', () => {
   it('and answers nothing for a song no catalogue has, which must still be requestable', async () => {
     await withFidelity(true, async () => {
       await expect(searchSongs("the bridesmaids' band")).resolves.toEqual([]);
+    });
+  });
+});
+
+
+/**
+ * WITHOUT THE HARNESS FLAG the web half asks OUR origin, `/api/music`, which is the Pages
+ * Function in `web/functions/api/music.js` -- the same shape iTunes returns, through a host
+ * that sends CORS headers because it IS the host. The fetch is mocked here; the live route is
+ * asserted by lane G on every board, and a journey never depends on Apple.
+ */
+describe('the browser search goes through our own proxy', () => {
+  const withFlag = async (on: boolean, fn: () => Promise<void>) => {
+    const prev = process.env.EXPO_PUBLIC_FIDELITY;
+    process.env.EXPO_PUBLIC_FIDELITY = on ? '1' : '';
+    try { await fn(); } finally { process.env.EXPO_PUBLIC_FIDELITY = prev; }
+  };
+  const mockFetch = (impl: unknown) => {
+    (global as unknown as { fetch: unknown }).fetch = impl;
+  };
+
+  it('asks /api/music on the page origin and maps what comes back', async () => {
+    const calls: string[] = [];
+    mockFetch(async (url: string) => {
+      calls.push(url);
+      return { ok: true, json: async () => ({ results: [
+        { trackName: "Don't Stop Believin'", artistName: 'Journey' },
+        // The same song under the product's own identity rule (punctuation and case folded),
+        // so the mapper must return ONE row -- a remaster with a different title is not.
+        { trackName: 'DONT STOP BELIEVIN', artistName: 'journey' },
+      ] }) };
+    });
+    await withFlag(false, async () => {
+      const out = await searchSongs('journey');
+      expect(calls[0]).toMatch(/\/api\/music\?term=journey$/);
+      expect(out).toEqual([{ title: "Don't Stop Believin'", artist: 'Journey' }]);
+    });
+  });
+
+  it('answers nothing, never an error, when the proxy fails', async () => {
+    mockFetch(async () => ({ ok: false, status: 502, json: async () => ({}) }));
+    await withFlag(false, async () => {
+      await expect(searchSongs('journey')).resolves.toEqual([]);
+    });
+  });
+
+  it('does not ask at all below the minimum query', async () => {
+    const calls: string[] = [];
+    mockFetch(async (url: string) => { calls.push(url); return { ok: true, json: async () => ({ results: [] }) }; });
+    await withFlag(false, async () => {
+      await searchSongs('j');
+      expect(calls).toHaveLength(0);
     });
   });
 });
