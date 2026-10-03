@@ -21,8 +21,8 @@ import { songKey } from '@/domain/songKey';
 
 // TYPE-ONLY from the sibling -- erased at compile time, so it cannot become the cycle
 // `captureConstants.ts` warns about. The VALUE comes from the shared module.
-import type { SongMatch } from './musicSearch';
 import { MIN_QUERY } from './musicSearchConstants';
+import { toMatches, type SongMatch } from './musicSearchMap';
 
 export { MIN_QUERY, type SongMatch };
 
@@ -61,10 +61,24 @@ const CATALOGUE: SongMatch[] = [
  * enough to be honest about word order without this file growing an algorithm nobody asked
  * for and nobody would trust.
  */
-export async function searchSongs(q: string, _signal?: AbortSignal): Promise<SongMatch[]> {
+export async function searchSongs(q: string, signal?: AbortSignal): Promise<SongMatch[]> {
   const term = q.trim();
   if (term.length < MIN_QUERY) return [];
-  if (process.env.EXPO_PUBLIC_FIDELITY !== '1') return [];
+  if (process.env.EXPO_PUBLIC_FIDELITY !== '1') {
+    // THE REAL THING, through our own origin. Apple sends no CORS headers on the iTunes
+    // Search API, so the browser calls `web/functions/api/music.js` on the host it was served
+    // from, which calls Apple and returns the same two fields. Any failure is "no
+    // suggestions", never an error: a local band must stay requestable.
+    try {
+      // `window` exists without `location` in React Native's jest environment; a browser has both.
+      const origin = (typeof window !== 'undefined' && window.location?.origin) || '';
+      const res = await fetch(`${origin}/api/music?term=${encodeURIComponent(term)}`, { signal });
+      if (!res.ok) return [];
+      return toMatches(await res.json());
+    } catch {
+      return [];
+    }
+  }
 
   // `songKey`'s folding, applied per word rather than to the whole string, so punctuation
   // still does not matter: "dont" reaches "Don't".

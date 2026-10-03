@@ -260,6 +260,30 @@ try {
   note(`/i/HOUSE7 could not be fetched: ${e instanceof Error ? e.message : String(e)}`);
 }
 
+/**
+ * THE SONG TYPE-AHEAD'S PROXY ANSWERS ON THIS HOST (spec 003 follow-up). `web/functions/api/
+ * music.js` is a Pages Function; the browser build asks it because Apple's iTunes endpoint
+ * sends no CORS headers. What is asserted is the SHAPE -- JSON with a `results` array --
+ * never that Apple answered: the function returns 200 and no results when Apple is down,
+ * so this cannot go red on a third party's outage. It CAN go red on a `_redirects` catch-all
+ * swallowing the route and serving the app's HTML shell, which is the failure measured on
+ * this host before (bundle paths, assetlinks) and the reason this is checked by reading the
+ * body back.
+ */
+try {
+  const music = await get('/api/music?term=journey');
+  const type = music.res.headers.get('content-type') ?? '';
+  let shape = null;
+  try { shape = JSON.parse(music.body); } catch { shape = null; }
+  if (music.res.status !== 200 || !type.includes('application/json') || !Array.isArray(shape?.results)) {
+    problems.push(`/api/music answered ${music.res.status} ${type || '(no content-type)'} -- the song type-ahead is dead in the browser (a _redirects catch-all serving the app shell looks exactly like this).`);
+  } else {
+    console.log(`  /api/music answers JSON (${shape.results.length} result(s) for "journey"; upstream ${shape.upstream ?? 'n/a'})`);
+  }
+} catch (e) {
+  problems.push(`/api/music could not be fetched: ${e instanceof Error ? e.message : e}`);
+}
+
 /* ------------------------------------------------------------------ report */
 
 if (problems.length) {
