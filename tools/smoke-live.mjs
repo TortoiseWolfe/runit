@@ -514,18 +514,22 @@ try {
   await page.waitForSelector('[data-testid="invitee-row"]', { timeout: 20_000 });
   check(true, 'a host can put someone on the guest list (#25)');
 
+  // #72 MOVED THE INVITED COUNT OFF THE COMPOSER (2026-09-12), and this check kept reading
+  // the composer until 2026-10-03 -- three weeks failing in a lane nobody ran. The composer
+  // names the ROOM, the people a broadcast can reach, so "Send to 0 guests" here is CORRECT:
+  // the host's own seat is not in the room. The folded invited count lives on the guest
+  // list's summary now, "1 invited · 0 here". WAIT FOR THE FOLD, do not read once:
+  // `fold_invited_count` runs in the database and reaches this client over realtime.
+  const folded = await page
+    .waitForFunction(() => /\b1 invited\b/.test(document.body.innerText), undefined, { timeout: 45_000 })
+    .then(() => true)
+    .catch(() => false);
+  check(folded, 'and invited_count folds into the guest list summary (#72)', folded ? '1 invited' : 'never read 1 invited');
+
   await page.getByTestId('host-segment-broadcast').click();
   await page.waitForSelector('[data-testid="host-broadcast"]', { timeout: 20_000 });
-  // WAIT FOR THE FOLD, do not read once. `fold_invited_count` runs in the database and the
-  // new number reaches this client over realtime, so reading the composer the instant after
-  // the insert is a race the write usually loses. Read once, this reported "Send to 0
-  // guests" on one run in four -- which is a true statement about that millisecond and a
-  // false one about the trigger.
-  const composer = await page
-    .waitForFunction(() => /Send to [1-9]\d* guests?/.test(document.body.innerText), undefined, { timeout: 45_000 })
-    .then(() => page.getByTestId('host-broadcast').innerText())
-    .catch(() => page.getByTestId('host-broadcast').innerText());
-  check(/Send to 1 guest/.test(composer), 'and invited_count folds into the composer',
+  const composer = await page.getByTestId('host-broadcast').innerText();
+  check(/Send to 0 guests/.test(composer), 'and the composer names the room, not the list (#72)',
         composer.match(/Send to \d+ guests?/)?.[0] ?? 'no count');
 
   // ================================================================ #60
