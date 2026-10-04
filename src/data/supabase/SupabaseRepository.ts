@@ -318,7 +318,8 @@ export class SupabaseRepository implements RunitRepository {
     },
   ) {
     this.db = db;
-    this.signed = new SignedUrls(db);
+    // A scheduled re-sign (#94) repaints the album with the fresh URLs, not tiles.
+    this.signed = new SignedUrls(db, undefined, () => this.recompute());
     // THE ONE SIGNAL IN THIS FILE THAT HAD NO COMPARATOR, and computeEntitlements()
     // returns a fresh literal on every call -- so the default Object.is never matched
     // and recompute() re-rendered every useEntitlements() consumer on every realtime
