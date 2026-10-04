@@ -10,6 +10,7 @@ import {
 } from "react-native";
 
 import { useSessionActions } from "@/state/actions";
+import { useHoldsHostSeat } from "@/state/hooks";
 import { Button } from "@/components/ui/Button";
 import { alpha, border, radius, useTheme, weight } from "@/theme";
 
@@ -33,7 +34,18 @@ export function NameSheet({
   onClose: () => void;
 }) {
   const { tokens, fade } = useTheme();
-  const { setNickname } = useSessionActions();
+  const { setNickname, claimHostHere } = useSessionActions();
+  const holdsHostSeat = useHoldsHostSeat();
+  /** Spec 010 (#107): the stranded-host route, closed until asked for. */
+  const [keyOpen, setKeyOpen] = useState(false);
+  const [keyDraft, setKeyDraft] = useState("");
+  const [claiming, setClaiming] = useState(false);
+  const claim = async () => {
+    setClaiming(true);
+    const ok = await claimHostHere(keyDraft);
+    setClaiming(false);
+    if (ok) onClose();
+  };
   /**
    * MOUNTED ONLY WHILE OPEN, which is why this is a plain initialiser and there is no
    * effect keeping it in step.
@@ -128,6 +140,53 @@ export function NameSheet({
               label={busy ? "Saving…" : "Save"}
             />
           )}
+          {/* SPEC 010 (#107). A host who opened her own link in another browser is a guest
+              there, and the join screen's key field -- behind Leave -- was the only way back.
+              Drawn only for someone holding no host seat: staff already have "Host view". */}
+          {!holdsHostSeat && !keyOpen ? (
+            <Pressable
+              onPress={() => setKeyOpen(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Running this party? Use your host key"
+              testID="name-host-key-open"
+              style={s.keyLink}
+            >
+              <Text style={[s.keyLinkText, { color: tokens.accent }]}>
+                Running this party? Use your host key →
+              </Text>
+            </Pressable>
+          ) : null}
+          {!holdsHostSeat && keyOpen ? (
+            <>
+              <TextInput
+                value={keyDraft}
+                onChangeText={setKeyDraft}
+                placeholder="Host key"
+                placeholderTextColor={alpha(tokens.baseContent, fade.faint)}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                accessibilityLabel="Your host key, the recovery key from when you made the party"
+                testID="name-host-key"
+                returnKeyType="go"
+                submitBehavior="blurAndSubmit"
+                onSubmitEditing={() => {
+                  if (keyDraft.trim() && !claiming) void claim();
+                }}
+                style={[
+                  s.input,
+                  { borderColor: tokens.base300, color: tokens.baseContent, backgroundColor: tokens.base200 },
+                ]}
+              />
+              {keyDraft.trim() ? (
+                <Button
+                  onPress={() => void claim()}
+                  testID="name-host-key-submit"
+                  size="sm"
+                  label={claiming ? "Checking…" : "Become the host"}
+                />
+              ) : null}
+            </>
+          ) : null}
           <Pressable
             onPress={onClose}
             accessibilityRole="button"
@@ -171,6 +230,8 @@ const s = StyleSheet.create({
     fontSize: 16,
     minHeight: 44,
   },
+  keyLink: { minHeight: 44, justifyContent: "center" },
+  keyLinkText: { fontSize: 14, fontWeight: weight.semibold },
   cancel: {
     fontSize: 14,
     textAlign: "center",

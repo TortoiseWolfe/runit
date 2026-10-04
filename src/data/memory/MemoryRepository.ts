@@ -767,6 +767,8 @@ export class MemoryRepository implements RunitRepository {
       }
       const h = this.hostList[0];
       if (!h) throw new Error('This event has no host seat to claim.');
+      // As SupabaseRepository does: a claimed seat is a held seat, or "Host view" never draws.
+      this.sigHoldsHostSeat.set(true);
       this.sigSession.set({
         kind: 'host', hostId: h.id, displayName: h.displayName, role: h.role, roleLabel: h.roleLabel,
       });

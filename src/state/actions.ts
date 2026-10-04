@@ -195,6 +195,25 @@ export function useSessionActions() {
           show('Could not change your name. Try again.');
         }
       },
+      /**
+       * SPEC 010 (#107): CLAIM THE HOST SEAT WITHOUT LEAVING. A host who opened her own link in
+       * another browser is a guest there; the join screen's key field was the only way back,
+       * behind Leave. This is the same `claimHost` against the party she is already in.
+       * Returns whether it worked, so the sheet can stay open on a wrong key.
+       */
+      claimHostHere: async (key: string) => {
+        const code = repo.event.current.get()?.code;
+        if (!code) return false;
+        try {
+          await repo.session.claimHost({ code, key: key.trim() });
+          show('You are the host of this event.');
+          router.replace('/host/broadcast');
+          return true;
+        } catch (e) {
+          show(e instanceof JoinError ? e.message : 'Could not claim the host seat.');
+          return false;
+        }
+      },
     }),
     [repo, router, show],
   );

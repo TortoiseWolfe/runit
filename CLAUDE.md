@@ -938,6 +938,14 @@ it is the ABSENCE marker that catches the gate itself going stale. Six mutations
 shared marker was the old refusal copy until 2026-10-03; see THE BROWSER SCANS QR CODES below.)
 `getUserMedia` must be in `dist-guest/` too: a guest bundle without it shipped the refusal again.
 
+**A HOST WHO LANDS AS A GUEST CLAIMS HER SEAT FROM HER NAME SHEET (spec 010, #107).** Opening
+her own link in another browser makes a second anonymous identity, and the first wedding's host
+joined her own party as a guest that way; the only way back was Leave and the join screen's
+optional key field. The name sheet now offers "Running this party? Use your host key" to anyone
+holding NO host seat, and calls the same `claimHost` in place. `MemoryRepository.claimHost` now
+sets `holdsHostSeat` as Supabase does -- mutation-checked by the journey that steps back to the
+guest side and expects "Host view".
+
 **A SAVED LIST OPENS A PICKER, NOT A COPY (spec 008, 2026-10-04).** Four questions, four
 controls, none standing in for another: the LIST says who belongs; the picker's switches say who
 from it is coming THIS time (all on to start; off never edits the list); a one-off add covers
