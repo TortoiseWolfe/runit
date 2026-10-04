@@ -808,7 +808,7 @@ undecodable, which is the contrast/quiet-zone/resolution class a camera in a dim
 would hit.
 
 **H — the adapter that ships, against the database that ships** (`pnpm export:web:live &&
-pnpm smoke:live`). Forty checks driving `SupabaseRepository` through a real browser against
+pnpm smoke:live`). Forty-one checks driving `SupabaseRepository` through a real browser against
 the live project: `create_event`, the founding host seat, a broadcast round-tripping through
 realtime, a founder taking a guest seat (#37), her seat NOT counted in the room,
 `request_song` both inserting and merging (#44), and **the whole photo chain** — two objects
@@ -865,6 +865,16 @@ EVENT to still exist (`is_host(foldername(name)[1])`), so deleting rows first st
 objects where nothing but a service role can reach them — `storage.protect_delete()` refuses
 direct SQL. `init.sql` has said "BYTES FIRST, ROW SECOND" since the first migration and it
 was still got wrong here, stranding 840 bytes. `docs/smoke-live.md`.
+
+**THE 09-23 REVIEW'S SCHEMA DELTA IS ON PRODUCTION SINCE 2026-10-04**: column-level INSERT
+grants on `broadcasts`, `song_requests`, `invitees` and `feedback`; `photos` UPDATE narrowed to
+`status`; the `broadcasts_author`, `requests_guard`, `folders_cap` and `photos_cap` triggers; the
+two photo path constraints; the feedback context bound and event-membership check. It was
+extracted from the CURRENT migration file rather than the 09-23 diff, applied to the local stack
+first (lane E 258/258), then to production in one transaction, and read back object by object.
+Lane H then ran 41/41 against it. **That run also found a check stale since #72**: lane H
+read the invited count off the composer, which has named the ROOM since 2026-09-12, so the
+lane had been red at that line for three weeks in a lane nobody ran.
 
 **It is the only lane that can see four things.** RPC ARGUMENT NAMES — PostgREST resolves
 overloads by name, so `p_titel` is a runtime 404 against a function that exists, and

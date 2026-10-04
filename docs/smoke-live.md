@@ -65,19 +65,32 @@ guests, broadcasts, song requests, votes and photo rows.
 -- 1. What is there.
 select code, name, created_at from public.events where name like 'smoke %' order by created_at;
 
--- 2. Remove them. Everything below the event cascades.
-delete from public.events where name like 'smoke %';
+-- 2. Remove them, with their identities: the statement below, not a bare delete.
 
--- 3. The anonymous identities they minted. Scoped to users that hold NO seat of any kind,
---    which is what a swept smoke run leaves behind -- never a user with a real seat.
-delete from auth.users u
- where u.is_anonymous
-   and not exists (select 1 from public.guests g where g.auth_user_id = u.id)
-   and not exists (select 1 from public.hosts  h where h.auth_user_id = u.id);
 ```
 
-Run step 3 **after** step 2, not before: while the event still exists its host row still
-references the user, so the guard correctly refuses to delete it.
+**Do not sweep identities by "anonymous and seatless".** This file used to, and since #77
+that predicate also matches a cold visitor who filed a report from the join screen without
+joining: `feedback.auth_user_id` is `on delete cascade`, so the sweep would have deleted
+their report. Collect the smoke run's identities BEFORE the events go, and delete only
+those, in the same statement:
+
+```sql
+with ev as (select id from public.events where name ~ '^smoke [0-9]{14}$'),
+ ids as (select h.auth_user_id as uid from public.hosts h join ev on ev.id = h.event_id
+         union select g.auth_user_id from public.guests g join ev on ev.id = g.event_id),
+ del_ev as (delete from public.events e using ev where e.id = ev.id returning 1),
+ del_u as (delete from auth.users u using ids where u.id = ids.uid and u.is_anonymous
+   and not exists (select 1 from public.feedback f where f.auth_user_id = u.id)
+   and not exists (select 1 from public.hosts h where h.auth_user_id = u.id and h.event_id not in (select id from ev))
+   and not exists (select 1 from public.guests g where g.auth_user_id = u.id and g.event_id not in (select id from ev))
+   returning 1)
+select (select count(*) from del_ev) as events, (select count(*) from del_u) as identities;
+```
+
+`hosts.auth_user_id` is `set null` and `guests.auth_user_id` is `cascade`, so one statement
+is safe. Last run 2026-10-04: 14 events (09-10 to 10-04), 23 identities, 8 orphaned objects
+deleted through the Storage API first.
 
 ### BYTES FIRST, ROWS SECOND — and this was learned the expensive way
 
