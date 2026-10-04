@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { FlatList, Image, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { EventHeader } from '@/features/chat/EventHeader';
 import { PhotoViewer } from './PhotoViewer';
@@ -234,18 +234,7 @@ export function PhotosScreen() {
     );
   }
 
-  return (
-    <View style={s.wrap}>
-      <EventHeader eyebrow="Shared album" />
-      <ScrollView style={s.scroll} testID="album">
-        {folderChips}
-
-        <View style={s.grid}>
-          {/* Own transfers first: they are the newest thing the guest did, and a
-              failed one needs to be found without hunting. They sit in the same
-              grid rather than a separate list so the album still reads as one
-              roll -- which is also why they keep the hue tile underneath. */}
-          {mineHere.map((p) => {
+  const renderMine = (p: Photo) => {
             const body = (
               <>
                 {/*
@@ -335,8 +324,9 @@ export function PhotosScreen() {
                 {body}
               </View>
             );
-          })}
-          {visible.map((p) => (
+  };
+
+  const renderApproved = (p: Photo) => (
             // The testID stays on the OUTER node deliberately. The e2e suite
             // counts `tile-*` and asserts their order; wrapping the image in a
             // new parent and moving the testID would break both. The hue tile is
@@ -404,47 +394,82 @@ export function PhotosScreen() {
                 <Text style={[s.tileReportGlyph, { color: tokens.neutralContent }]}>⋯</Text>
               </Pressable>
             </Pressable>
-          ))}
-        </View>
+  );
 
-        {/*
-          HOW LONG THIS ALBUM LASTS (#23).
+  /** Own transfers first, then the approved album: the order the grid has always drawn. */
+  const gridItems: { kind: 'mine' | 'approved'; p: Photo }[] = [
+    ...mineHere.map((p) => ({ kind: 'mine' as const, p })),
+    ...visible.map((p) => ({ kind: 'approved' as const, p })),
+  ];
 
-          It sits at the FOOT of the album rather than the top, and that is deliberate: a
-          deadline is not the first thing anyone should meet when they open a shared photo
-          album at a party. It is the thing they should find when they scroll to the end
-          and start thinking about which ones they want.
+  return (
+    <View style={s.wrap}>
+      <EventHeader eyebrow="Shared album" />
+      {/*
+        A FLATLIST, NOT .map IN A SCROLLVIEW (#93). The album is the one list in the app that
+        grows without a bound a host notices: 100 photos on the free plan, 1,000 on Party,
+        unlimited above, and a wedding is exactly where it fills. `.map` drew every tile as a
+        live <Image> at once. Rows are virtualised now; the tiles, their testIDs and their
+        order are untouched, because the album specs count `tile-*` and assert the order.
+        No getItemLayout: the header (folder chips) and footer have no fixed height, and a
+        wrong offset is worse than a measured one.
+      */}
+      <FlatList
+        style={s.scroll}
+        testID="album"
+        data={gridItems}
+        keyExtractor={(it) => it.p.id}
+        numColumns={GRID_COLUMNS}
+        columnWrapperStyle={s.gridRow}
+        ItemSeparatorComponent={RowGap}
+        ListHeaderComponent={<View style={s.gridHeader}>{folderChips}</View>}
+        ListFooterComponent={
+          <>
+          {/*
+            HOW LONG THIS ALBUM LASTS (#23).
 
-          IT SHIPS AFTER A SAVE CONTROL EXISTS (#39), not before. A deadline nobody can act
-          on is not a warning, it is bad news -- so the sentence names the thing to do, and
-          the thing is real.
+            It sits at the FOOT of the album rather than the top, and that is deliberate: a
+            deadline is not the first thing anyone should meet when they open a shared photo
+            album at a party. It is the thing they should find when they scroll to the end
+            and start thinking about which ones they want.
 
-          NOTHING DELETES ANYTHING YET, and the copy is careful not to claim otherwise: it
-          says how long photos are KEPT, which is true, rather than promising a removal
-          that no code performs. The sweep is separate work and irreversible.
-        */}
-        {retentionDays !== null ? (
-          <Text
-            testID="album-retention"
-            style={[s.retention, { color: alpha(tokens.baseContent, fade.muted) }]}
-          >
-            Photos here are kept for {retentionDays} days after the event. Tap one and
-            choose Save to keep it on your phone.
-          </Text>
-        ) : null}
+            IT SHIPS AFTER A SAVE CONTROL EXISTS (#39), not before. A deadline nobody can act
+            on is not a warning, it is bad news -- so the sentence names the thing to do, and
+            the thing is real.
 
-        {moderated ? (
-          <Text
-            testID="album-moderated"
-            style={[s.retention, { color: alpha(tokens.baseContent, fade.muted) }]}
-          >
-            Photos you add appear here once a host approves them.
-          </Text>
-        ) : null}
+            NOTHING DELETES ANYTHING YET, and the copy is careful not to claim otherwise: it
+            says how long photos are KEPT, which is true, rather than promising a removal
+            that no code performs. The sweep is separate work and irreversible.
+          */}
+          {retentionDays !== null ? (
+            <Text
+              testID="album-retention"
+              style={[s.retention, { color: alpha(tokens.baseContent, fade.muted) }]}
+            >
+              Photos here are kept for {retentionDays} days after the event. Tap one and
+              choose Save to keep it on your phone.
+            </Text>
+          ) : null}
 
-        {/* #77. The end of the tab where a guest notices a photo did not arrive. */}
-        <ReportLink inset={20} />
-      </ScrollView>
+          {moderated ? (
+            <Text
+              testID="album-moderated"
+              style={[s.retention, { color: alpha(tokens.baseContent, fade.muted) }]}
+            >
+              Photos you add appear here once a host approves them.
+            </Text>
+          ) : null}
+
+          {/* #77. The end of the tab where a guest notices a photo did not arrive. */}
+          <ReportLink inset={20} />
+          </>
+        }
+        renderItem={({ item }) => (item.kind === 'mine' ? renderMine(item.p) : renderApproved(item.p))}
+        initialNumToRender={8}
+        maxToRenderPerBatch={8}
+        windowSize={7}
+        removeClippedSubviews
+      />
 
       <PhotoViewer
         photos={viewerPhotos}
@@ -501,6 +526,11 @@ export function PhotosScreen() {
   );
 }
 
+/** The space between album rows; a component because FlatList takes one. */
+function RowGap() {
+  return <View style={s.rowGap} />;
+}
+
 const s = StyleSheet.create({
   wrap: { flex: 1 },
   scroll: { flex: 1 },
@@ -531,13 +561,10 @@ const s = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   tileReportGlyph: { fontSize: 16, lineHeight: 18, fontWeight: weight.bold },
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: GRID_GAP,
-    paddingVertical: 8,
-    paddingHorizontal: GRID_PADDING,
-  },
+  // A FlatList row: the gap between columns and the gutter. Rows are separated by RowGap.
+  gridRow: { gap: GRID_GAP, paddingHorizontal: GRID_PADDING },
+  gridHeader: { paddingBottom: 8 },
+  rowGap: { height: GRID_GAP },
   // Width and height are supplied at the call site -- see the note above.
   // The real size is `tileSize`, computed from the window width -- which lane A2 cannot
   // resolve, because it is a DECLARATION check rather than a geometry one and refuses to
