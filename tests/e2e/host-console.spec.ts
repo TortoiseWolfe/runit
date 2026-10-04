@@ -544,30 +544,38 @@ test.describe('host console · handing out the code', () => {
    * thing, and a browser with no sheet is told the code rather than left with a button
    * that did nothing. Whether the OS sheet opens is a device question.
    */
-  test('the QR is hidden until asked for, and shows the code beside it', async ({ page }, testInfo) => {
+  test('Show QR fills the screen: a sign for the room, not a thumbnail', async ({ page }, testInfo) => {
     const scheme = testInfo.project.name as 'dark' | 'light';
     await joinAsGuest(page, scheme);
     await switchToHost(page);
 
     await expect(page.getByTestId('event-qr')).toHaveCount(0);
     await page.getByTestId('host-qr-toggle').click();
-    await expect(page.getByTestId('event-qr')).toBeVisible();
+    await expect(page.getByTestId('room-qr')).toBeVisible();
+    await expect(page.getByTestId('room-qr-name')).toHaveText(WEDDING.name);
 
-    // The human-readable fallback is not decoration: the custom scheme only resolves on a
-    // phone that already has Runit, so everyone else needs something to read.
+    // Spec 009 / #108: the QR this replaced was 180px for one person across a table. A room
+    // needs most of the screen. 70% of the 402px viewport is the floor the spec names.
+    const box = await page.getByTestId('event-qr').boundingBox();
+    expect(box?.width ?? 0).toBeGreaterThanOrEqual(0.7 * 402);
+
+    // The human-readable fallback is not decoration: a camera that will not scan still
+    // leaves somebody who can type six characters.
     await expect(page.getByTestId('event-qr-code')).toHaveText(WEDDING.code);
   });
 
-  test('the toggle closes it again, and says which it will do', async ({ page }, testInfo) => {
+  test('Done closes the room view, and Show QR stays one control', async ({ page }, testInfo) => {
     const scheme = testInfo.project.name as 'dark' | 'light';
     await joinAsGuest(page, scheme);
     await switchToHost(page);
 
     await expect(page.getByTestId('host-qr-toggle')).toHaveText('Show QR');
     await page.getByTestId('host-qr-toggle').click();
-    await expect(page.getByTestId('host-qr-toggle')).toHaveText('Hide QR');
-    await page.getByTestId('host-qr-toggle').click();
+    await expect(page.getByTestId('room-qr')).toBeVisible();
+    await page.getByTestId('room-qr-close').click();
+    await expect(page.getByTestId('room-qr')).toHaveCount(0);
     await expect(page.getByTestId('event-qr')).toHaveCount(0);
+    await expect(page.getByTestId('host-qr-toggle')).toHaveText('Show QR');
   });
 
   test('sharing with no share sheet tells you the code instead of failing silently', async ({
