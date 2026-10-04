@@ -1411,6 +1411,12 @@ tester found a bug would make a green board a claim about tester silence.
   a profession was taken to belong to the event planner. It belonged to a relative;
   the planner's own invitation was the expired one above. Confirm the person before inviting
   or drafting to them.
+- **A FINISHED BUILD IS NOT A SUBMITTED ONE.** Build 17 (2026-10-04) was started with
+  `eas build --auto-submit --no-wait`, reported FINISHED, and never reached App Store Connect:
+  ninety minutes later Apple's newest build was still 16, with no error anywhere a session
+  would read. `eas submit --platform ios --id <build> --non-interactive --wait` uploaded it
+  first time. Read the builds list on Apple's side (or `node tools/testflight-testers.mjs`,
+  whose first line names the current build) before telling anyone to update.
 - The EAS workflow trigger is `beta_feedback: { types: [...] }` — a bare list is what the
   prose docs imply and `eas workflow:validate` rejects it. Validate before believing.
 - `eas testflight:feedback` needs **eas-cli >= 21.3.0**; `eas.json` declares a floor of
