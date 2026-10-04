@@ -63,7 +63,10 @@ const SCROLLVIEW_FLOOR = 8;
  */
 const opener = (tag) => new RegExp(`(^|[\\s({\\[])<${tag}\\b`);
 const TEXT_INPUT = opener('TextInput');
-const SCROLL_VIEW = opener('ScrollView');
+// A FlatList IS a ScrollView for this rule: it forwards `keyboardShouldPersistTaps`, and RN's
+// 'never' default eats the first tap on a vote button inside it exactly the same way. Without
+// this, converting a list for #93 would quietly take it out of the audit (and under the floor).
+const SCROLL_VIEW = /(^|[\s({\[])<(ScrollView|FlatList)\b/;
 
 /**
  * A screen declares SOME keyboard strategy if it USES one of these.
@@ -211,7 +214,7 @@ if (inputs < TEXTINPUT_FLOOR) {
 }
 if (scrolls < SCROLLVIEW_FLOOR) {
   problems.push(
-    `coverage floor: expected at least ${SCROLLVIEW_FLOOR} <ScrollView> in files that also\n` +
+    `coverage floor: expected at least ${SCROLLVIEW_FLOOR} <ScrollView>/<FlatList> in files that also\n` +
       `    hold a <TextInput>, found ${scrolls}. Same doctrine as above.`,
   );
 }

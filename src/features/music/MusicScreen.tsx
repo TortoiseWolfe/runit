@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
-  KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
+  FlatList, KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from 'react-native';
 
 import { EventHeader } from '@/features/chat/EventHeader';
@@ -237,75 +237,88 @@ export function MusicScreen() {
       {/* 'handled' so a vote or a report lands on the FIRST press while the composer
           is focused; RN's 'never' default would spend that tap dismissing the
           keyboard. 'on-drag' so scrolling the queue puts the keyboard away. */}
-      <ScrollView
+      {/* A FLATLIST (#93): the queue has no cap and each row holds two subscriptions, so a
+          long wedding night drew every one of them at once. The header (now playing, your
+          request, the section line) and the footer are what the ScrollView held around the
+          rows; the rows, their testIDs and their rank order are unchanged. */}
+      <FlatList
         style={s.scroll}
         contentContainerStyle={s.content}
         testID="music-queue"
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
-      >
-        {nowPlaying && (
-          <View testID="now-playing" style={[s.nowPlaying, { backgroundColor: tokens.neutral }]}>
-            <View style={[s.art, { backgroundColor: tokens.base300 }]} />
-            <View style={s.npText}>
-              <Text style={[s.npEyebrow, { color: alpha(tokens.neutralContent, fade.body) }]}>
-                Now playing
+        data={queue}
+        keyExtractor={(r) => r.id}
+        ListHeaderComponent={
+          <View style={s.queueHead}>
+            {nowPlaying && (
+              <View testID="now-playing" style={[s.nowPlaying, { backgroundColor: tokens.neutral }]}>
+                <View style={[s.art, { backgroundColor: tokens.base300 }]} />
+                <View style={s.npText}>
+                  <Text style={[s.npEyebrow, { color: alpha(tokens.neutralContent, fade.body) }]}>
+                    Now playing
+                  </Text>
+                  <Text style={[s.npTitle, { color: tokens.neutralContent }]} numberOfLines={1}>
+                    {nowPlaying.title}
+                  </Text>
+                  <Text style={[s.npArtist, { color: alpha(tokens.neutralContent, 0.75) }]} numberOfLines={1}>
+                    {nowPlaying.artist}
+                  </Text>
+                </View>
+              </View>
+            )}
+
+            {mine && (
+              <View testID="my-request" style={[s.mineStrip, { backgroundColor: tokens.secondary }]}>
+                {/* THE RANK GOES WHEN THE SONG DOES. A declined request has no position, and
+                    "#3 in the queue" beside "Not this time" is two sentences arguing on one
+                    strip. The status line below carries the whole message in that case. */}
+                <Text style={[s.mineText, { color: tokens.secondaryContent }]}>
+                  {mine.rank === null ? (
+                    <>Your request · {mine.request.title}</>
+                  ) : (
+                    <>
+                      Your request is <Text style={s.mineRank}>#{mine.rank}</Text> in the queue
+                    </>
+                  )}
+                </Text>
+                <Text
+                  testID="my-request-status"
+                  style={[s.mineStatus, { color: alpha(tokens.secondaryContent, 0.8) }]}
+                >
+                  {STATUS_TEXT[mine.request.status]}
+                </Text>
+              </View>
+            )}
+
+            <View style={s.sectionHead}>
+              <Text style={[s.sectionTitle, { color: alpha(tokens.baseContent, fade.muted) }]}>
+                Queue · ranked by votes
               </Text>
-              <Text style={[s.npTitle, { color: tokens.neutralContent }]} numberOfLines={1}>
-                {nowPlaying.title}
-              </Text>
-              <Text style={[s.npArtist, { color: alpha(tokens.neutralContent, 0.75) }]} numberOfLines={1}>
-                {nowPlaying.artist}
+              <Text style={[s.sectionCount, { color: alpha(tokens.baseContent, fade.faint) }]}>
+                {queue.length} requests
               </Text>
             </View>
           </View>
-        )}
-
-        {mine && (
-          <View testID="my-request" style={[s.mineStrip, { backgroundColor: tokens.secondary }]}>
-            {/* THE RANK GOES WHEN THE SONG DOES. A declined request has no position, and
-                "#3 in the queue" beside "Not this time" is two sentences arguing on one
-                strip. The status line below carries the whole message in that case. */}
-            <Text style={[s.mineText, { color: tokens.secondaryContent }]}>
-              {mine.rank === null ? (
-                <>Your request · {mine.request.title}</>
-              ) : (
-                <>
-                  Your request is <Text style={s.mineRank}>#{mine.rank}</Text> in the queue
-                </>
-              )}
-            </Text>
-            <Text
-              testID="my-request-status"
-              style={[s.mineStatus, { color: alpha(tokens.secondaryContent, 0.8) }]}
-            >
-              {STATUS_TEXT[mine.request.status]}
-            </Text>
-          </View>
-        )}
-
-        <View style={s.sectionHead}>
-          <Text style={[s.sectionTitle, { color: alpha(tokens.baseContent, fade.muted) }]}>
-            Queue · ranked by votes
-          </Text>
-          <Text style={[s.sectionCount, { color: alpha(tokens.baseContent, fade.faint) }]}>
-            {queue.length} requests
-          </Text>
-        </View>
-
-        {queue.map((r, i) => (
+        }
+        renderItem={({ item, index }) => (
           <QueueRow
-            key={r.id}
-            request={r}
-            rank={i + 1}
-            mine={mine?.request.id === r.id}
+            request={item}
+            rank={index + 1}
+            mine={mine?.request.id === item.id}
             onReport={setReporting}
           />
-        ))}
-
-        {/* #77. The end of the tab where a guest notices a song request vanished. */}
-        <ReportLink inset={20} />
-      </ScrollView>
+        )}
+        ItemSeparatorComponent={QueueGap}
+        ListFooterComponent={
+          <View style={s.queueFoot}>
+            {/* #77. The end of the tab where a guest notices a song request vanished. */}
+            <ReportLink inset={20} />
+          </View>
+        }
+        initialNumToRender={12}
+        windowSize={7}
+      />
 
       <ReportSheet
         visible={reporting !== null}
@@ -414,10 +427,20 @@ export function MusicScreen() {
   );
 }
 
+/** The space between queue rows; a component because FlatList takes one. */
+function QueueGap() {
+  return <View style={s.queueGap} />;
+}
+
 const s = StyleSheet.create({
   wrap: { flex: 1 },
   scroll: { flex: 1 },
-  content: { paddingVertical: 16, paddingHorizontal: 20, gap: 12 },
+  // No `gap` here any more: in a FlatList the virtualisation spacers are children too, and
+  // they would take gaps. The header spaces itself, rows use QueueGap, the footer its margin.
+  content: { paddingVertical: 16, paddingHorizontal: 20 },
+  queueHead: { gap: 12, marginBottom: 12 },
+  queueFoot: { marginTop: 12 },
+  queueGap: { height: 12 },
 
   nowPlaying: { borderRadius: radius.box, padding: 18, flexDirection: 'row', alignItems: 'center', gap: 14 },
   art: { width: 64, height: 64, borderRadius: 12 },
