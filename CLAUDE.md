@@ -1668,6 +1668,12 @@ that lives in a button handler is bypassed by the second caller.
   checks the seat cap first and every fixture is already at its cap. If the next re-point has
   nowhere to go, `upgradeTo` has no reachable caller and the paywall path should go with it
   rather than be kept alive by a test.
+- **THE EVENT PLAN HOLDS 200, NOT 300, SINCE 2026-10-04**, by the owner's call: Supabase's free
+  plan allows about 200 live realtime connections per PROJECT, and a 300-seat wedding could
+  exceed it. The match is approximate in both directions, knowingly: the cap counts seats (people
+  who joined), not open sockets (a backgrounded app tears its channels down), and the Supabase
+  limit is shared by every event running at once. Venue stays 3000 -- it implies a paid Supabase
+  plan and is reachable only through the free-beta plan picker.
 - **THE TIER CAPS LIVE IN TWO PLACES ON PURPOSE**, and `src/domain/tiers.test.ts` is what
   makes that safe. `public.tier_limits` is what `invite_host` enforces against, because a
   check in a client is bypassed by the second client; `src/domain/tiers.ts` is what the

@@ -118,24 +118,24 @@ export const TIERS: Record<TierId, Tier> = {
   event: {
     id: 'event',
     name: 'Event',
-    scaleLabel: 'up to 300',
+    scaleLabel: 'up to 200',
     priceLabel: '$79',
     periodLabel: '/ event',
     audience: 'Weddings, corporate parties, one-off shows.',
     featureLines: [
-      'Up to 300 guests',
+      'Up to 200 guests',
       '5 hosts with roles (host, DJ, planner)',
       'Unlimited photos · 10 folders',
       'Push notifications',
     ],
-    limits: { maxGuests: 300, maxHosts: 5, maxPhotos: INF, maxFolders: 10, eventTtlHours: null, albumRetentionDays: 365 },
+    limits: { maxGuests: 200, maxHosts: 5, maxPhotos: INF, maxFolders: 10, eventTtlHours: null, albumRetentionDays: 365 },
     features: {
       hostRoles: true, customBranding: false,
       venueBranding: false, pushNotifications: true,
       zipExport: false, requestCaps: false, multiDjQueues: false, folderTemplates: false,
       bulkQrPrinting: false, prioritySupport: false,
     },
-    exampleLabel: '300 guests · wedding, corporate',
+    exampleLabel: '200 guests · wedding, corporate',
   },
   venue: {
     id: 'venue',

@@ -44,7 +44,7 @@ test.describe('a host chooses her plan', () => {
     await page.getByTestId('plan-pick-event').click();
     await expect(page.getByTestId('toast')).toContainText('Event plan');
     await expect(page.getByTestId('plan-name')).toHaveText('Event');
-    await expect(page.getByTestId('plan-caps')).toContainText('300 guests');
+    await expect(page.getByTestId('plan-caps')).toContainText('200 guests');
     await expect(page.getByTestId('plan-caps')).toContainText('unlimited photos');
   });
 

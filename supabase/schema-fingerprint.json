@@ -1,7 +1,7 @@
 {
   "capturedFrom": "a LOCAL build of supabase/migrations/, verified group-for-group against the LIVE project qwusbxallkbzfladvgfx",
   "capturedAt": "2026-10-04",
-  "verifiedAgainst": "Re-captured 2026-10-04 after #90 reached production: photos_past_retention floors its clock at greatest(starts_at, created_at), so a host seat moving the date back cannot expire an album (functions hash moves; count 49). PRODUCTION WAS RE-CHECKED: schema-fingerprint.sql through the Management API and against a local build of supabase/migrations/, all six groups identical. Earlier the same day: spec 008's attach_guest_list and the 09-23 review delta, each verified the same way. Constraints are still not one of the six groups (#68).",
+  "verifiedAgainst": "Re-captured 2026-10-04 after the Event tier's max_guests went 300 -> 200 in production (the owner's call, to fit the Supabase free plan's ~200 live connections); tier_limits hash moves. PRODUCTION WAS RE-CHECKED: schema-fingerprint.sql through the Management API and against a local build of supabase/migrations/, all six groups identical. Earlier the same day: #90's retention floor, spec 008's attach_guest_list and the 09-23 review delta, each verified the same way. Constraints are still not one of the six groups (#68).",
   "howToRefresh": "pnpm schema:fingerprint --write, and only after re-checking production. See docs/lane-e.md and issue #49.",
   "schema": {
     "columns": {
@@ -22,7 +22,7 @@
     },
     "tier_limits": {
       "n": 4,
-      "fingerprint": "8bd890fb12fd2c60d91b6e19bd9bc517"
+      "fingerprint": "98c6f0abb7aeac0b5e9c542990620aa6"
     },
     "triggers": {
       "n": 24,

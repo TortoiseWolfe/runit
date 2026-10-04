@@ -15,8 +15,9 @@ with the legacy Supabase token passed for ONE invocation (see CLAUDE.md), throug
 
    update public.events set tier = 'event' where code = 'XXXXXX' returning code, name, tier;
 
-   `event` = 300 guests, 5 hosts, 10 folders, 365-day retention, push on.
-   Use `'venue'` (3000 guests) above 300. Read the row back: a 0-row result means a wrong
+   `event` = 200 guests, 5 hosts, 10 folders, 365-day retention, push on. (300 until 2026-10-04,
+   lowered to stay under the Supabase free plan's ~200 live connections per project.)
+   Use `'venue'` (3000 guests) above 200. Read the row back: a 0-row result means a wrong
    code, and no error is raised.
 3. Only then does the host send invitations.
 
