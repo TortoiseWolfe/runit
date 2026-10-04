@@ -29,7 +29,16 @@ import { alpha, eyebrow, radius, tracking, useTheme, weight } from '@/theme';
  * rather than a design choice -- inverted codes fail on a meaningful fraction of camera
  * apps, and this is the one surface where the theme does not get a vote.
  */
-export function EventQr({ code, size = 180 }: { code: string; size?: number }) {
+export function EventQr({
+  code,
+  size = 180,
+  large = false,
+}: {
+  code: string;
+  size?: number;
+  /** The room view (spec 009): the code is read from across a table, not from a hand. */
+  large?: boolean;
+}) {
   const { tokens, fade } = useTheme();
 
   return (
@@ -45,10 +54,10 @@ export function EventQr({ code, size = 180 }: { code: string; size?: number }) {
           ecl="M"
         />
       </View>
-      <Text style={[s.label, { color: alpha(tokens.baseContent, fade.muted) }]}>
+      <Text style={[s.label, large && s.labelLarge, { color: alpha(tokens.baseContent, fade.muted) }]}>
         OR TYPE THE CODE
       </Text>
-      <Text style={[s.code, { color: tokens.baseContent }]} testID="event-qr-code">
+      <Text style={[s.code, large && s.codeLarge, { color: tokens.baseContent }]} testID="event-qr-code">
         {code.toUpperCase()}
       </Text>
     </View>
@@ -64,9 +73,11 @@ const s = StyleSheet.create({
     justifyContent: 'center',
   },
   label: { ...eyebrow.section, fontSize: 11 },
+  labelLarge: { fontSize: 15 },
   code: {
     fontSize: 28,
     fontWeight: weight.semibold,
     letterSpacing: tracking(0.18, 28),
   },
+  codeLarge: { fontSize: 52, letterSpacing: tracking(0.18, 52) },
 });

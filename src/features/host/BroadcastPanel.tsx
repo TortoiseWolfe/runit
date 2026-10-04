@@ -2,9 +2,9 @@ import { useState } from 'react';
 import {
   Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from 'react-native';
-import { EventQr } from '@/components/ui/EventQr';
 import type { Broadcast } from '@/data/types';
 import { DeleteBroadcastSheet } from './DeleteBroadcastSheet';
+import { RoomQrSheet } from './RoomQrSheet';
 import { icsFilename, icsFor, shareMessage } from '@/lib/invite';
 import { shareIcs, shareText } from '@/lib/share';
 import { useToast } from '@/state/ToastProvider';
@@ -173,16 +173,13 @@ export function BroadcastPanel() {
           <Text style={[s.inviteAction, { color: tokens.accent }]}>Share invite →</Text>
         </Pressable>
         <Pressable
-          onPress={() => setShowQr((v) => !v)}
+          onPress={() => setShowQr(true)}
           accessibilityRole="button"
-          accessibilityState={{ expanded: showQr }}
-          accessibilityLabel={showQr ? 'Hide the QR code' : 'Show a QR code to scan'}
+          accessibilityLabel="Show the QR code full screen, to hold up to the room"
           hitSlop={8}
           testID="host-qr-toggle"
         >
-          <Text style={[s.inviteAction, { color: tokens.accent }]}>
-            {showQr ? 'Hide QR' : 'Show QR'}
-          </Text>
+          <Text style={[s.inviteAction, { color: tokens.accent }]}>Show QR</Text>
         </Pressable>
         <Pressable
           onPress={onAddToCalendar}
@@ -196,11 +193,16 @@ export function BroadcastPanel() {
       </View>
       ) : null}
 
-      {showQr && event && (
-        <View style={s.qrHolder}>
-          <EventQr code={event.code} />
-        </View>
-      )}
+      {/* FULL SCREEN, NOT INLINE (spec 009, #108). The 180px QR that lived here was for one
+          person across a table; a venue needed a sign. Same control, same `event-qr`. */}
+      {event ? (
+        <RoomQrSheet
+          visible={showQr}
+          onClose={() => setShowQr(false)}
+          code={event.code}
+          name={event.name}
+        />
+      ) : null}
 
       {/* NOBODY IS HERE AND NOBODY WAS ASKED -- #70, and it is the state a host is in for
           the whole gap between making an event and the first guest arriving.
@@ -521,7 +523,6 @@ const s = StyleSheet.create({
   // pill has a row to itself and this one does not, and the same rule the segment track
   // records applies here: at 402pt the shortest true label is the one that survives.
   inviteAction: { fontSize: 15, fontWeight: weight.semibold },
-  qrHolder: { alignItems: 'center', paddingVertical: 8 },
   scroll: { flex: 1 },
   content: { paddingVertical: 16, paddingHorizontal: 20, gap: 14 },
   sentFooter: {

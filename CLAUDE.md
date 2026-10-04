@@ -928,6 +928,14 @@ it is the ABSENCE marker that catches the gate itself going stale. Six mutations
 shared marker was the old refusal copy until 2026-10-03; see THE BROWSER SCANS QR CODES below.)
 `getUserMedia` must be in `dist-guest/` too: a guest bundle without it shipped the refusal again.
 
+**SHOW QR IS A SIGN FOR THE ROOM (spec 009, #108, 2026-10-03).** Two real events could not get
+guests in, and the host's only QR was 180px inside the Broadcast panel. `host-qr-toggle` now opens
+`RoomQrSheet`: full screen, the QR sized from the window (160 to 640pt), the code at 52pt, and the
+screen kept awake (`expo-keep-awake`, now a declared dependency; on the web a refused Wake Lock is
+silent, hence `suppressDeactivateWarnings`). **`animationType="none"` is load-bearing**: with a
+fade, Lane F screenshotted the QR mid-transition and could not decode it. Print, meaning the poster
+and table cards, is #108's second half and is not built yet. FIDELITY note BD.
+
 **THE BROWSER SCANS QR CODES NOW (2026-10-03), and it said it could not for a month.**
 `QrScanner.web.tsx` refused with *"Scanning needs the RunIt app on a phone"*, on the premise
 that the web export existed to be measured. #78 made the browser the guest route, and the first

@@ -3104,3 +3104,22 @@ asserts the chip instead. The waiting tile is testID `upload-*`, never `tile-*`:
 album's "nine tiles" count and its order assertions must not move.
 
 **What is NOT covered:** opening a waiting photo full size (#97).
+
+## BD. Show QR is a sign for the room, not a thumbnail (spec 009, #108)
+
+The canvas draws the host's QR inline in the Broadcast panel at 180px, and the app followed it
+until 2026-10-03. Two real events then failed the same way: S7Y9RX had zero sign-ins, and the
+first wedding beta had two guests all day, with the planner saying there was no way to announce
+it. A QR sized for one person across a table cannot reach a room.
+
+**Show QR now opens a full-screen view** (`RoomQrSheet.tsx`): the party's name, "Scan to join
+the party", the same `EventQr` sized from the window (160 to 640pt, either orientation), the code
+at 52pt, and the typed route. The screen is kept awake while it is open. There is still one QR
+control; the inline one is gone.
+
+**No entrance animation, measured.** Lane F screenshotted the QR halfway through a fade, with the
+console showing through it, and jsQR could not decode it. A sign has to be readable the instant
+it is up. Lane F decodes this QR now, and the poster tool renders from it.
+
+Theme colours, not a forced white page. The QR keeps its own white plate, and a dark screen is
+kinder to a dark room.
