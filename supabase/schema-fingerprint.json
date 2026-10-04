@@ -1,32 +1,32 @@
 {
   "capturedFrom": "a LOCAL build of supabase/migrations/, verified group-for-group against the LIVE project qwusbxallkbzfladvgfx",
-  "capturedAt": "2026-09-20",
-  "verifiedAgainst": "Re-captured after the path-traversal fix on `public.feedback.screenshot_path`: a CHECK constraint on the shape and `feedback_rate_limit` renamed to `feedback_guard` with an ownership check added (functions and triggers hashes move; counts unchanged at 43 and 20). PRODUCTION WAS RE-CHECKED -- constraint, trigger and function all read back present, the old function dropped, zero existing rows carried a path, then `schema-fingerprint.sql` run against BOTH sides with all six groups identical. AND NOTE WHAT THIS FILE STILL CANNOT SEE: the CHECK CONSTRAINT itself. Constraints are not one of the six groups, which #68 measured and this change proves again -- only the function and trigger hashes moved. The constraint's existence is verified by reading `pg_constraint`.",
+  "capturedAt": "2026-10-04",
+  "verifiedAgainst": "Re-captured after the 2026-09-23 review delta reached production (2026-10-04), which also carried every schema change since 09-20: spec 002 (app_settings, set_event_tier), spec 003 (photo approval off by default), the review's column grants, four guard triggers and the photo path constraints. PRODUCTION WAS RE-CHECKED: supabase/schema-fingerprint.sql run against the live project through the Management API and against a local build of supabase/migrations/, all six groups identical (columns 141, functions 49, indexes 38, policies 39, tier_limits 4, triggers 24). Lane H then ran 41/41 against production. Constraints are still not one of the six groups (#68); the three added tonight were read back by name instead.",
   "howToRefresh": "pnpm schema:fingerprint --write, and only after re-checking production. See docs/lane-e.md and issue #49.",
   "schema": {
     "columns": {
-      "n": 138,
-      "fingerprint": "e75e58508e37e44a2946e2f472f10e11"
+      "n": 141,
+      "fingerprint": "b78582c91df9a312c198f69f403670f3"
     },
     "functions": {
-      "n": 43,
-      "fingerprint": "3c2e4c3c8f7b74cadf89387744bda522"
+      "n": 49,
+      "fingerprint": "3e24e01bff20d069a2bdd847952613ef"
     },
     "indexes": {
-      "n": 37,
-      "fingerprint": "dbe5aab1e9c70ad305c6ff4899bcccbd"
+      "n": 38,
+      "fingerprint": "aa86e9dbba7801efe8bd28a59e94053a"
     },
     "policies": {
       "n": 39,
-      "fingerprint": "b2996912da5232f8c350e8448a079d0b"
+      "fingerprint": "59ed42acf015bcdd26ac891d142b2377"
     },
     "tier_limits": {
       "n": 4,
       "fingerprint": "8bd890fb12fd2c60d91b6e19bd9bc517"
     },
     "triggers": {
-      "n": 20,
-      "fingerprint": "eb35a8cc692d9b099c7a71c91bf89923"
+      "n": 24,
+      "fingerprint": "b53b6c7ccbad965c615c5481039f86df"
     }
   }
 }

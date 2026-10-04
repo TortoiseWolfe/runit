@@ -29,6 +29,8 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { localStackUrl } from './lib/local-stack.mjs';
+
 const ROOT = join(import.meta.dirname, '..');
 const SQL = join(ROOT, 'supabase/schema-fingerprint.sql');
 const BASELINE = join(ROOT, 'supabase/schema-fingerprint.json');
@@ -36,10 +38,29 @@ const BASELINE = join(ROOT, 'supabase/schema-fingerprint.json');
 const args = process.argv.slice(2);
 const check = args.includes('--check');
 const write = args.includes('--write');
+/*
+ * THE LOCAL SIDE IS DISCOVERED, NEVER ASSUMED (#106). This defaulted to 127.0.0.1:54322 while
+ * the stack on this machine answers on 54422, so `schema:check` sat on ETIMEDOUT for two
+ * minutes and answered nothing -- the night before a real event, asked whether production
+ * had drifted. Same discovery `verify-policies.mjs` uses; `--url` and `SUPABASE_DB_URL` still
+ * override it.
+ */
+const discovered = localStackUrl();
 const url =
   args.find((a) => a.startsWith('--url='))?.slice(6) ??
   process.env.SUPABASE_DB_URL ??
-  'postgresql://postgres:postgres@127.0.0.1:54322/postgres';
+  discovered?.url;
+if (!url) {
+  console.error(
+    'no database to fingerprint: no --url, no SUPABASE_DB_URL, and no local stack running ' +
+      '(`npx supabase start`). For production without a DB password, run ' +
+      '`supabase/schema-fingerprint.sql` through the Management API query endpoint.',
+  );
+  process.exit(2);
+}
+if (discovered && url === discovered.url) {
+  console.log(`using the local stack on port ${discovered.port} (supabase_db_${discovered.project})`);
+}
 
 const { default: pg } = await import('pg');
 // Same rule as verify-policies.mjs: loopback serves no TLS, everything else must verify.
@@ -47,6 +68,8 @@ const isLoopback = /@(localhost|127\.0\.0\.1|\[::1\]):/.test(url);
 const client = new pg.Client({
   connectionString: url,
   ssl: isLoopback ? false : { rejectUnauthorized: true },
+  // Fail in seconds, not two minutes: a wrong port must read as a wrong port.
+  connectionTimeoutMillis: 8000,
 });
 
 await client.connect();
