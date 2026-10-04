@@ -26,6 +26,8 @@ import type {
   DeletionImpact,
   EventDeletionImpact,
   GuestListId,
+  GuestListMember,
+  GuestListMemberId,
   BroadcastId,
   FolderId,
   GuestId,
@@ -733,9 +735,9 @@ export function useHostActions() {
       },
 
       /** Copies a saved list onto this event. Reports what actually landed. */
-      attachGuestList: async (id: GuestListId, name: string) => {
+      attachGuestList: async (id: GuestListId, name: string, memberIds?: GuestListMemberId[]) => {
         try {
-          const added = await repo.guestLists.attach(id);
+          const added = await repo.guestLists.attach(id, memberIds);
           show(
             added > 0
               ? `Added ${added} from "${name}".`
@@ -745,6 +747,16 @@ export function useHostActions() {
         } catch (e) {
           show(e instanceof Error ? e.message : 'Could not attach that list.');
           return false;
+        }
+      },
+
+      /** Who is on a saved list, for the picker (spec 008). An empty list on any failure:
+       *  the sheet then says there is nobody to add rather than showing an error it cannot act on. */
+      guestListMembers: async (id: GuestListId): Promise<GuestListMember[]> => {
+        try {
+          return await repo.guestLists.members(id);
+        } catch {
+          return [];
         }
       },
 

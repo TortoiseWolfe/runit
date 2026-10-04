@@ -1,7 +1,7 @@
 # 008 — Pick who from a saved list comes to this event
 
-Status: SPEC ONLY (2026-10-03). Wireframe: `design/wireframes/2026-10-03-pick-from-a-list.html`.
-No code until after the first wedding beta.
+Status: BUILT 2026-10-04. Wireframe: `design/wireframes/2026-10-03-pick-from-a-list.html`.
+Built after the first wedding beta, as decided.
 
 ## Problem
 Attaching a saved list is all or nothing. `attach_guest_list(p_event_id, p_list_id)` copies

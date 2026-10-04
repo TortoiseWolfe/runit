@@ -7,7 +7,7 @@ import { useEventActions, useHostActions } from '@/state/actions';
 import { formatClock, formatEventDate, instantToWallClock } from '@/lib/format';
 import { instantFrom, zoneChoices } from '@/lib/eventForm';
 import { TIERS } from '@/domain/tiers';
-import type { EventDeletionImpact, HostRole } from '@/data/types';
+import type { EventDeletionImpact, GuestList, HostRole } from '@/data/types';
 import { alpha, border, eyebrow, radius, useTheme, weight } from '@/theme';
 import { AccountRow } from '@/components/ui/AccountRow';
 import { Button } from '@/components/ui/Button';
@@ -15,6 +15,7 @@ import { MyEventsList } from '@/components/ui/MyEventsList';
 import { Disclosure } from '@/components/ui/Disclosure';
 import { ZonePicker } from '@/components/ui/ZonePicker';
 import { DeleteEventSheet } from './DeleteEventSheet';
+import { GuestListSheet } from './GuestListSheet';
 import { PlanSheet } from './PlanSheet';
 
 /**
@@ -76,7 +77,7 @@ export function EventDetailsPanel() {
   const event = useEvent();
   const {
     saveEventDetails, rotateHostKey, invite, addInvitee, removeInvitee,
-    addFromContacts, sendInvitations, copyAddresses, saveGuestList, attachGuestList, setPhotoModeration,
+    addFromContacts, sendInvitations, copyAddresses, saveGuestList, setPhotoModeration,
   } = useHostActions();
   const hosts = useHosts();
   const invitees = useInvitees();
@@ -95,6 +96,8 @@ export function EventDetailsPanel() {
   const inTheRoom = event?.guestCount ?? 0;
   const invitedCount = event?.invitedCount ?? 0;
   const guestLists = useGuestLists();
+  /** The list whose picker is open (spec 008), or null. */
+  const [picking, setPicking] = useState<GuestList | null>(null);
 
   /**
    * Seeded ONCE from the event, then owned by the form.
@@ -404,6 +407,9 @@ export function EventDetailsPanel() {
         }}
         onClose={() => setChoosingPlan(false)}
       />
+      {picking ? (
+        <GuestListSheet key={picking.id} list={picking} onClose={() => setPicking(null)} />
+      ) : null}
 
       {/* PHOTO APPROVAL -- a safety switch, on every tier, default off.
 
@@ -612,10 +618,28 @@ export function EventDetailsPanel() {
           defaultOpen={invitedCount === 0}
         >
 
+          {/* SAVED LISTS FIRST (spec 008, req 8). Measured on the owner's phone 2026-10-03: the
+              section read "Nobody yet" over an email field and his Family list sat below
+              "+ Add from contacts" -- the thing he came to do was the last thing on screen.
+              A tap opens the picker; nobody is added until the host confirms who is coming. */}
+          {guestLists.map((l) => (
+            <Button
+              key={l.id}
+              variant="secondary"
+              size="sm"
+              tone="accent"
+              onPress={() => setPicking(l)}
+              accessibilityLabel={`Choose who from the ${l.name} list is coming, ${l.memberCount} people`}
+              testID={`guest-list-${l.id}`}
+              label={`+ ${l.name} (${l.memberCount})`}
+            />
+          ))}
+
           {invitees.length === 0 ? (
             <Text style={[s.helper, { color: alpha(tokens.baseContent, fade.body) }]}>
-              Nobody yet. This is the list your announcements are addressed to — it is not
-              who has turned up.
+              {guestLists.length > 0
+                ? `Nobody yet. Add from ${guestLists.map((l) => l.name).join(' or ')} above, or add people below.`
+                : 'Nobody yet. This is the list your announcements are addressed to — it is not who has turned up.'}
             </Text>
           ) : null}
 
@@ -731,18 +755,6 @@ export function EventDetailsPanel() {
             />
           ) : null}
 
-          {guestLists.map((l) => (
-            <Button
-              key={l.id}
-              variant="secondary"
-              size="sm"
-              tone="accent"
-              onPress={() => void attachGuestList(l.id, l.name)}
-              accessibilityLabel={`Add the ${l.name} list, ${l.memberCount} people`}
-              testID={`guest-list-${l.id}`}
-              label={`+ ${l.name} (${l.memberCount})`}
-            />
-          ))}
 
           {/* EMAIL, PRE-ADDRESSED, IN BCC. It opened a blank share sheet for months while its
               own docblock promised "pre-addressed", so a host built this list and typed her

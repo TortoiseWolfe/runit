@@ -3123,3 +3123,15 @@ it is up. Lane F decodes this QR now, and the poster tool renders from it.
 
 Theme colours, not a forced white page. The QR keeps its own white plate, and a dark screen is
 kinder to a dark room.
+
+## BE. A saved list opens a picker (spec 008)
+
+The canvas has no saved lists at all. #59 added them as a button that copied every member
+into the event on one tap. Spec 008 makes that tap open a sheet listing the members:
+- each has a switch, and all start on;
+- anyone already invited is shown as text, with no switch;
+- the Add button names the count, and is not drawn at zero.
+
+The lists also moved to the top of "Who is invited", and the empty state names them. On
+the owner's phone, his Family list had sat below "+ Add from contacts". Wireframe:
+`design/wireframes/2026-10-03-pick-from-a-list.html`.

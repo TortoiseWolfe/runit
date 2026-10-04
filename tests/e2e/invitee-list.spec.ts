@@ -404,14 +404,73 @@ test.describe('saved guest lists', () => {
     await page.getByTestId('invitee-row').first().getByText('Remove').click();
     await expect(page.getByTestId('invitee-row')).toHaveCount(0);
 
+    // SPEC 008: a tap opens the picker; nobody lands until the host confirms.
     await saved.click();
+    await expect(page.getByTestId('list-sheet')).toBeVisible();
+    await expect(page.getByTestId('invitee-row')).toHaveCount(0);
+    await expect(page.getByTestId('list-sheet-add')).toHaveText('Add 1 to this party');
+    await page.getByTestId('list-sheet-add').click();
     await expect(page.getByTestId('invitee-row')).toHaveCount(1);
 
-    // ATTACHING AGAIN ADDS NOBODY, which is what "by copy with deduplication" means and
-    // what a host doing it twice by accident must not be punished for.
+    // ATTACHING AGAIN ADDS NOBODY: the person shows as already invited, as TEXT, and there
+    // is no Add button at all -- a control that could only add nobody is not drawn.
     await saved.click();
+    await expect(page.getByTestId('list-member-invited')).toHaveCount(1);
+    await expect(page.getByTestId('list-sheet-add')).toHaveCount(0);
+    await expect(page.getByTestId('list-sheet-all-in')).toBeVisible();
+    await expect(page.locator('[aria-disabled="true"]')).toHaveCount(0);
+    await page.getByTestId('list-sheet-cancel').click();
     await expect(page.getByTestId('invitee-row')).toHaveCount(1);
-    await expect(page.getByTestId('toast')).toContainText(/already invited/i);
+  });
+
+  /*
+   * SPEC 008: WHO FROM THE LIST IS COMING THIS TIME. The owner's own case: a list says who
+   * belongs, and somebody who cannot make it this time is switched off here and STAYS on it.
+   */
+  test('switching someone off adds the rest, and the list keeps everyone', async ({
+    page,
+  }, testInfo) => {
+    await open(page, testInfo.project.name as 'dark' | 'light');
+    for (const a of ['ruth@example.test', 'sam@example.test']) {
+      await page.getByTestId('invitee-email').fill(a);
+      await page.getByTestId('invitee-add').click();
+    }
+    await page.getByTestId('guest-list-name').fill('Family');
+    await page.getByTestId('guest-list-save').click();
+    for (let n = 2; n > 0; n--) await page.getByTestId('invitee-row').first().getByText('Remove').click();
+    await expect(page.getByTestId('invitee-row')).toHaveCount(0);
+
+    // The empty state names the list, so "Nobody yet" is no longer the whole story.
+    await expect(page.getByText(/Add from Family above/)).toBeVisible();
+
+    await page.locator('[data-testid^="guest-list-gl"]').first().click();
+    await expect(page.getByTestId('list-member')).toHaveCount(2);
+    await expect(page.getByTestId('list-sheet-add')).toHaveText('Add 2 to this party');
+    await page.getByTestId('list-member').first().click();
+    await expect(page.getByTestId('list-sheet-add')).toHaveText('Add 1 to this party');
+    await page.getByTestId('list-sheet-add').click();
+    await expect(page.getByTestId('invitee-row')).toHaveCount(1);
+
+    // The list was not edited: still two on Family.
+    await expect(page.locator('[data-testid^="guest-list-gl"]').first()).toContainText('Family (2)');
+  });
+
+  test('switching everyone off draws no Add button, and Cancel still leaves', async ({
+    page,
+  }, testInfo) => {
+    await open(page, testInfo.project.name as 'dark' | 'light');
+    await page.getByTestId('invitee-email').fill(ADDRESS);
+    await page.getByTestId('invitee-add').click();
+    await page.getByTestId('guest-list-save').click();
+    await page.getByTestId('invitee-row').first().getByText('Remove').click();
+
+    await page.locator('[data-testid^="guest-list-gl"]').first().click();
+    await page.getByTestId('list-member').first().click();
+    await expect(page.getByTestId('list-sheet-add')).toHaveCount(0);
+    await expect(page.locator('[aria-disabled="true"]')).toHaveCount(0);
+    await page.getByTestId('list-sheet-cancel').click();
+    await expect(page.getByTestId('list-sheet')).toHaveCount(0);
+    await expect(page.getByTestId('invitee-row')).toHaveCount(0);
   });
 });
 

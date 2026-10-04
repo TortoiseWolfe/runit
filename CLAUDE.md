@@ -938,6 +938,17 @@ it is the ABSENCE marker that catches the gate itself going stale. Six mutations
 shared marker was the old refusal copy until 2026-10-03; see THE BROWSER SCANS QR CODES below.)
 `getUserMedia` must be in `dist-guest/` too: a guest bundle without it shipped the refusal again.
 
+**A SAVED LIST OPENS A PICKER, NOT A COPY (spec 008, 2026-10-04).** Four questions, four
+controls, none standing in for another: the LIST says who belongs; the picker's switches say who
+from it is coming THIS time (all on to start; off never edits the list); a one-off add covers
+somebody on no list; a co-host seat is a role. `attach_guest_list(p_event_id, p_list_id,
+p_member_ids uuid[] default null)` -- null is everyone, so a two-argument caller (every build
+before this) still resolves, and the two-argument function is DROPPED so PostgREST has one
+candidate. An id from another owner's list matches nothing because the `list_id` clause stays;
+lane E holds it (261). Somebody already on the event is TEXT in the picker, not a switch, and
+the Add button names the count and is not drawn at zero. Saved lists sit FIRST in Who is invited
+and the empty state names them -- on the owner's phone the list was the last thing on screen.
+
 **SHOW QR IS A SIGN FOR THE ROOM (spec 009, #108, 2026-10-03).** Two real events could not get
 guests in, and the host's only QR was 180px inside the Broadcast panel. `host-qr-toggle` now opens
 `RoomQrSheet`: full screen, the QR sized from the window (160 to 640pt), the code at 52pt, and the

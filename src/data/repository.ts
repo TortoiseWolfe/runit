@@ -16,7 +16,7 @@
  * web client cannot route around them.
  */
 import type {
-  BlockedGuest, Broadcast, BroadcastId, Folder, FolderId, GuestId, GuestList, GuestListId, HostRole, Instant,
+  BlockedGuest, Broadcast, BroadcastId, Folder, FolderId, GuestId, GuestList, GuestListId, GuestListMember, GuestListMemberId, HostRole, Instant,
   DeletionImpact,
   EventDeletionImpact,
   EventId,
@@ -633,8 +633,16 @@ export interface RunitRepository {
      *
      * Returns how many were actually added -- attaching the same list twice adds nobody,
      * because `invitees`' own unique indexes deduplicate the copy.
+     * `memberIds` (spec 008) narrows it to the people the host left switched on; omitted, it
+     * is everyone. Switching somebody off never edits the list.
      */
-    attach(id: GuestListId): Promise<number>;
+    attach(id: GuestListId, memberIds?: GuestListMemberId[]): Promise<number>;
+    /**
+     * WHO IS ON A LIST, read when the picker opens (spec 008) rather than kept live: a list
+     * changes when its owner saves to it, never under her while she is choosing. Yours only;
+     * a list that is not yours reads as empty, the way RLS answers.
+     */
+    members(id: GuestListId): Promise<GuestListMember[]>;
     remove(id: GuestListId): Promise<void>;
     /**
      * FORGETS SOMEBODY EVERYWHERE YOU HOLD THEM -- every saved list you own and every
