@@ -2647,17 +2647,23 @@ returns table (
   event_code   text,
   expired_at   timestamptz
 )
+-- #90: THE CLOCK CANNOT BE PULLED EARLIER THAN THE EVENT WAS MADE. `events_host_update` grants
+-- `starts_at` to every host seat -- co-host, DJ, planner -- so any of them could move the date
+-- back 31 days and the 04:17 sweep would delete the album, the destruction #73 reserves for
+-- the founder. `greatest(starts_at, created_at)` changes no rule about who edits the date and
+-- keeps "N days after the event" for every honest event (a date set ahead is later than
+-- creation; an event logged the day after it happened gets a day more, which harms nobody).
 language sql stable security definer set search_path = public as $$
   select p.id, p.storage_path, p.thumb_path, e.code,
-         e.starts_at + make_interval(days => tl.album_retention_days)
+         greatest(e.starts_at, e.created_at) + make_interval(days => tl.album_retention_days)
     from public.photos p
     join public.events e on e.id = p.event_id
     join public.tier_limits tl on tl.tier = e.tier
    where tl.album_retention_days is not null
-     and now() > e.starts_at + make_interval(days => tl.album_retention_days)
+     and now() > greatest(e.starts_at, e.created_at) + make_interval(days => tl.album_retention_days)
    -- Oldest first, so a bounded run always makes progress on the worst backlog rather than
    -- picking at whatever the planner returned.
-   order by e.starts_at
+   order by greatest(e.starts_at, e.created_at)
    limit greatest(coalesce(p_limit, 200), 0);
 $$;
 

@@ -1886,8 +1886,16 @@ begin
     from public.events e where e.id = ce2.event_id
   returning id into spho;
 
+  -- #90: a pulled-back date alone expires NOTHING -- the clock is floored at created_at, so a
+  -- co-host cannot move starts_at 400 days back and hand the album to the 04:17 sweep.
   update public.events set tier = 'house_party', starts_at = now() - interval '400 days'
    where id = ce2.event_id;
+  select count(*) into n from public.photos_past_retention(500) where id = spho;
+  out := out || format('%s a starts_at pulled back before the event was made expires nothing (#90) (%s, want 0)',
+                       case when n = 0 then 'PASS' else 'FAIL' end, n);
+
+  -- A GENUINELY OLD event (made long ago too) does expire.
+  update public.events set created_at = now() - interval '400 days' where id = ce2.event_id;
   select count(*) into n from public.photos_past_retention(500) where id = spho;
   out := out || format('%s an expired free-tier photo is selected (%s, want 1)',
                        case when n = 1 then 'PASS' else 'FAIL' end, n);
