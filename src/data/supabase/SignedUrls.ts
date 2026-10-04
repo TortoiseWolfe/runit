@@ -41,6 +41,17 @@ const REFRESH_MARGIN_MS = 5 * 60 * 1000;
 
 const BUCKET = 'event-photos';
 
+/**
+ * RE-SIGN A BATCH AT 90% OF ITS LIFE (#94), before `get()` starts calling it stale.
+ *
+ * Every URL in a batch shares one expiry, and `get()` treats a URL as dead REFRESH_MARGIN
+ * before it. Nothing re-signed on that boundary, so about once an hour the whole album
+ * fell back to hue tiles at once and stayed tiles until some unrelated realtime frame
+ * happened to trigger a resolve. 54 minutes is inside the 55-minute window, so the new
+ * URL is in the cache before the old one is ever refused.
+ */
+const REFRESH_AT = 0.9;
+
 export class SignedUrls {
   /** key -> { url, when it stops being worth reusing } */
   private cache = new Map<string, { url: string; expiresAt: number }>();
@@ -54,9 +65,23 @@ export class SignedUrls {
    */
   private inFlight = new Set<string>();
 
+  /** Pending re-sign timers, so closing the event can cancel every one of them. */
+  private timers = new Set<ReturnType<typeof setTimeout>>();
+
   constructor(
     private readonly db: RunitClient,
     private readonly now: () => number = () => Date.now(),
+    /** Told when a scheduled re-sign changed some URLs, so the album can repaint. */
+    private readonly onRefreshed: () => void = () => {},
+    // UNREF'D where the runtime has it (Node, so Jest), because a 54-minute timer otherwise
+    // holds the test process open -- the first run of these tests hung on exactly that. React
+    // Native's timers are numbers with no unref, and the optional call is a no-op there.
+    private readonly schedule: (fn: () => void, ms: number) => ReturnType<typeof setTimeout> = (fn, ms) => {
+      const t = setTimeout(fn, ms);
+      (t as { unref?: () => void }).unref?.();
+      return t;
+    },
+    private readonly cancel: (t: ReturnType<typeof setTimeout>) => void = (t) => clearTimeout(t),
   ) {}
 
   /**
@@ -93,6 +118,11 @@ export class SignedUrls {
     const wanted = [
       ...new Set(keys.filter((k) => this.get(k) === null && !this.inFlight.has(k))),
     ];
+    return this.sign(wanted);
+  }
+
+  /** Sign exactly these keys, cached or not, and schedule the batch's own refresh. */
+  private async sign(wanted: string[]): Promise<boolean> {
     if (wanted.length === 0) return false;
 
     wanted.forEach((k) => this.inFlight.add(k));
@@ -119,13 +149,27 @@ export class SignedUrls {
 
     const expiresAt = this.now() + TTL_SECONDS * 1000;
     let changed = false;
+    const signed: string[] = [];
     for (const row of data) {
       // Supabase reports per-path failures inside a 200. A row with an error is a refusal
       // (RLS) or a missing object; leaving it uncached means it is retried, which is right
       // for a photo that is merely awaiting approval.
       if (!row.signedUrl || row.error || !row.path) continue;
       this.cache.set(row.path, { url: row.signedUrl, expiresAt });
+      signed.push(row.path);
       changed = true;
+    }
+    if (signed.length > 0) {
+      const t = this.schedule(() => {
+        this.timers.delete(t);
+        // Only keys still cached: `clear()` empties the cache when the event closes, and a
+        // photo that was hidden meanwhile is simply re-refused and dropped.
+        const still = signed.filter((k) => this.cache.has(k) && !this.inFlight.has(k));
+        void this.sign(still).then((did) => {
+          if (did) this.onRefreshed();
+        });
+      }, TTL_SECONDS * 1000 * REFRESH_AT);
+      this.timers.add(t);
     }
     return changed;
   }
@@ -147,5 +191,7 @@ export class SignedUrls {
   /** Drop everything. Called when the event closes: the keys belonged to that event. */
   clear(): void {
     this.cache.clear();
+    this.timers.forEach((t) => this.cancel(t));
+    this.timers.clear();
   }
 }

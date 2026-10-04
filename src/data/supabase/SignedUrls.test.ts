@@ -130,3 +130,63 @@ describe('leaving an event', () => {
     expect(s.get('a.jpg')).toBeNull();
   });
 });
+
+/*
+ * #94: A BATCH IS RE-SIGNED BEFORE IT GOES STALE. Every URL in a batch shares one expiry and
+ * `get()` refuses one five minutes before it, so without a scheduled re-sign the whole album
+ * fell to hue tiles about once an hour until something unrelated triggered a resolve.
+ */
+describe('refreshing before expiry (#94)', () => {
+  const harness = () => {
+    let t = 1_000_000;
+    const timers: { fn: () => void; ms: number; cancelled: boolean }[] = [];
+    let refreshed = 0;
+    const c = new FakeClient();
+    const s = new SignedUrls(
+      c as unknown as RunitClient,
+      () => t,
+      () => refreshed++,
+      (fn, ms) => {
+        const h = { fn, ms, cancelled: false };
+        timers.push(h);
+        return h as unknown as ReturnType<typeof setTimeout>;
+      },
+      (h) => {
+        (h as unknown as { cancelled: boolean }).cancelled = true;
+      },
+    );
+    return { c, s, timers, advance: (ms: number) => (t += ms), refreshed: () => refreshed };
+  };
+  const flush = () => new Promise((r) => setTimeout(r, 0));
+
+  it('schedules the re-sign inside the window where the URL is still served', async () => {
+    const { s, timers } = harness();
+    await s.resolve(['a.jpg', 'b.jpg']);
+    expect(timers).toHaveLength(1);
+    // 54 minutes: before the 55-minute point where get() starts refusing.
+    expect(timers[0]!.ms).toBe(54 * 60 * 1000);
+  });
+
+  it('re-signs the same batch in one request, and the album never sees a gap', async () => {
+    const { c, s, timers, advance, refreshed } = harness();
+    await s.resolve(['a.jpg', 'b.jpg']);
+    advance(54 * 60 * 1000);
+    expect(s.get('a.jpg')).not.toBeNull();
+    timers[0]!.fn();
+    await flush();
+    const calls = c.find('sign', 'event-photos');
+    expect(calls).toHaveLength(2);
+    expect([...(calls[1]!.payload as { paths: string[] }).paths].sort()).toEqual(['a.jpg', 'b.jpg']);
+    expect(refreshed()).toBe(1);
+    // Past the OLD expiry, still served: the fresh URL replaced it.
+    advance(10 * 60 * 1000);
+    expect(s.get('a.jpg')).not.toBeNull();
+  });
+
+  it('closing the event cancels the pending re-sign', async () => {
+    const { s, timers } = harness();
+    await s.resolve(['a.jpg']);
+    s.clear();
+    expect(timers[0]!.cancelled).toBe(true);
+  });
+});
