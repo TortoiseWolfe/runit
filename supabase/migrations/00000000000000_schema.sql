@@ -2496,7 +2496,7 @@ insert into public.tier_limits
   (tier, max_guests, max_hosts, max_photos, max_folders, host_roles, push_notifications, album_retention_days, event_ttl_hours)
 values ('house_party',   10,    1,  100,    1, false, false,   30,  168),
        ('party',         50,    2, 1000,    3, false, false,   90, null),
-       ('event',        300,    5, null,   10, true,  true,   365, null),
+       ('event',        200,    5, null,   10, true,  true,   365, null),
        ('venue',       3000, null, null, null, true,  true,  null, null)
 on conflict (tier) do update set
   max_guests  = excluded.max_guests,  max_hosts   = excluded.max_hosts,

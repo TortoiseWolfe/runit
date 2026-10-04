@@ -39,7 +39,7 @@ purchase path (StoreKit, receipts, review) is days away and does not exist in a 
 
 ## Acceptance criteria
 - A founder on `?fresh=1` sees "House party · 10 guests", changes to Event, sees
-  "Event · 300 guests" without a reload.
+  "Event · 300 guests" without a reload. (200 since 2026-10-04, to fit the Supabase free plan.)
 - A guest's view of the same panel has no Change plan control.
 - Lane E: founder sets the tier; guest and non-member are refused 42501; an unknown tier is
   refused; with `beta_open = false` the founder is refused 55000.
