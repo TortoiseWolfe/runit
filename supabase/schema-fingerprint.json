@@ -1,7 +1,7 @@
 {
   "capturedFrom": "a LOCAL build of supabase/migrations/, verified group-for-group against the LIVE project qwusbxallkbzfladvgfx",
   "capturedAt": "2026-10-04",
-  "verifiedAgainst": "Re-captured after spec 008 reached production (2026-10-04): attach_guest_list takes p_member_ids uuid[] default null and the two-argument form is dropped (functions hash moves; count stays 49). PRODUCTION WAS RE-CHECKED: supabase/schema-fingerprint.sql run against the live project through the Management API and against a local build of supabase/migrations/, all six groups identical. Earlier the same night the 2026-09-23 review delta was applied and verified the same way, and lane H ran 41/41 against it. Constraints are still not one of the six groups (#68).",
+  "verifiedAgainst": "Re-captured 2026-10-04 after #90 reached production: photos_past_retention floors its clock at greatest(starts_at, created_at), so a host seat moving the date back cannot expire an album (functions hash moves; count 49). PRODUCTION WAS RE-CHECKED: schema-fingerprint.sql through the Management API and against a local build of supabase/migrations/, all six groups identical. Earlier the same day: spec 008's attach_guest_list and the 09-23 review delta, each verified the same way. Constraints are still not one of the six groups (#68).",
   "howToRefresh": "pnpm schema:fingerprint --write, and only after re-checking production. See docs/lane-e.md and issue #49.",
   "schema": {
     "columns": {
