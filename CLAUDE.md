@@ -1968,6 +1968,12 @@ was green and the half a guest actually walks was dead.
   its slot, or closes. On a `pending` photo `viewerControls` draws the `viewer-waiting` mark and NO
   Save or Report -- the room cannot see that photo (#97). The mark is `viewer-waiting`, never
   `waiting-*`: the album specs count `[data-testid^="waiting-"]`.
+- **THE ALBUM IS A FLATLIST (#93, 2026-10-04)**, three columns, rows virtualised; it was `.map`
+  in a ScrollView, every tile a live `<Image>`, on the one list that grows without a bound a host
+  notices. The tiles, their `tile-`/`report-tile-`/`upload-` testIDs and their order are unchanged,
+  so the album specs did not move. Folder chips are the header; retention, the moderation line and
+  `ReportLink` are the footer. No `getItemLayout`: header and footer have no fixed height. The other
+  six `.map` lists in #93 are still `.map`; Chat's needs `onViewableItemsChanged` for seen-by.
 - **`viewer-prev` and `viewer-next` must never be named `tile-something`.** `photo-viewer.spec.ts`
   counts `/^tile-/` to assert the album is nine, and a second node per tile matching that prefix
   silently doubled it once already. Mutation-checked: renaming them to `tile-prev`/`tile-next`
