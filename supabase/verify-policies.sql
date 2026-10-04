@@ -33,6 +33,8 @@
 do $$
 declare
   lst       uuid;
+  lst2      uuid;
+  mid2      uuid;
   ts        timestamptz;
   guid uuid := '11111111-1111-1111-1111-111111111111';
   huid uuid := '44444444-4444-4444-4444-444444444444';
@@ -626,6 +628,41 @@ begin
   select public.attach_guest_list(eid, lst) into n;
   out := out || format('%s attaching the same list again adds nobody (%s, want 0)',
                        case when n = 0 then 'PASS' else 'FAIL' end, n);
+
+  -- SPEC 008: A SUBSET. Two of the three members chosen; exactly two land. Then the third
+  -- alone, which is the "switched off this time, still on the list" case coming back later.
+  delete from public.invitees where event_id = eid;
+  select public.attach_guest_list(eid, lst,
+           (select array_agg(id) from (select id from public.guest_list_members
+                                        where list_id = lst order by created_at, id limit 2) two))
+    into n;
+  out := out || format('%s attaching a chosen subset adds only those (%s, want 2)',
+                       case when n = 2 then 'PASS' else 'FAIL' end, n);
+  select count(*) into n from public.guest_list_members where list_id = lst;
+  out := out || format('%s and switching someone off leaves the list itself whole (%s, want 3)',
+                       case when n = 3 then 'PASS' else 'FAIL' end, n);
+
+  -- AN ID FROM SOMEBODY ELSE'S LIST MATCHES NOTHING. Seeded without RLS as another owner's
+  -- list, then named in p_member_ids against OUR list: the list_id clause must still hold.
+  execute 'reset role';
+  insert into public.guest_lists (id, owner, name) values (gen_random_uuid(), guid, 'Not yours')
+  returning id into lst2;
+  insert into public.guest_list_members (list_id, email) values (lst2, 'stranger@example.test')
+  returning id into mid2;
+  perform set_config('request.jwt.claims', json_build_object('sub',huid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  select public.attach_guest_list(eid, lst, array[mid2]) into n;
+  out := out || format('%s a member id from another owner''s list attaches nobody (%s, want 0)',
+                       case when n = 0 then 'PASS' else 'FAIL' end, n);
+
+  -- PUT THE WORLD BACK for what follows: the other owner's list goes, and the event gets its
+  -- whole roster again, because the forget assertions below count the copies on the event.
+  execute 'reset role';
+  delete from public.guest_lists where id = lst2;
+  perform set_config('request.jwt.claims', json_build_object('sub',huid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  delete from public.invitees where event_id = eid;
+  select public.attach_guest_list(eid, lst) into n;
 
   -- FORGET. The question #59 was filed asking: a persistent address book of people who
   -- never heard of RunIt has to honour "delete me", and it must reach the copies too.

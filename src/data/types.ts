@@ -241,6 +241,19 @@ export interface GuestList {
   createdAt: Instant;
 }
 
+export type GuestListMemberId = string;
+
+/**
+ * ONE PERSON ON A SAVED LIST, as the picker shows them (spec 008). The id is what a host
+ * switches on or off; the three fields are the same reachable-by rule `invitees` keeps.
+ */
+export interface GuestListMember {
+  id: GuestListMemberId;
+  displayName: string | null;
+  email: string | null;
+  phone: string | null;
+}
+
 export type BroadcastKind = 'announcement' | 'schedule_started';
 
 export interface Broadcast {

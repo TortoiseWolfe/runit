@@ -2967,7 +2967,15 @@ grant  update (name) on public.guest_lists to authenticated;
  * The copy also gets the deduplication for free: the two partial unique indexes on
  * `invitees` mean attaching "Family" and then "Neighbours" adds Melva once.
  */
-create or replace function public.attach_guest_list(p_event_id uuid, p_list_id uuid)
+-- SPEC 008: THE HOST CHOOSES WHO FROM THE LIST COMES THIS TIME. `p_member_ids` null attaches
+-- everyone (the old two-argument behaviour); otherwise only members OF THIS LIST whose ids are
+-- in it -- an id from somebody else's list matches nothing, because the list_id clause is
+-- still there. The two-argument form is DROPPED rather than kept beside this one: PostgREST
+-- resolves overloads by argument name, and two candidates for one call is an ambiguity.
+drop function if exists public.attach_guest_list(uuid, uuid);
+create or replace function public.attach_guest_list(
+  p_event_id uuid, p_list_id uuid, p_member_ids uuid[] default null
+)
 returns integer
 language plpgsql security definer set search_path = public as $$
 declare
@@ -2987,14 +2995,15 @@ begin
   select p_event_id, m.email, m.phone, m.display_name
     from public.guest_list_members m
    where m.list_id = p_list_id
+     and (p_member_ids is null or m.id = any(p_member_ids))
   on conflict do nothing;
 
   get diagnostics v_added = row_count;
   return v_added;
 end $$;
 
-revoke execute on function public.attach_guest_list(uuid, uuid) from public, anon;
-grant  execute on function public.attach_guest_list(uuid, uuid) to authenticated;
+revoke execute on function public.attach_guest_list(uuid, uuid, uuid[]) from public, anon;
+grant  execute on function public.attach_guest_list(uuid, uuid, uuid[]) to authenticated;
 
 /**
  * SAVING WHAT IS ALREADY ON AN EVENT, which is how a first list actually comes to exist.

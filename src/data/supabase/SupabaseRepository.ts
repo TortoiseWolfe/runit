@@ -21,7 +21,7 @@ import {
   HostedEvent,
 } from '../repository';
 import type {
-  BlockedGuest, Broadcast, BroadcastId, Folder, FolderId, GuestId, GuestList, GuestListId,
+  BlockedGuest, Broadcast, BroadcastId, Folder, FolderId, GuestId, GuestList, GuestListId, GuestListMember, GuestListMemberId,
   Host, Invitee, InviteeId, InviteSendResult,
   NowPlaying, Photo,
   PhotoId, Report, ReportId, ReportReason, ReportResolution, ReportSubject, RunitEvent,
@@ -1640,17 +1640,35 @@ export class SupabaseRepository implements RunitRepository {
       return data as string;
     },
 
-    attach: async (id: GuestListId) => {
+    attach: async (id: GuestListId, memberIds?: GuestListMemberId[]) => {
       const eventId = this.requireEvent();
+      // `p_member_ids` only when the host chose: omitted, the function's default (null) means
+      // everyone, which is exactly the old call -- so nothing that attached a whole list moves.
       const { data, error } = await this.db.rpc('attach_guest_list', {
         p_event_id: eventId,
         p_list_id: id,
+        ...(memberIds ? { p_member_ids: memberIds } : {}),
       });
       if (error) throw error;
       // The roster changed underneath us, and `invitees` is fetched rather than subscribed.
       await this.loadFetchOnce();
       this.recompute();
       return (data as number) ?? 0;
+    },
+
+    members: async (id: GuestListId): Promise<GuestListMember[]> => {
+      const { data, error } = await this.db
+        .from('guest_list_members')
+        .select('id, display_name, email, phone, created_at')
+        .eq('list_id', id)
+        .order('created_at', { ascending: true });
+      if (error) throw error;
+      return (data ?? []).map((m) => ({
+        id: m.id,
+        displayName: m.display_name,
+        email: m.email,
+        phone: m.phone,
+      }));
     },
 
     remove: async (id: GuestListId) => {

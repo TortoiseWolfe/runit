@@ -360,7 +360,10 @@ export type Database = {
        * row, only record that these invitees went out now.
        */
       /** #59. Copies a saved list onto an event BY COPY; returns how many were new. */
-      attach_guest_list: { Args: { p_event_id: string; p_list_id: string }; Returns: number };
+      attach_guest_list: {
+        Args: { p_event_id: string; p_list_id: string; p_member_ids?: string[] | null };
+        Returns: number;
+      };
       /** Saves the event's current roster under a name, merging into one of that name. */
       save_guest_list: { Args: { p_event_id: string; p_name: string }; Returns: string };
       /** Removes somebody from every list you own and every event you host. */

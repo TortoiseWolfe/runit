@@ -380,6 +380,52 @@ describe('saved guest lists, opening a party', () => {
   });
 });
 
+/*
+ * SPEC 008: THE HOST CHOOSES WHO FROM THE LIST COMES THIS TIME. Both halves of the call are
+ * asserted, because the dangerous mutation is the quiet one: sending `p_member_ids` always
+ * (an empty array attaches nobody) or never (a switched-off cousin is invited anyway).
+ */
+describe('saved guest lists, choosing who comes', () => {
+  it('attaches everyone when nobody was switched off, by leaving p_member_ids out', async () => {
+    const c = ready();
+    const repo = await join(c);
+    await repo.guestLists.attach('gl-family');
+    expect(c.find('rpc', 'attach_guest_list')[0]!.payload).toEqual({
+      p_event_id: EVENT,
+      p_list_id: 'gl-family',
+    });
+  });
+
+  it('sends only the members the host left on', async () => {
+    const c = ready();
+    const repo = await join(c);
+    await repo.guestLists.attach('gl-family', ['m-1', 'm-3']);
+    expect(c.find('rpc', 'attach_guest_list')[0]!.payload).toEqual({
+      p_event_id: EVENT,
+      p_list_id: 'gl-family',
+      p_member_ids: ['m-1', 'm-3'],
+    });
+  });
+
+  it("reads a list's members with the columns the picker needs", async () => {
+    const c = ready((cl) => {
+      cl.seed('guest_list_members', [
+        { id: 'm-1', list_id: 'gl-family', display_name: 'Ruth', email: 'ruth@example.test', phone: null, created_at: '2026-09-01T00:00:00Z' },
+        { id: 'm-2', list_id: 'gl-family', display_name: null, email: null, phone: '(555) 010-0100', created_at: '2026-09-02T00:00:00Z' },
+      ]);
+    });
+    const repo = await join(c);
+    const members = await repo.guestLists.members('gl-family');
+    expect(members).toEqual([
+      { id: 'm-1', displayName: 'Ruth', email: 'ruth@example.test', phone: null },
+      { id: 'm-2', displayName: null, email: null, phone: '(555) 010-0100' },
+    ]);
+    const read = c.find('select', 'guest_list_members').at(-1)!;
+    expect(read.columns).toContain('id');
+    expect(read.columns).toContain('display_name');
+  });
+});
+
 /* ------------------------------------------------------------------------ auth */
 
 describe('joining', () => {

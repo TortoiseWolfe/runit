@@ -876,6 +876,47 @@ describe('reporting something', () => {
 
 /* ------------------------------------------------------------------- invitees */
 
+describe('choosing who from a saved list comes (spec 008)', () => {
+  const saveThree = async (r: ReturnType<typeof make>) => {
+    await r.invitees.add({ email: 'a@example.test', displayName: 'A' });
+    await r.invitees.add({ email: 'b@example.test', displayName: 'B' });
+    await r.invitees.add({ phone: '(555) 010-0100', displayName: 'C' });
+    const id = await r.guestLists.saveCurrent('Family');
+    for (const i of r.invitees.all.get()) await r.invitees.remove(i.id);
+    return id;
+  };
+
+  it('lists the members with ids a host can switch', async () => {
+    const r = make();
+    const id = await saveThree(r);
+    const m = await r.guestLists.members(id);
+    expect(m.map((x) => x.displayName)).toEqual(['A', 'B', 'C']);
+    expect(new Set(m.map((x) => x.id)).size).toBe(3);
+  });
+
+  it('attaches only the members left on, and the list keeps everyone', async () => {
+    const r = make();
+    const id = await saveThree(r);
+    const [a, , c] = await r.guestLists.members(id);
+    expect(await r.guestLists.attach(id, [a!.id, c!.id])).toBe(2);
+    expect(r.invitees.all.get().map((i) => i.displayName).sort()).toEqual(['A', 'C']);
+    expect(await r.guestLists.members(id)).toHaveLength(3);
+  });
+
+  it('an id that is not on this list attaches nobody, as the SQL does', async () => {
+    const r = make();
+    const id = await saveThree(r);
+    expect(await r.guestLists.attach(id, ['glm_not_on_this_list'])).toBe(0);
+    expect(r.invitees.all.get()).toHaveLength(0);
+  });
+
+  it('without a choice it attaches everyone, which is the old behaviour', async () => {
+    const r = make();
+    const id = await saveThree(r);
+    expect(await r.guestLists.attach(id)).toBe(3);
+  });
+});
+
 describe('the guest list', () => {
   it('moves the number the composer addresses, which is the whole point of #25', async () => {
     // "Send to N guests" reads `event.invitedCount`, and until now nothing in the app

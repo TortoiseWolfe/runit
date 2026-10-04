@@ -11,7 +11,7 @@
 import * as Crypto from 'expo-crypto';
 
 import type {
-  GuestList, GuestListId,
+  GuestList, GuestListId, GuestListMember, GuestListMemberId,
   BlockedGuest, Broadcast, BroadcastId, Folder, FolderId, GuestId, Host, HostRole,
   Invitee, InviteeId, InviteSendResult, NowPlaying, Photo, PhotoId,
   Report, ReportId, ReportReason, ReportResolution, ReportSubject,
@@ -289,7 +289,7 @@ export class MemoryRepository implements RunitRepository {
   private inviteeList: Invitee[];
   private sigInvitees: Signal<Invitee[]>;
   private listRows: { id: string; name: string; createdAt: string }[] = [];
-  private listMembers = new Map<string, { email: string | null; phone: string | null; displayName: string | null }[]>();
+  private listMembers = new Map<string, { id: GuestListMemberId; email: string | null; phone: string | null; displayName: string | null }[]>();
   private sigGuestLists: Signal<GuestList[]>;
   private broadcastList: Broadcast[];
   /**
@@ -1169,16 +1169,19 @@ export class MemoryRepository implements RunitRepository {
             (!!i.email && m.email?.toLowerCase() === i.email.toLowerCase()) ||
             (!!i.phone && !!m.phone && phoneKey(m.phone) === phoneKey(i.phone)),
         );
-        if (!clash) merged.push({ email: i.email, phone: i.phone, displayName: i.displayName });
+        if (!clash) merged.push({ id: this.id('glm'), email: i.email, phone: i.phone, displayName: i.displayName });
       }
       this.listMembers.set(id, merged);
       this.recompute();
       return id;
     },
 
-    attach: async (id: GuestListId) => {
-      const members = this.listMembers.get(id);
-      if (!members) throw new Error('That list is gone.');
+    attach: async (id: GuestListId, memberIds?: GuestListMemberId[]) => {
+      const all = this.listMembers.get(id);
+      if (!all) throw new Error('That list is gone.');
+      // The same rule as the SQL: only members OF THIS LIST whose ids were chosen. An id from
+      // another list matches nothing rather than being refused, exactly as `= any()` does.
+      const members = memberIds ? all.filter((m) => memberIds.includes(m.id)) : all;
       const { added } = await this.invitees.addMany(
         members.map((m) => ({
           email: m.email ?? undefined,
@@ -1188,6 +1191,9 @@ export class MemoryRepository implements RunitRepository {
       );
       return added;
     },
+
+    members: async (id: GuestListId): Promise<GuestListMember[]> =>
+      (this.listMembers.get(id) ?? []).map((m) => ({ ...m })),
 
     remove: async (id: GuestListId) => {
       this.listRows = this.listRows.filter((l) => l.id !== id);
