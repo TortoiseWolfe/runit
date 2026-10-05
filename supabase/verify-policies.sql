@@ -61,6 +61,7 @@ declare
   -- cap fixtures: a fresh event, the guest who holds a seat, and the one who arrives late.
   auid  uuid := 'cccccccc-0000-0000-0000-000000000002';
   buid2 uuid := 'cccccccc-0000-0000-0000-000000000003';
+  zuid  uuid := 'dddddddd-0000-0000-0000-000000000089';
   ce2 record; pin boolean; gcap uuid; filler uuid; i int; bc uuid;
   -- #37 fixtures: the second count, and the seat a guest is promoted into.
   m int; hst uuid;
@@ -1261,16 +1262,18 @@ begin
   execute 'set local role authenticated';
   select * into ce2 from public.create_event('Capped', now() + interval '1 day', 'UTC', 'The flat', '', 'Ruth');
 
-  -- APPROVAL IS ON FOR A NEW EVENT, and the tier is still the free one. Those two facts
-  -- belong in one assertion: whether photos wait is a SAFETY decision about the event and
-  -- not something a host buys (#30, #65), so a tier creeping back into the answer is the
-  -- regression worth catching. The default flipped on 2026-09-20 because an album is the
-  -- one surface where a stranger's mistake is instantly in front of the whole room -- and
-  -- because the App Store listing promises it in as many words.
+  -- APPROVAL IS OFF FOR A NEW EVENT, and the tier is still the free one. Those two facts
+  -- belong in one assertion: whether photos wait is the HOST'S switch on the event and not
+  -- something she buys (#30, #65), so a tier creeping back into the answer is the regression
+  -- worth catching. It was ON from 2026-09-20; the owner turned it OFF on 2026-10-02 (spec
+  -- 003: a host mid-event has no hands free to approve). THIS ASSERTION STILL SAID ON until
+  -- 2026-10-05, and passed, because no lane E run had rebuilt the database from the file
+  -- since -- the local stack kept the old column default, and the schema fingerprint does
+  -- not hash defaults. `supabase db reset` is what caught it.
   select e.photo_moderation, e.tier into pin, lbl
     from public.events e where e.id = ce2.event_id;
-  out := out || format('%s a new event starts with approval ON (%s, want true) on tier %s',
-                       case when pin = true and lbl = 'house_party' then 'PASS' else 'FAIL' end,
+  out := out || format('%s a new event starts with approval OFF (%s, want false) on tier %s',
+                       case when pin = false and lbl = 'house_party' then 'PASS' else 'FAIL' end,
                        pin, lbl);
 
   -- AND THE HOST CAN STILL TAKE IT OFF IN ONE WRITE, which is what makes on-by-default a
@@ -2730,6 +2733,84 @@ begin
   end;
   execute 'reset role';
   delete from public.feedback where auth_user_id = cuid;
+
+  -- #89 THE WRONG-CODE BUDGET. A fresh identity, so nothing above has spent any of it.
+  insert into auth.users (id, instance_id, aud, role, email, is_anonymous, created_at, updated_at)
+  values (zuid,'00000000-0000-0000-0000-000000000000','authenticated','authenticated',null,true,now(),now());
+  perform set_config('request.jwt.claims', json_build_object('sub',zuid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  begin
+    perform public.join_event('NOPE88', 'Zed');
+    out := out || format('FAIL a legacy miss raised nothing');
+  exception when others then
+    out := out || format('%s with the legacy switch on, a two-argument miss still raises P0002 for build 17 (%s)',
+                         case when sqlstate = 'P0002' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+  g1 := public.join_event('NOPE88', 'Zed', true);
+  out := out || format('%s a counted miss returns null instead of raising', case when g1 is null then 'PASS' else 'FAIL' end);
+  begin
+    select count(*) into n from public.code_attempts;
+    out := out || format('FAIL a client can read the wrong-code counter');
+  exception when others then
+    out := out || format('%s a client cannot read the wrong-code counter (%s)', case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+  select count(*) into n from public.event_preview('TEST02');
+  execute 'reset role';
+  select misses into m from public.code_attempts where auth_user_id = zuid;
+  out := out || format('%s a hit is never charged, and the legacy raise was not counted (misses %s, want 1)', case when m = 1 then 'PASS' else 'FAIL' end, m);
+  perform set_config('request.jwt.claims', json_build_object('sub',zuid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  for i in 1..19 loop
+    perform public.event_preview('NOPE77');
+  end loop;
+  begin
+    perform public.event_preview('TEST02');
+    out := out || format('FAIL over budget, a preview was still answered');
+  exception when sqlstate 'PGRST' then
+    out := out || format('%s after twenty misses a preview is refused, even for a real code (%s)',
+                         case when sqlerrm like '%too_many_codes%' then 'PASS' else 'FAIL' end, sqlerrm);
+  end;
+  begin
+    perform public.join_event('TEST02', 'Zed', true);
+    out := out || format('FAIL over budget, a join was still answered');
+  exception when sqlstate 'PGRST' then
+    out := out || format('%s the budget is shared: join_event is refused too (%s)',
+                         case when sqlerrm like '%too_many_codes%' then 'PASS' else 'FAIL' end, left(sqlerrm, 40));
+  end;
+  begin
+    perform public.join_event('NOPE88', 'Zed');
+    out := out || format('FAIL over budget, the legacy path still answered');
+  exception when sqlstate 'PGRST' then
+    out := out || format('PASS the refusal comes before the lookup, so the legacy path is refused too');
+  when others then
+    out := out || format('FAIL over budget, the legacy path answered %s instead of the refusal', sqlstate);
+  end;
+  execute 'reset role';
+  update public.code_attempts set window_start = now() - interval '61 minutes' where auth_user_id = zuid;
+  perform set_config('request.jwt.claims', json_build_object('sub',zuid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  select count(*) into n from public.event_preview('TEST02');
+  out := out || format('%s an hour on, the budget is back (got %s row, want 1)', case when n = 1 then 'PASS' else 'FAIL' end, n);
+  perform public.event_preview('NOPE77');
+  execute 'reset role';
+  select misses into m from public.code_attempts where auth_user_id = zuid;
+  out := out || format('%s a miss after the window restarts the count at one (misses %s)', case when m = 1 then 'PASS' else 'FAIL' end, m);
+  -- THE CUTOVER: with the switch off, nobody gets the raise, and claim_host stops telling a
+  -- missing code from a wrong key.
+  update public.app_settings set value = 'false'::jsonb where key = 'legacy_code_errors';
+  perform set_config('request.jwt.claims', json_build_object('sub',zuid,'role','authenticated')::text, true);
+  execute 'set local role authenticated';
+  g1 := public.join_event('NOPE88', 'Zed');
+  out := out || format('%s with the switch off, a two-argument miss is counted and returns null', case when g1 is null then 'PASS' else 'FAIL' end);
+  begin
+    perform public.claim_host('NOPE88', 'ABCD-EFGH-JKLM');
+    out := out || format('FAIL claim_host accepted an unknown code');
+  exception when others then
+    out := out || format('%s with the switch off, claim_host answers an unknown code as a bad key (%s)',
+                         case when sqlstate = '42501' then 'PASS' else 'FAIL' end, sqlstate);
+  end;
+  execute 'reset role';
+  update public.app_settings set value = 'true'::jsonb where key = 'legacy_code_errors';
 
   select count(*) into fails from unnest(out) x where x like 'FAIL%';
   raise exception using message =

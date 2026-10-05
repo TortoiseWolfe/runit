@@ -546,12 +546,83 @@ begin
   return now() < v_starts + make_interval(hours => v_ttl);
 end $$;
 
+-- ------------------------------------------------------------------------
+-- THE WRONG-CODE BUDGET (#89)
+-- ------------------------------------------------------------------------
+--
+-- `join_event`, `event_preview` and `claim_host` each answer a different thing for a code
+-- that names a party and one that does not, so each is an ORACLE: a session could sweep the
+-- ~8.9e8 code space at whatever rate PostgREST serves, and the anonymous sign-in limit does
+-- not stop it -- that caps how many IDENTITIES an address mints, not how often one calls.
+--
+-- So every identity gets TWENTY MISSES AN HOUR, shared across both lookups. A real guest
+-- typing a code off a place card misses a handful of times at most; an attacker needs
+-- millions. Over budget, the identity is refused BEFORE the lookup, even for a correct code
+-- -- otherwise an attacker interleaves a known code to reset nothing and keeps going. HITS
+-- ARE NEVER COUNTED, so a guest reopening their own party is never charged.
+--
+-- ONE ROW PER IDENTITY, a fixed window from its first miss. Not a log: the table cannot grow
+-- with traffic, and `on delete cascade` takes the row with the account.
+--
+-- A MISS CAN ONLY BE COUNTED IF THE CALL DOES NOT RAISE. PostgREST runs an RPC in one
+-- transaction, so a row written before `raise exception` is rolled back with it. That is why
+-- `join_event` grew `p_miss_as_null`: a counted miss RETURNS NULL and the client says "That
+-- code doesn't match an event" itself. Builds up to 17 do not send it and expect P0002, so
+-- they keep the old raise -- uncounted -- until `app_settings.legacy_code_errors` is set to
+-- false, which is the one-line cutover once no live build needs it. See that switch below.
+create table if not exists public.code_attempts (
+  auth_user_id uuid primary key references auth.users(id) on delete cascade,
+  window_start timestamptz not null default now(),
+  misses       integer not null default 0
+);
+alter table public.code_attempts enable row level security;
+-- No policy for any client role: only the definer functions below touch it.
+revoke all on public.code_attempts from public, anon, authenticated;
+
+-- REFUSE BEFORE LOOKING. A real 429 with Retry-After, through PostgREST's documented
+-- `sqlstate 'PGRST'` escape, rather than borrowing a SQLSTATE: 54023 already means "this
+-- party is full" to every client in the field, and telling an attacker -- or a guest -- that
+-- a party is full is a different lie.
+create or replace function public.guard_code_misses() returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null then return; end if;
+  if exists (
+    select 1 from public.code_attempts a
+     where a.auth_user_id = auth.uid()
+       and a.window_start > now() - interval '1 hour'
+       and a.misses >= 20
+  ) then
+    raise sqlstate 'PGRST' using
+      message = '{"code":"too_many_codes","message":"Too many codes that did not match. Try again in an hour.","details":null,"hint":null}',
+      detail  = '{"status":429,"headers":{"Retry-After":"3600"}}';
+  end if;
+end $$;
+
+create or replace function public.record_code_miss() returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null then return; end if;
+  insert into public.code_attempts as a (auth_user_id, window_start, misses)
+       values (auth.uid(), now(), 1)
+  on conflict (auth_user_id) do update
+     set window_start = case when a.window_start <= now() - interval '1 hour' then now() else a.window_start end,
+         misses       = case when a.window_start <= now() - interval '1 hour' then 1 else a.misses + 1 end;
+end $$;
+
+revoke execute on function public.guard_code_misses() from public, anon, authenticated;
+revoke execute on function public.record_code_miss()  from public, anon, authenticated;
+
 -- JOINING. SECURITY DEFINER because a guest must be able to create their own row
 -- and find an event by code WITHOUT being able to read the guests table or list
 -- events -- see the RLS section. Returns the guest id; idempotent, so a reinstall
 -- that reuses the persisted session lands on the same row rather than a second
 -- seat. That is the whole reason the session is persisted.
-create or replace function public.join_event(p_code text, p_nickname text)
+-- THE TWO-ARGUMENT FORM IS DROPPED, not left beside the new one. PostgREST resolves an RPC by
+-- argument NAMES, and with both present a two-name call would match both and fail as
+-- ambiguous. The default on `p_miss_as_null` is what keeps every existing caller working.
+drop function if exists public.join_event(text, text);
+create or replace function public.join_event(p_code text, p_nickname text, p_miss_as_null boolean default false)
 returns uuid
 language plpgsql security definer set search_path = public as $$
 declare
@@ -563,6 +634,9 @@ begin
   if auth.uid() is null then
     raise exception 'not authenticated' using errcode = '28000';
   end if;
+
+  -- #89: over budget, refused before the lookup on EVERY path, the legacy one included.
+  perform public.guard_code_misses();
 
   /*
    * A GUEST NEEDS A NAME, AND THIS IS WHERE THAT IS DECIDED (#66).
@@ -598,7 +672,15 @@ begin
 
   -- The canvas set joined=true unconditionally and could not represent a wrong
   -- code. This can, and the client surfaces it as "That code doesn't match an event."
+  --
+  -- #89: a COUNTED miss returns null, because a raise would roll the count back with it.
+  -- The raise survives only for callers that did not ask, and only while the legacy switch
+  -- is on; with it off, every miss is counted whoever is asking.
   if v_event is null then
+    if p_miss_as_null or not public.legacy_code_errors() then
+      perform public.record_code_miss();
+      return null;
+    end if;
     raise exception 'unknown_code' using errcode = 'P0002';
   end if;
 
@@ -661,9 +743,9 @@ end $$;
 -- to a name, a venue and a time. `authenticated` only, so every call sits behind a
 -- session -- and THAT IS NOT A BOUND ON GUESSING, which this comment used to claim. The
 -- anonymous sign-in limit caps how many IDENTITIES one address may mint, not how many
--- times one identity may call. Per-identity miss counting is not implemented (2026-09-23
--- review); the code space is ~8.9e8 and a hit returns a name, a venue and a time, which
--- may be somebody's home. Never grant this to `anon`.
+-- times one identity may call. Since #89 each identity has a wrong-code budget, twenty misses
+-- an hour shared with `join_event` (THE WRONG-CODE BUDGET, above). A hit still returns a name,
+-- a venue and a time, which may be somebody's home. Never grant this to `anon`.
 --
 -- WHAT IT DELIBERATELY WITHHOLDS: tier, guest_count, invited_count,
 -- active_folder_id, now_schedule_item_id. The join screen promises "guests can't
@@ -684,11 +766,20 @@ returns table (
   timezone    text,
   doors_label text
 )
-language sql stable security definer set search_path = public as $$
-  select e.id, e.code, e.name, e.venue, e.starts_at, e.timezone, e.doors_label
-    from public.events e
-   where upper(e.code) = upper(btrim(p_code))
-$$;
+-- PLPGSQL AND VOLATILE since #89, because a miss now WRITES: it is charged to the caller's
+-- wrong-code budget, the same twenty an hour `join_event` draws on. It still raises nothing on
+-- a miss -- zero rows is the answer -- which is exactly why its count persists.
+language plpgsql volatile security definer set search_path = public as $$
+begin
+  perform public.guard_code_misses();
+  return query
+    select e.id, e.code, e.name, e.venue, e.starts_at, e.timezone, e.doors_label
+      from public.events e
+     where upper(e.code) = upper(btrim(p_code));
+  if not found then
+    perform public.record_code_miss();
+  end if;
+end $$;
 
 revoke execute on function public.event_preview(text) from public, anon;
 grant  execute on function public.event_preview(text) to authenticated;
@@ -1704,7 +1795,7 @@ revoke execute on function public.is_host(uuid)                      from public
 -- runs as the CALLER, so revoking it from authenticated would fail every gated write with
 -- a permission error instead of a closed-event one.
 revoke execute on function public.event_is_open(uuid)                from public, anon;
-revoke execute on function public.join_event(text, text)             from public, anon;
+revoke execute on function public.join_event(text, text, boolean)    from public, anon;
 revoke execute on function public.play_next(uuid)                    from public, anon;
 revoke execute on function public.start_schedule_item(uuid, boolean) from public, anon;
 
@@ -1725,7 +1816,7 @@ revoke execute on function public.start_schedule_item(uuid, boolean) from public
 -- every select in the app.
 grant execute on function public.my_guest_id(uuid)                  to authenticated;
 grant execute on function public.is_host(uuid)                      to authenticated;
-grant execute on function public.join_event(text, text)             to authenticated;
+grant execute on function public.join_event(text, text, boolean)    to authenticated;
 grant execute on function public.play_next(uuid)                    to authenticated;
 grant execute on function public.start_schedule_item(uuid, boolean) to authenticated;
 
@@ -1892,7 +1983,16 @@ begin
 
   select id into v_event from public.events where upper(code) = upper(btrim(p_code));
   if v_event is null then
-    raise exception 'unknown_code' using errcode = 'P0002';
+    -- #89. While `join_event` is still an oracle for old builds, a distinct answer here hides
+    -- nothing (see the bad_host_key comment below). Once the legacy switch is off, this is
+    -- the LAST oracle, and it cannot count a miss because it has to raise. So it stops
+    -- answering differently: a code that names nothing gets the bad-key answer, after the
+    -- same bcrypt work a real comparison costs, so the reply's timing does not tell either.
+    if public.legacy_code_errors() then
+      raise exception 'unknown_code' using errcode = 'P0002';
+    end if;
+    perform extensions.crypt(v_key, extensions.gen_salt('bf'));
+    raise exception 'bad_host_key' using errcode = '42501';
   end if;
 
   -- crypt() re-derives with the salt stored inside the hash, so this compares without
@@ -2535,6 +2635,21 @@ language sql stable security definer set search_path = public as $$
 $$;
 revoke execute on function public.beta_open() from public, anon;
 grant execute on function public.beta_open() to authenticated;
+
+-- THE #89 CUTOVER SWITCH. True while a live build still expects `join_event` to RAISE P0002
+-- on a wrong code (every build up to 17). Set it to false -- service role, one UPDATE, no
+-- migration -- once the oldest build anybody can still open sends `p_miss_as_null`. Then
+-- every miss is counted and `claim_host` stops telling a missing code from a wrong key.
+-- Before that day, a session using the old path is still unbounded; that is the price of not
+-- breaking the error copy on phones that cannot be updated from here.
+insert into public.app_settings (key, value) values ('legacy_code_errors', 'true'::jsonb)
+on conflict (key) do nothing;
+
+create or replace function public.legacy_code_errors() returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce((select (value)::boolean from public.app_settings where key = 'legacy_code_errors'), true);
+$$;
+revoke execute on function public.legacy_code_errors() from public, anon, authenticated;
 
 create or replace function public.set_event_tier(p_event uuid, p_tier text) returns text
 language plpgsql security definer set search_path = public as $$

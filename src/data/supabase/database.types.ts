@@ -409,7 +409,7 @@ export type Database = {
         Returns: { request_id: string; merged: boolean }[];
       };
       is_host: { Args: { p_event: string }; Returns: boolean };
-      join_event: { Args: { p_code: string; p_nickname: string }; Returns: string };
+      join_event: { Args: { p_code: string; p_nickname: string; p_miss_as_null?: boolean }; Returns: string | null };
       my_guest_id: { Args: { p_event: string }; Returns: string };
       play_next: { Args: { p_event: string }; Returns: undefined };
       start_schedule_item: { Args: { p_item: string; p_rewind?: boolean }; Returns: undefined };
