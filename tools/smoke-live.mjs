@@ -181,10 +181,26 @@ const sweepPaths = new Set();
 let bo = null;
 let boCtx = null;
 const boErrors = [];
+/*
+ * EVERY SIGNED PHOTO REQUEST, ON EVERY PAGE, AND BOTH HALVES OF EACH PHOTO (2026-10-05).
+ * This used to remember only the two `src`s the first photo's assertions happened to read,
+ * so the approval chain's photo -- uploaded later, shown as a thumbnail, never opened full
+ * size -- was never collected: two objects stranded on EVERY run, which is exactly the eight
+ * a manual sweep found after four. A request listener sees every image either page loads,
+ * and a photo is always two objects (`<id>.jpg` and `<id>_t.jpg`), so seeing either half
+ * names both. Naming one that does not exist costs nothing; the delete ignores it.
+ */
 const remember = (u) => {
   const m = u && decodeURIComponent(u).match(/\/object\/sign\/event-photos\/(.+?)\?/);
-  if (m) sweepPaths.add(m[1]);
+  if (!m) return;
+  const path = m[1];
+  const pair = /_t(\.[a-z0-9]+)$/i.test(path)
+    ? path.replace(/_t(\.[a-z0-9]+)$/i, '$1')
+    : path.replace(/(\.[a-z0-9]+)$/i, '_t$1');
+  sweepPaths.add(path);
+  sweepPaths.add(pair);
 };
+page.on('request', (r) => remember(r.url()));
 
 try {
   // ---------------------------------------------------------------- create
@@ -656,6 +672,7 @@ try {
   await boCtx.tracing.start({ screenshots: true, snapshots: true, sources: true });
   bo = await boCtx.newPage();
   bo.on('pageerror', (e) => boErrors.push(e.message));
+  bo.on('request', (r) => remember(r.url()));
   await bo.goto(`${base}/join?code=${code}`, { waitUntil: 'networkidle' });
   await bo.waitForSelector('[data-testid="join-submit"]', { timeout: 30_000 });
   await bo.getByTestId('join-nickname').fill('Bo');
