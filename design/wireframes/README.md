@@ -7,6 +7,7 @@ before any screen is touched. Open the .html in a browser; it is self-contained.
 |---|---|---|
 | `2026-09-29-guest-and-host-flows.html` | join, photo (album + shutter), host create, host console | 001 (built), #97 #98 #99 #100 #101 |
 | `2026-10-03-pick-from-a-list.html` | attaching a saved list: who is coming this time, one-off adds, co-host as a role | 008 |
+| `2026-10-05-host-getting-started.html` | a first-time host's console: a checklist that ticks itself from real state | 012 |
 
 Not yet drawn: Music, sign-in, the first-run landing tab.
 

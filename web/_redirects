@@ -27,6 +27,13 @@
 #   `/i/*` before everything, or the app's own `/i/[code]` route renders to somebody who has
 #   not installed it -- the opposite of what that page exists for.
 /i/*             /i/                        200
+# THE HELP PAGE (2026-10-05) is a real directory, so it is passed through like every other one
+# -- without these two lines the catch-all below answers `/help/` with the app's HTML shell under
+# a 200, which is the trap this file's header measured. Same shape as `/i/*`: the destination is
+# `/help/`, never `/help/index.html` (Pages answers 308 to the explicit filename). Lane G reads
+# the page back and looks for `id="help-guide"`.
+/help            /help/                     200
+/help/*          /help/                     200
 /_expo/*         /_expo/:splat              200
 # CLOUDFLARE PAGES SILENTLY SKIPS ANY PATH CONTAINING `node_modules`, and expo puts 18
 # router assets under `assets/node_modules/expo-router/assets/`. They never left the machine

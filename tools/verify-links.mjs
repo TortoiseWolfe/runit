@@ -261,6 +261,31 @@ try {
 }
 
 /**
+ * THE HELP PAGE IS THE HELP PAGE, AND NOT THE APP SHELL WEARING ITS URL (2026-10-05).
+ * `web/help/index.html` is the one page any guest, tester or host can be sent instead of a
+ * hand-written set of steps. It is a real file -- and on this host a `_redirects` rule beats a
+ * real file, so if the two `/help` lines in `web/_redirects` go missing the catch-all answers
+ * with the app's HTML shell under a 200 and every link to the guide lands on the join screen.
+ * A status code cannot tell those apart; the marker can. Both spellings are read, because a
+ * person types the one without the slash.
+ */
+for (const path of ['/help/', '/help']) {
+  try {
+    const help = await get(path);
+    if (help.res.status !== 200 || !help.body.includes('id="help-guide"')) {
+      problems.push(
+        `${path} answered ${help.res.status} without id="help-guide" -- the guide is not what is being served\n` +
+          '    (a _redirects catch-all serving the app shell looks exactly like this; see web/_redirects).',
+      );
+    } else {
+      console.log(`  ${path} serves the help page`);
+    }
+  } catch (e) {
+    problems.push(`${path} could not be fetched: ${e instanceof Error ? e.message : e}`);
+  }
+}
+
+/**
  * THE SONG TYPE-AHEAD'S PROXY ANSWERS ON THIS HOST (spec 003 follow-up). `web/functions/api/
  * music.js` is a Pages Function; the browser build asks it because Apple's iTunes endpoint
  * sends no CORS headers. What is asserted is the SHAPE -- JSON with a `results` array --

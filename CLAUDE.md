@@ -1825,6 +1825,18 @@ the Cloudflare token to the child explicitly (read in-process, printed nowhere).
 proves a function shipped is **"Compiled Worker successfully"**; lane G then reads `/api/music`
 back and fails unless it is JSON with a `results` array.
 
+**ONE HELP PAGE, `runit-app.pages.dev/help/` (2026-10-05), BECAUSE EVERY TESTER NEEDED HAND-WRITTEN
+STEPS.** A week of texts, emails and a note for somebody's assistant, and the hard part was never
+inside the app: Apple's invitation comes from **App Store Connect**, does not mention parties,
+lands in Junk, and a person searching their mail for "TestFlight" will not find it. All of that
+happens before RunIt is on the phone, where no in-app tutorial can reach, so it is a static page
+anybody can be sent (`web/help/index.html`): join in the browser first, the TestFlight steps once,
+hosting, and the report routes. Every button name on it is the app's own label; change both
+together. It is a real directory, so `web/_redirects` passes `/help` and `/help/*` through before
+the catch-all, and lane G reads `id="help-guide"` back on both spellings -- before the deploy that
+check was red against the live host, which was answering `/help/` with the app shell under a 200.
+The in-app half, a host checklist that ticks itself from real state, is spec 012 and not built.
+
 **THE INVITATION HOST IS DEPLOYED (#52).** `runit-app.pages.dev` went up on 2026-09-07 by
 DIRECT UPLOAD -- `wrangler pages deploy web --project-name=runit-app` -- not git integration,
 so **a push to `main` does not redeploy it**; re-run that command when `web/` changes. Lane G
