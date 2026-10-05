@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>How RunIt works</title>
+<meta name="description" content="Joining a party, getting the beta app, and hosting a party with RunIt.">
+<meta name="robots" content="noindex">
+<!--
+  ONE PAGE ANYBODY CAN BE SENT, instead of a fresh set of instructions per person.
+
+  Written 2026-10-05, after a week in which every tester needed hand-written steps: a text, an
+  email, a note for somebody's assistant. The hard part was never inside the app. It was
+  Apple's invitation email (it comes from App Store Connect, does not mention parties, and
+  lands in Junk), accepting it, and installing TestFlight -- all of it BEFORE RunIt is on the
+  phone, where no in-app tutorial can reach. So the browser route leads, because it skips all
+  of that, and the TestFlight steps are spelled out once, here, for everyone.
+
+  Same shape as web/i/index.html: one file, no build step, no framework, no analytics. The
+  colours are that page's tokens. `id="help-guide"` is what lane G (tools/verify-links.mjs)
+  reads back, because on this host a `_redirects` catch-all serves the app's HTML shell under
+  a 200 for any path it is not told to pass through -- see web/_redirects.
+
+  Every button name below is the app's own label, read out of the source on the day this was
+  written. If one changes, change it here too.
+-->
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #F5F0EB;
+    --card: #FFFFFF;
+    --ink: #1F2937;
+    --muted: #6B7280;
+    --line: #DDD5CB;
+    --accent: #1F2937;
+    --accent-ink: #F5F0EB;
+    --mark: #9A6408;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1A1A2E;
+      --card: #21213A;
+      --ink: #E2E8F0;
+      --muted: #9AA3B2;
+      --line: #2E2E48;
+      --accent: #E2E8F0;
+      --accent-ink: #1A1A2E;
+      --mark: #F2B84B;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 28px 22px calc(28px + env(safe-area-inset-bottom));
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { width: 100%; max-width: 520px; margin: 0 auto; }
+  h1 { font-size: 26px; line-height: 1.2; margin: 0 0 6px; font-weight: 600; }
+  .sub { color: var(--muted); margin: 0 0 8px; font-size: 15px; }
+  .cta {
+    display: block; text-align: center; text-decoration: none;
+    background: var(--accent); color: var(--accent-ink);
+    padding: 15px 18px; border-radius: 12px; font-weight: 600; margin: 18px 0 0;
+  }
+  nav.toc { margin: 18px 0 0; font-size: 14px; color: var(--muted); }
+  nav.toc a { color: var(--accent); }
+
+  section { margin-top: 30px; padding-top: 22px; border-top: 1px solid var(--line); }
+  h2 { font-size: 19px; margin: 0 0 4px; font-weight: 600; }
+  h3 { font-size: 15px; margin: 18px 0 8px; font-weight: 600; }
+  .lead { color: var(--muted); font-size: 14px; margin: 0 0 16px; }
+
+  ol.steps { margin: 0; padding: 0; list-style: none; counter-reset: s; }
+  ol.steps > li { counter-increment: s; position: relative; padding-left: 34px; margin-bottom: 14px; }
+  ol.steps > li::before {
+    content: counter(s);
+    position: absolute; left: 0; top: 1px;
+    width: 22px; height: 22px; border-radius: 50%;
+    background: var(--accent); color: var(--accent-ink);
+    font-size: 12px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+  }
+  /* The app's own button names, so a reader can match the words to the screen. */
+  .btn { font-weight: 600; white-space: nowrap; }
+  .note {
+    margin: 14px 0 0; padding: 12px 14px; font-size: 14px;
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+  }
+  .note b { color: var(--mark); }
+  a { color: var(--accent); }
+  .fine { margin-top: 30px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+  .fine a { color: inherit; }
+</style>
+</head>
+<body>
+<main id="help-guide">
+
+  <h1>How RunIt works</h1>
+  <p class="sub">One screen for a party: the host's announcements, a shared photo album and song
+    requests. Guests need no account and no phone number.</p>
+
+  <nav class="toc">
+    <a href="#join">Join a party</a> &middot;
+    <a href="#app">Get the app</a> &middot;
+    <a href="#host">Host a party</a> &middot;
+    <a href="#help">Something not right?</a>
+  </nav>
+
+  <section id="join">
+    <h2>Join a party</h2>
+    <p class="lead">Nothing to install. It works in your phone's browser.</p>
+    <ol class="steps">
+      <li>Open the link the host sent you, or scan the QR code they're holding up.</li>
+      <li>Type your name and tap <span class="btn">Join</span>. If the code isn't filled in for
+        you, the host has it: six letters and numbers.</li>
+      <li>You're in. <b>Chat</b> has the host's announcements and the plan for the night,
+        <b>Photos</b> is the shared album, and <b>Music</b> is where you request songs and vote
+        for other people's.</li>
+    </ol>
+    <a class="cta" href="/join">Open RunIt in this browser</a>
+  </section>
+
+  <section id="app">
+    <h2>Get the app</h2>
+    <p class="lead">Optional. The browser does everything above. RunIt is in beta, so the app
+      isn't in the App Store yet.</p>
+
+    <h3>iPhone</h3>
+    <ol class="steps">
+      <li>Send the host the email address on your Apple&nbsp;ID. They add you by hand.</li>
+      <li>Apple emails you an invitation from <b>App Store Connect</b>. It doesn't mention
+        parties, and it often lands in Junk or Spam. Search your email for
+        <b>App Store Connect</b>, not TestFlight.</li>
+      <li>Open it on your iPhone and tap <span class="btn">Accept</span>. The invitation runs
+        out after about three days. If it has, ask the host to send another.</li>
+      <li>Install <b>TestFlight</b> from the App Store. It's Apple's free app for testing.</li>
+      <li>Open TestFlight, signed in with the same Apple&nbsp;ID. RunIt is in the list. Tap
+        <span class="btn">Install</span>.</li>
+    </ol>
+
+    <h3>Android</h3>
+    <ol class="steps">
+      <li>Open the host's invitation link on your phone and tap
+        <span class="btn">Android &middot; install now</span>.</li>
+      <li>Allow the install when Android asks. It's about 130&nbsp;MB, so use wi-fi.</li>
+    </ol>
+  </section>
+
+  <section id="host">
+    <h2>Host a party</h2>
+    <p class="lead">A few minutes, from the app or from this website. No account needed.</p>
+    <ol class="steps">
+      <li>Open RunIt and tap <span class="btn">Running an event? Make one</span>.</li>
+      <li>Fill in your name, the party's name and the date. A time, a place and a doors line are
+        optional. Tap <span class="btn">Create it</span>.</li>
+      <li><b>Save your recovery key.</b> It's shown once, and it's the only way back into your
+        party from another phone. Copy it into a note or text it to yourself, then tap
+        <span class="btn">I have saved it</span>.</li>
+      <li>Invite people. <span class="btn">Share invite</span> sends the link and the code from
+        your phone. Under <b>Event</b>, <b>Who is invited</b> adds people one at a time, from
+        your contacts, or from a saved list.</li>
+      <li>At the party, tap <span class="btn">Show QR</span> and hold your phone up. Guests scan
+        it to join.</li>
+      <li>Then <b>Broadcast</b> sends announcements, <b>DJ queue</b> runs the song requests, and
+        <b>Photos</b> is where you approve pictures, if you've turned approval on.</li>
+    </ol>
+    <p class="note">A new party holds <b>10 guests</b>. During the beta you can raise that for
+      free: <span class="btn">Event</span>, then <span class="btn">Change plan</span>.</p>
+  </section>
+
+  <section id="help">
+    <h2>Something not right?</h2>
+    <p class="lead">Tell us and we'll fix it. There's no wrong way to describe it.</p>
+    <ol class="steps">
+      <li>Every screen in the app has <span class="btn">Something not right? Tell us</span>.</li>
+      <li>Or <a href="/join?report=1">report it here</a>, or email
+        <a href="mailto:support@turtlewolfe.com">support@turtlewolfe.com</a>. Say what phone you
+        have and what happened.</li>
+    </ol>
+  </section>
+
+  <p class="fine">
+    <a href="https://tortoisewolfe.github.io/runit-legal/privacy/">Privacy</a> &middot;
+    <a href="https://tortoisewolfe.github.io/runit-legal/support/">Support</a>
+  </p>
+</main>
+</body>
+</html>

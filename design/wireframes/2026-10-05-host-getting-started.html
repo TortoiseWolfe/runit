@@ -1,0 +1,172 @@
+<title>Host Getting Started</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: one journey per section; each row pairs a "now" phone with a "proposed" phone plus the reasoning. Lo-fi greys, one amber for annotation. */
+:root{
+  --bg:#f3f4f6; --panel:#ffffff; --ink:#1f2430; --mute:#5d6577; --line:#c3c8d3;
+  --wire:#e4e7ed; --wire2:#cfd4dd; --accent:#b45309; --accent-bg:#fef3c7; --ok:#166534; --ok-bg:#dcfce7; --bad:#991b1b; --bad-bg:#fee2e2;
+  --sans:'IBM Plex Sans',system-ui,sans-serif; --mono:'IBM Plex Mono',ui-monospace,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#12151c; --panel:#1a1e28; --ink:#e6e9f0; --mute:#9aa3b6; --line:#3a4152;
+  --wire:#2a3040; --wire2:#3b4256; --accent:#fbbf24; --accent-bg:#3a2e0a; --ok:#86efac; --ok-bg:#12321e; --bad:#fca5a5; --bad-bg:#3b1414; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#12151c; --panel:#1a1e28; --ink:#e6e9f0; --mute:#9aa3b6; --line:#3a4152;
+  --wire:#2a3040; --wire2:#3b4256; --accent:#fbbf24; --accent-bg:#3a2e0a; --ok:#86efac; --ok-bg:#12321e; --bad:#fca5a5; --bad-bg:#3b1414; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.5;margin:0;padding-inline:16px;padding-block:32px 64px}
+main{max-width:1080px;margin-inline:auto}
+h1{font-size:28px;line-height:1.2;margin:0 0 8px;text-wrap:balance}
+h2{font-size:21px;margin:56px 0 4px;text-wrap:balance}
+h3{font-size:13px;font-family:var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--mute);margin:0 0 10px;font-weight:500}
+p{margin:0 0 10px;max-width:68ch}
+.lede{color:var(--mute);font-size:16px;max-width:70ch}
+.sub{color:var(--mute);margin-bottom:20px}
+.row{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px 28px;margin-block:20px;align-items:start}
+.cell{min-width:0}
+.tag{display:inline-block;font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;padding:2px 8px;border-radius:4px;margin-bottom:10px}
+.tag.now{background:var(--bad-bg);color:var(--bad)} .tag.new{background:var(--ok-bg);color:var(--ok)} .tag.q{background:var(--accent-bg);color:var(--accent)}
+.notes{margin:14px 0 0;padding:0;list-style:none;display:grid;gap:6px;font-size:13.5px;color:var(--mute)}
+.notes li{padding-left:14px;position:relative} .notes li::before{content:"";position:absolute;left:0;top:.62em;width:6px;height:6px;border-radius:50%;background:var(--accent)}
+.notes b{color:var(--ink);font-weight:600}
+.callout{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin-block:20px}
+.callout h3{margin-bottom:6px}
+.callout ul{margin:6px 0 0;padding-left:18px;color:var(--mute)} .callout li{margin-bottom:4px}
+.scroll{overflow-x:auto}
+/* phone wireframe primitives */
+.phone{width:232px;height:480px;border:2px solid var(--wire2);border-radius:28px;background:var(--panel);padding:34px 12px 10px;display:flex;flex-direction:column;gap:8px;position:relative;overflow:hidden;margin-inline:auto 0}
+.cell .phone{margin-inline:0}
+.phone::before{content:"";position:absolute;top:9px;left:50%;width:56px;height:14px;margin-left:-28px;border-radius:8px;background:var(--wire2)}
+.phone.scrolls::after{content:"↓ scrolls";position:absolute;right:10px;bottom:56px;font:500 10px var(--mono);background:var(--bad);color:var(--panel);padding:2px 6px;border-radius:4px}
+.eyebrow{height:6px;width:40%;background:var(--wire2);border-radius:3px}
+.title{height:14px;width:78%;background:var(--ink);opacity:.8;border-radius:3px}
+.title.two{height:30px;background:none;display:grid;gap:4px}.title.two i{display:block;height:13px;background:var(--ink);opacity:.8;border-radius:3px}.title.two i:last-child{width:55%}
+.ln{height:7px;background:var(--wire2);border-radius:3px}.ln.s{width:60%}.ln.m{width:80%}
+.chip{height:22px;border:1.5px solid var(--wire2);border-radius:11px;font:500 9px/19px var(--mono);color:var(--mute);padding-inline:9px;white-space:nowrap;display:inline-block}
+.chip.on{background:var(--wire2);color:var(--ink)}
+.card{border:1.5px solid var(--wire2);border-radius:12px;padding:10px;display:grid;gap:7px}
+.field{height:26px;border:1.5px solid var(--wire2);border-radius:7px;font:400 9px/23px var(--mono);color:var(--mute);padding-inline:8px;white-space:nowrap;overflow:hidden}
+.field.focus{border-color:var(--ink);color:var(--ink)}
+.btn{height:34px;border-radius:9px;background:var(--wire2);color:var(--mute);font:500 10px/34px var(--mono);text-align:center}
+.btn.weak{opacity:.55} .btn.strong{background:var(--ink);color:var(--panel)}
+.btn.thin{height:16px;line-height:16px;font-size:9px;border-radius:5px}
+.lnk{font:500 9px var(--mono);color:var(--mute);text-decoration:underline}
+.void{flex:1;border:1.5px dashed var(--bad);border-radius:8px;display:grid;place-items:center;font:500 9px var(--mono);color:var(--bad);background:repeating-linear-gradient(135deg,transparent 0 6px,var(--bad-bg) 6px 7px)}
+.tabs{margin-top:auto;display:grid;grid-template-columns:repeat(3,1fr);border-top:1.5px solid var(--wire2);padding-top:6px;font:500 9px var(--mono);color:var(--mute);text-align:center}
+.tabs b{color:var(--ink)}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
+.tile{aspect-ratio:1/1.1;background:var(--wire);border-radius:6px;position:relative;font:500 8px var(--mono);color:var(--mute)}
+.tile.pend{background:var(--wire2);outline:2px dashed var(--accent);outline-offset:-2px;opacity:.75}
+.tile.pend::after{content:"waiting";position:absolute;left:0;right:0;bottom:3px;text-align:center;color:var(--accent);font-size:8px}
+.tile.up::after{content:"sending…";position:absolute;inset:auto 0 3px;text-align:center}
+.tile.fail{outline:2px solid var(--bad);outline-offset:-2px}.tile.fail::after{content:"retry ↻";position:absolute;inset:auto 0 3px;text-align:center;color:var(--bad)}
+.shutter{width:52px;height:52px;border-radius:50%;border:4px solid var(--wire2);background:var(--panel);display:grid;place-items:center;margin-inline:auto}
+.shutter i{width:34px;height:34px;border-radius:50%;background:var(--ink);opacity:.8;display:block}
+.shutter.big{width:110px;height:110px;border-width:8px}.shutter.big i{width:78px;height:78px}
+.bar{display:flex;gap:5px;align-items:center;justify-content:space-between}
+.note{position:absolute;font:500 9px var(--mono);color:var(--accent);background:var(--accent-bg);padding:2px 5px;border-radius:3px}
+.center{text-align:center;display:grid;gap:5px;justify-items:center}
+.big{font:600 34px var(--sans);color:var(--ink);opacity:.8;line-height:1}
+.row-item{display:flex;justify-content:space-between;gap:6px;border-bottom:1px solid var(--wire);padding-block:5px}
+.row-item .ln{flex:1}.row-item .ln.r{flex:none;width:22px}
+.strip{border:1.5px solid var(--ink);border-radius:10px;padding:8px;display:grid;gap:6px;background:var(--wire)}
+.strip .l{font:500 9px var(--mono);color:var(--ink)}
+.states{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:12px}
+.states div{text-align:center;font:500 10px var(--mono);color:var(--mute)}
+.states .tile{margin-bottom:5px}
+.check{display:grid;grid-template-columns:14px 1fr;gap:6px;align-items:center;font:500 9px var(--mono);color:var(--ink)}
+.check i{width:12px;height:12px;border:1.5px solid var(--wire2);border-radius:3px;display:block}
+.check.done{color:var(--mute);text-decoration:line-through}
+.check.done i{background:var(--ok);border-color:var(--ok)}
+.seg{display:grid;grid-template-columns:repeat(5,1fr);gap:2px;font:500 7.5px var(--mono);color:var(--mute);text-align:center}
+.seg b{color:var(--ink);border-bottom:1.5px solid var(--ink)}
+</style>
+<main>
+<h1>Host getting started</h1>
+<p class="lede">What a first-time host sees after she makes a party, and a short checklist that ticks itself off. Spec 012. Lo-fi; the app's own words are in mono.</p>
+
+<h2>The moment it is for</h2>
+<p class="sub">She has just tapped <b>I have saved it</b> on the recovery key screen and landed on the host console.</p>
+<div class="row">
+  <div class="cell">
+    <span class="tag now">today</span>
+    <div class="phone scrolls">
+      <div class="seg"><b>Broadcast</b><span>DJ queue</span><span>Photos</span><span>Reports</span><span>Event</span></div>
+      <div class="title"></div>
+      <div class="card">
+        <div class="ln m"></div><div class="ln s"></div>
+        <div class="btn strong">Share the invitation</div>
+      </div>
+      <div class="field">Announce something to all 0 guests…</div>
+      <div class="btn weak">Send</div>
+      <span class="lnk">Share invite →  ·  Show QR</span>
+      <div class="ln"></div><div class="ln s"></div>
+    </div>
+    <ul class="notes">
+      <li><b>Five segments and a composer</b>, and nothing says which of them matters tonight.</li>
+      <li>The one nudge that exists, <code>empty-room-share</code>, covers inviting only, and disappears the moment one person is invited.</li>
+      <li>Show QR, the run of show and the plan cap are all one tap away and none of them is named as a step.</li>
+    </ul>
+  </div>
+  <div class="cell">
+    <span class="tag new">proposed</span>
+    <div class="phone">
+      <div class="seg"><b>Broadcast</b><span>DJ queue</span><span>Photos</span><span>Reports</span><span>Event</span></div>
+      <div class="title"></div>
+      <div class="card">
+        <div class="ln s"></div>
+        <div class="check"><i></i>Invite your guests</div>
+        <div class="btn thin strong">Share the invitation</div>
+        <div class="check"><i></i>Post a first announcement</div>
+        <div class="check"><i></i>Add the plan for the night</div>
+        <span class="lnk">Hide this</span>
+      </div>
+      <div class="field">Announce something to all 0 guests…</div>
+      <div class="btn weak">Send</div>
+    </div>
+    <ul class="notes">
+      <li><b>One card replaces the empty-room nudge</b>; its first item IS that nudge, with the same <code>onShare</code>.</li>
+      <li><b>Every tick comes from real state</b>, never from a tap on the checklist itself.</li>
+      <li>The open item's action is the only button drawn. Done items are text.</li>
+    </ul>
+  </div>
+  <div class="cell">
+    <span class="tag new">proposed, two done</span>
+    <div class="phone">
+      <div class="seg"><b>Broadcast</b><span>DJ queue</span><span>Photos</span><span>Reports</span><span>Event</span></div>
+      <div class="title"></div>
+      <div class="card">
+        <div class="ln s"></div>
+        <div class="check done"><i></i>Invite your guests</div>
+        <div class="check done"><i></i>Post a first announcement</div>
+        <div class="check"><i></i>Add the plan for the night</div>
+        <div class="btn thin strong">Add to the run of show</div>
+        <span class="lnk">Hide this</span>
+      </div>
+      <div class="ln"></div><div class="ln m"></div><div class="ln s"></div>
+    </div>
+    <ul class="notes">
+      <li>When the last item is done the card goes, on its own.</li>
+      <li><b>Hide this</b> also removes it, remembered on this device for this party.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="callout">
+  <h3>What ticks each item</h3>
+  <ul>
+    <li><b>Invite your guests</b>: <code>invitedCount &gt; 0</code> or <code>guestCount &gt; 0</code>. Sharing from the share sheet leaves no record, so a guest arriving is what proves it worked.</li>
+    <li><b>Post a first announcement</b>: the event has at least one broadcast.</li>
+    <li><b>Add the plan for the night</b>: the run of show has at least one row.</li>
+  </ul>
+</div>
+
+<div class="callout">
+  <h3>Not in this</h3>
+  <ul>
+    <li>An intro carousel. The trouble testers had was before the app (Apple's email, TestFlight), and the help page at <code>/help/</code> covers that.</li>
+    <li>A guest checklist. A guest's only hard step is the join, which happens before the app.</li>
+    <li>Ticking "showed the QR": opening a sheet is not an outcome, and nothing records it.</li>
+  </ul>
+</div>
+</main>
