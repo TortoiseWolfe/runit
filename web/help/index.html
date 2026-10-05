@@ -23,6 +23,13 @@
 
   Every button name below is the app's own label, read out of the source on the day this was
   written. If one changes, change it here too.
+
+  THE SECTIONS FOLD, ALL CLOSED, ONE OPEN AT A TIME. The four summaries are the menu: somebody
+  stuck on Apple's email should not scroll past hosting to find it. `<details name="help">` is
+  the exclusive accordion with no script (Safari 17.2+, Chrome 120+); an older browser simply
+  lets two be open, which costs nothing. "Get the app" is a menu rather than a story, so iPhone
+  and Android fold again inside it. A link to /help/#app or /help/#iphone opens that section,
+  so a tester can be sent straight to the part they need.
 -->
 <style>
   :root {
@@ -65,13 +72,30 @@
     background: var(--accent); color: var(--accent-ink);
     padding: 15px 18px; border-radius: 12px; font-weight: 600; margin: 18px 0 0;
   }
-  nav.toc { margin: 18px 0 0; font-size: 14px; color: var(--muted); }
-  nav.toc a { color: var(--accent); }
-
-  section { margin-top: 30px; padding-top: 22px; border-top: 1px solid var(--line); }
-  h2 { font-size: 19px; margin: 0 0 4px; font-weight: 600; }
-  h3 { font-size: 15px; margin: 18px 0 8px; font-weight: 600; }
-  .lead { color: var(--muted); font-size: 14px; margin: 0 0 16px; }
+  .folds { margin-top: 26px; border-bottom: 1px solid var(--line); }
+  details.sec { border-top: 1px solid var(--line); }
+  details > summary { list-style: none; cursor: pointer; position: relative; padding-right: 30px; }
+  details > summary::-webkit-details-marker { display: none; }
+  /* A chevron drawn from two borders, so it takes the theme's ink in both schemes. */
+  details > summary::after {
+    content: ""; position: absolute; right: 6px; top: 50%;
+    width: 8px; height: 8px; margin-top: -6px;
+    border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted);
+    transform: rotate(45deg); transition: transform .15s;
+  }
+  details[open] > summary::after { transform: rotate(-135deg); margin-top: -2px; }
+  details.sec > summary { padding-block: 18px; }
+  details.sec > .body { padding: 0 0 22px; }
+  h2 { font-size: 19px; margin: 0 0 2px; font-weight: 600; }
+  .lead { display: block; color: var(--muted); font-size: 14px; }
+  /* The second layer: a phone to pick, inside "Get the app". */
+  details.sub { border: 1px solid var(--line); border-radius: 10px; background: var(--card); margin-top: 10px; }
+  details.sub > summary { padding: 12px 40px 12px 14px; font-weight: 600; }
+  details.sub > summary::after { right: 16px; }
+  details.sub > .body { padding: 2px 14px 6px; }
+  details.sub .lead { display: inline; font-weight: 400; margin-left: 6px; }
+  .intro { color: var(--muted); font-size: 14px; margin: 0 0 4px; }
+  @media (prefers-reduced-motion: reduce) { details > summary::after { transition: none; } }
 
   ol.steps { margin: 0; padding: 0; list-style: none; counter-reset: s; }
   ol.steps > li { counter-increment: s; position: relative; padding-left: 34px; margin-bottom: 14px; }
@@ -91,7 +115,7 @@
   }
   .note b { color: var(--mark); }
   a { color: var(--accent); }
-  .fine { margin-top: 30px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+  .fine { margin-top: 22px; color: var(--muted); font-size: 12px; }
   .fine a { color: inherit; }
 </style>
 </head>
@@ -102,16 +126,16 @@
   <p class="sub">One screen for a party: the host's announcements, a shared photo album and song
     requests. Guests need no account and no phone number.</p>
 
-  <nav class="toc">
-    <a href="#join">Join a party</a> &middot;
-    <a href="#app">Get the app</a> &middot;
-    <a href="#host">Host a party</a> &middot;
-    <a href="#help">Something not right?</a>
-  </nav>
+  <a class="cta" href="/join">Open RunIt in this browser</a>
 
-  <section id="join">
-    <h2>Join a party</h2>
-    <p class="lead">Nothing to install. It works in your phone's browser.</p>
+  <div class="folds">
+
+  <details class="sec" name="help" id="join">
+    <summary>
+      <h2>Join a party</h2>
+      <span class="lead">Nothing to install. It works in your phone's browser.</span>
+    </summary>
+    <div class="body">
     <ol class="steps">
       <li>Open the link the host sent you, or scan the QR code they're holding up.</li>
       <li>Type your name and tap <span class="btn">Join</span>. If the code isn't filled in for
@@ -120,38 +144,53 @@
         <b>Photos</b> is the shared album, and <b>Music</b> is where you request songs and vote
         for other people's.</li>
     </ol>
-    <a class="cta" href="/join">Open RunIt in this browser</a>
-  </section>
+    </div>
+  </details>
 
-  <section id="app">
-    <h2>Get the app</h2>
-    <p class="lead">Optional. The browser does everything above. RunIt is in beta, so the app
-      isn't in the App Store yet.</p>
+  <details class="sec" name="help" id="app">
+    <summary>
+      <h2>Get the app</h2>
+      <span class="lead">Optional. RunIt is in beta, so it isn't in the App Store yet.</span>
+    </summary>
+    <div class="body">
+    <p class="intro">The browser does everything above. Pick your phone:</p>
 
-    <h3>iPhone</h3>
-    <ol class="steps">
-      <li>Send the host the email address on your Apple&nbsp;ID. They add you by hand.</li>
-      <li>Apple emails you an invitation from <b>App Store Connect</b>. It doesn't mention
-        parties, and it often lands in Junk or Spam. Search your email for
-        <b>App Store Connect</b>, not TestFlight.</li>
-      <li>Open it on your iPhone and tap <span class="btn">Accept</span>. The invitation runs
-        out after about three days. If it has, ask the host to send another.</li>
-      <li>Install <b>TestFlight</b> from the App Store. It's Apple's free app for testing.</li>
-      <li>Open TestFlight, signed in with the same Apple&nbsp;ID. RunIt is in the list. Tap
-        <span class="btn">Install</span>.</li>
-    </ol>
+    <details class="sub" name="phone" id="iphone">
+      <summary>iPhone<span class="lead">through Apple's TestFlight</span></summary>
+      <div class="body">
+      <ol class="steps">
+        <li>Send the host the email address on your Apple&nbsp;ID. They add you by hand.</li>
+        <li>Apple emails you an invitation from <b>App Store Connect</b>. It doesn't mention
+          parties, and it often lands in Junk or Spam. Search your email for
+          <b>App Store Connect</b>, not TestFlight.</li>
+        <li>Open it on your iPhone and tap <span class="btn">Accept</span>. The invitation runs
+          out after about three days. If it has, ask the host to send another.</li>
+        <li>Install <b>TestFlight</b> from the App Store. It's Apple's free app for testing.</li>
+        <li>Open TestFlight, signed in with the same Apple&nbsp;ID. RunIt is in the list. Tap
+          <span class="btn">Install</span>.</li>
+      </ol>
+      </div>
+    </details>
 
-    <h3>Android</h3>
-    <ol class="steps">
-      <li>Open the host's invitation link on your phone and tap
-        <span class="btn">Android &middot; install now</span>.</li>
-      <li>Allow the install when Android asks. It's about 130&nbsp;MB, so use wi-fi.</li>
-    </ol>
-  </section>
+    <details class="sub" name="phone" id="android">
+      <summary>Android<span class="lead">a direct download</span></summary>
+      <div class="body">
+      <ol class="steps">
+        <li>Open the host's invitation link on your phone and tap
+          <span class="btn">Android &middot; install now</span>.</li>
+        <li>Allow the install when Android asks. It's about 130&nbsp;MB, so use wi-fi.</li>
+      </ol>
+      </div>
+    </details>
+    </div>
+  </details>
 
-  <section id="host">
-    <h2>Host a party</h2>
-    <p class="lead">A few minutes, from the app or from this website. No account needed.</p>
+  <details class="sec" name="help" id="host">
+    <summary>
+      <h2>Host a party</h2>
+      <span class="lead">A few minutes, from the app or this website. No account needed.</span>
+    </summary>
+    <div class="body">
     <ol class="steps">
       <li>Open RunIt and tap <span class="btn">Running an event? Make one</span>.</li>
       <li>Fill in your name, the party's name and the date. A time, a place and a doors line are
@@ -169,23 +208,43 @@
     </ol>
     <p class="note">A new party holds <b>10 guests</b>. During the beta you can raise that for
       free: <span class="btn">Event</span>, then <span class="btn">Change plan</span>.</p>
-  </section>
+    </div>
+  </details>
 
-  <section id="help">
-    <h2>Something not right?</h2>
-    <p class="lead">Tell us and we'll fix it. There's no wrong way to describe it.</p>
+  <details class="sec" name="help" id="help">
+    <summary>
+      <h2>Something not right?</h2>
+      <span class="lead">Tell us and we'll fix it. There's no wrong way to describe it.</span>
+    </summary>
+    <div class="body">
     <ol class="steps">
       <li>Every screen in the app has <span class="btn">Something not right? Tell us</span>.</li>
       <li>Or <a href="/join?report=1">report it here</a>, or email
         <a href="mailto:support@turtlewolfe.com">support@turtlewolfe.com</a>. Say what phone you
         have and what happened.</li>
     </ol>
-  </section>
+    </div>
+  </details>
+
+  </div>
 
   <p class="fine">
     <a href="https://tortoisewolfe.github.io/runit-legal/privacy/">Privacy</a> &middot;
     <a href="https://tortoisewolfe.github.io/runit-legal/support/">Support</a>
   </p>
 </main>
+<script>
+  // /help/#iphone opens Get the app AND the iPhone fold, then scrolls to it. Setting `open` on
+  // a named <details> closes its siblings, so the one-at-a-time rule holds for links too.
+  function openFromHash() {
+    var id = decodeURIComponent(location.hash.slice(1));
+    var el = id && document.getElementById(id);
+    if (!el || el.tagName !== 'DETAILS') return;
+    for (var d = el; d; d = d.parentElement && d.parentElement.closest('details')) d.open = true;
+    el.scrollIntoView({ block: 'start' });
+  }
+  openFromHash();
+  window.addEventListener('hashchange', openFromHash);
+</script>
 </body>
 </html>
