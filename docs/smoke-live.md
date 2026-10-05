@@ -117,6 +117,19 @@ aborts is exactly the run you repeat, and a sweep that only fires on success lea
 when things are going worst. That is how the first orphans happened. Mutation-checked by
 breaking a mid-journey step and confirming the bytes still went.
 
+**"Every run since cleans up after itself" was false for one photo in two, until 2026-10-05.**
+The sweep list was the two `src`s the first photo's assertions read, so the approval chain's
+photo -- uploaded later, shown only as a thumbnail -- was never on it, and every run stranded
+its two objects while printing `swept 2 storage object(s): ok`. That is the eight a hand sweep
+found after four runs. The list is now every signed `event-photos` request either page makes,
+with each photo's other half (`<id>.jpg` / `<id>_t.jpg`) added alongside, and the proof is the
+query below returning nothing for the run's own event after it finishes:
+
+```sql
+select count(*) from storage.objects o join public.events e on o.name like e.id::text || '/%'
+ where e.name ~ '^smoke [0-9]{14}$';
+```
+
 The SQL above is only ever for rows. If you sweep by hand, delete the objects while the
 event still exists.
 
