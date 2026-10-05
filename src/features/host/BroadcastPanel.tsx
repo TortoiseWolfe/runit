@@ -1,10 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import type { Broadcast } from '@/data/types';
 import { DeleteBroadcastSheet } from './DeleteBroadcastSheet';
 import { RoomQrSheet } from './RoomQrSheet';
+import { HostStartCard } from './HostStartCard';
+import { hostStartItems } from './hostStart';
+import { hideHint, hintHidden } from '@/lib/hints';
 import { icsFilename, icsFor, shareMessage } from '@/lib/invite';
 import { shareIcs, shareText } from '@/lib/share';
 import { useToast } from '@/state/ToastProvider';
@@ -35,6 +38,27 @@ export function BroadcastPanel() {
   // the sheet's copy every time a realtime update repaints the list.
   const [deleting, setDeleting] = useState<Broadcast | null>(null);
   const { show } = useToast();
+  // SPEC 012. The card's two "take me there" buttons focus these, which is all they do.
+  const draftRef = useRef<TextInput>(null);
+  const planRef = useRef<TextInput>(null);
+  /*
+   * Whether this host hid the getting-started card for THIS event on THIS device. Keyed by
+   * the event id it was read for, so switching parties never shows one party's answer for
+   * another, and NOT DRAWN until it has been read -- a card that flashed up and vanished on
+   * every visit would teach a host to ignore it.
+   */
+  const [startHidden, setStartHidden] = useState<{ id: string; hidden: boolean } | null>(null);
+  const eventId = event?.id;
+  useEffect(() => {
+    if (!eventId) return;
+    let live = true;
+    void hintHidden('host-start', eventId).then((hidden) => {
+      if (live) setStartHidden({ id: eventId, hidden });
+    });
+    return () => {
+      live = false;
+    };
+  }, [eventId]);
 
   /**
    * WHO THIS ANNOUNCEMENT ACTUALLY REACHES -- #72.
@@ -63,6 +87,19 @@ export function BroadcastPanel() {
   const inTheRoom = event?.guestCount ?? 0;
   const invitedList = event?.invitedCount ?? 0;
   const invited = inTheRoom;
+  const start = hostStartItems({
+    invitedCount: invitedList,
+    guestCount: inTheRoom,
+    broadcasts: feed.length,
+    scheduleRows: schedule.length,
+  });
+  const showStart = !!event && start.firstOpen !== null
+    && startHidden?.id === event.id && !startHidden.hidden;
+  const onHideStart = () => {
+    if (!event) return;
+    setStartHidden({ id: event.id, hidden: true });
+    void hideHint('host-start', event.id);
+  };
   /**
    * Sharing lives on the HOST console and nowhere else, because handing out the code is
    * a host's job. It sits above the composer for the same reason: a guest who never got
@@ -204,48 +241,24 @@ export function BroadcastPanel() {
         />
       ) : null}
 
-      {/* NOBODY IS HERE AND NOBODY WAS ASKED -- #70, and it is the state a host is in for
-          the whole gap between making an event and the first guest arriving.
-
-          MEASURED, NOT IMAGINED. S7Y9RX ran a real party on 2026-09-11 with 40 seats
-          provisioned, a build deployed 90 minutes before doors and a live install page.
-          Zero people opened the app -- not zero joins, zero anonymous sign-ins, which happen
-          before anything else a person can do. `invitees` was 0 and had been since the event
-          was created two days earlier.
-
-          THE CAPABILITY WAS NEVER MISSING. `Share invite` is one tap away, directly above
-          this, and `shareMessage` writes a complete invitation with the link, three numbered
-          steps and the code. What was missing is that nothing ever SAID to use it: a host
-          landed on a console whose largest control was a send button addressed to an empty
-          room, with the thing she actually needed rendered as a 15pt secondary text link.
-
-          So this is not a new feature. It is the same `onShare` the link above calls,
-          promoted to the primary action for exactly as long as it is the only useful one,
-          and it disappears the moment anybody is here or has been invited. */}
-      {event && inTheRoom === 0 && invitedList === 0 ? (
-        <View style={[s.emptyRoom, { borderColor: tokens.base300, backgroundColor: tokens.base200 }]}>
-          <Text style={[s.emptyRoomTitle, { color: tokens.baseContent }]}>
-            Nobody can see this yet
-          </Text>
-          <Text style={[s.emptyRoomBody, { color: alpha(tokens.baseContent, fade.body) }]}>
-            An announcement only reaches people who have joined. Send everyone the code and
-            they can be in before the first song.
-          </Text>
-          <Pressable
-            onPress={onShare}
-            accessibilityRole="button"
-            accessibilityLabel="Share the join code and link"
-            testID="empty-room-share"
-            style={[s.emptyRoomCta, { backgroundColor: tokens.primary }]}
-          >
-            <Text style={[s.emptyRoomCtaText, { color: tokens.primaryContent }]}>
-              Share the invitation
-            </Text>
-          </Pressable>
-        </View>
+      {/* NOBODY IS HERE AND NOBODY WAS ASKED (#70) is now the first item of a three-item card
+          (spec 012): invite, a first announcement, the plan for the night. The #70 measurement
+          still stands -- S7Y9RX ran with zero sign-ins while the largest control on screen was
+          a send button addressed to an empty room -- and the invite item keeps that nudge's
+          testID, label and `onShare`, so its journeys hold. What the card adds is the next two
+          steps, each ticked by real state and never by a tap on the card. */}
+      {showStart ? (
+        <HostStartCard
+          start={start}
+          onInvite={onShare}
+          onAnnounce={() => draftRef.current?.focus()}
+          onPlan={() => planRef.current?.focus()}
+          onHide={onHideStart}
+        />
       ) : null}
 
       <TextInput
+        ref={draftRef}
         value={draft}
         onChangeText={setDraft}
         multiline
@@ -316,6 +329,7 @@ export function BroadcastPanel() {
           when. `timeLabel` is null then, and the row prints the canvas's own "TBD". */}
       <View style={s.scheduleCompose}>
         <TextInput
+          ref={planRef}
           value={itemTitle}
           onChangeText={setItemTitle}
           placeholder="Cake, speeches, first dance…"
@@ -495,25 +509,6 @@ export function BroadcastPanel() {
 
 const s = StyleSheet.create({
   inviteRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  emptyRoom: {
-    marginTop: 14,
-    padding: 16,
-    gap: 8,
-    borderWidth: border,
-    borderRadius: radius.field,
-  },
-  emptyRoomTitle: { fontSize: 16, fontWeight: weight.semibold },
-  emptyRoomBody: { fontSize: 14, lineHeight: 20 },
-  /* 48 tall, an explicit height rather than hitSlop -- it is the primary action on the
-     screen and `audit:targets` reads the number. */
-  emptyRoomCta: {
-    height: 48,
-    marginTop: 4,
-    borderRadius: radius.field,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  emptyRoomCtaText: { fontSize: 16, fontWeight: weight.semibold },
   // ~15pt of text, under SC 2.5.8's 24x24 AA minimum, so all three carry hitSlop. They are
   // each other's nearest neighbour, hence the space-between rather than flush siblings:
   // RN's own docs note slop "never extends past the parent view bounds and the Z-index of

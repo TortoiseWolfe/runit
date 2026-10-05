@@ -1,6 +1,6 @@
 # 012 — Host getting started: a checklist that ticks itself
 
-Status: SPEC 2026-10-05. Not built. Banked for the next native build once approved.
+Status: BUILT 2026-10-05. Live in the browser; banked for the next native build.
 Wireframe: `design/wireframes/2026-10-05-host-getting-started.html`.
 
 ## Problem
