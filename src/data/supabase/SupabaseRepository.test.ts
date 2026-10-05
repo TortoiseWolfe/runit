@@ -446,7 +446,39 @@ describe('joining', () => {
   it('sends the code and nickname under the parameter names the function declares', async () => {
     const c = ready();
     await join(c);
-    expect(c.find('rpc', 'join_event')[0]!.payload).toEqual({ p_code: 'test01', p_nickname: 'Ada' });
+    // #89: `p_miss_as_null` is what makes a wrong code COUNTABLE -- without it the function
+    // raises, the raise rolls back the miss, and the guess is free. Asserted by name because
+    // nothing else in CI sees an argument the database does not declare (audit:rpc aside).
+    expect(c.find('rpc', 'join_event')[0]!.payload).toEqual({ p_code: 'test01', p_nickname: 'Ada', p_miss_as_null: true });
+  });
+
+  it('reads a null guest id as a code that matched nothing (#89)', async () => {
+    const c = new FakeClient();
+    c.on((op) => (op.kind === 'rpc' && op.table === 'join_event' ? { data: null, error: null } : undefined));
+    const repo = build(c);
+    // The same sentence as the P0002 branch: a counted miss and a legacy raise must read
+    // identically, or the guest learns which server they hit.
+    await expect(repo.session.joinAsGuest({ code: 'NOPE', nickname: 'Ada' })).rejects.toMatchObject({
+      reason: 'unknown_code',
+      message: "That code doesn't match an event.",
+    });
+    // And it stops there: no follow-up select for an event that does not exist.
+    expect(c.find('select', 'events')).toHaveLength(0);
+  });
+
+  it('turns the wrong-code refusal into its own reason, on a join and on a preview (#89)', async () => {
+    const c = new FakeClient();
+    c.on((op) =>
+      op.kind === 'rpc' && (op.table === 'join_event' || op.table === 'event_preview')
+        ? pgError('too_many_codes', 'Too many codes that did not match. Try again in an hour.')
+        : undefined,
+    );
+    const repo = build(c);
+    await expect(repo.session.joinAsGuest({ code: 'SR1017', nickname: 'Ada' })).rejects.toMatchObject({
+      reason: 'too_many_codes',
+      message: "Too many codes that didn't match. Try again in an hour.",
+    });
+    await expect(repo.event.lookUp('SR1017')).rejects.toMatchObject({ reason: 'too_many_codes' });
   });
 
   it('turns P0002 into a JoinError a screen can render', async () => {

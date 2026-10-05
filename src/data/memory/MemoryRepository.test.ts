@@ -561,6 +561,32 @@ describe('joining', () => {
     await expect(r.session.joinAsGuest({ code: 'NOPE', nickname: 'Ada' })).rejects.toThrow(JoinError);
   });
 
+  /*
+   * #89, the budget join_event and event_preview share. The refusal of the CORRECT code is the
+   * load-bearing clause: the database refuses before it looks, so a fixture that still let
+   * the right code through would be kinder than the backend -- and a journey written against
+   * it would pass on a phone that the real door refuses.
+   */
+  it('refuses every lookup after twenty misses, the right code included', async () => {
+    const r = make();
+    for (let i = 0; i < 12; i++) {
+      await expect(r.session.joinAsGuest({ code: 'NOPE', nickname: 'Ada' })).rejects.toMatchObject({ reason: 'unknown_code' });
+    }
+    for (let i = 0; i < 8; i++) await r.event.lookUp('NOPE');
+    await expect(r.event.lookUp('SR1017')).rejects.toMatchObject({ reason: 'too_many_codes' });
+    await expect(r.session.joinAsGuest({ code: 'SR1017', nickname: 'Ada' })).rejects.toMatchObject({
+      reason: 'too_many_codes',
+      message: "Too many codes that didn't match. Try again in an hour.",
+    });
+  });
+
+  it('never charges a hit to the budget', async () => {
+    const r = make();
+    for (let i = 0; i < 25; i++) await r.event.lookUp('SR1017');
+    await r.session.joinAsGuest({ code: 'SR1017', nickname: 'Ada' });
+    expect(r.session.current.get()).toMatchObject({ kind: 'guest' });
+  });
+
   it('accepts the seeded code case-insensitively and counts the guest', async () => {
     const r = make();
     await r.session.joinAsGuest({ code: ' sr1017 ', nickname: 'Ada' });

@@ -72,7 +72,8 @@ export type JoinReason =
   | 'session_unavailable'
   | 'offline'
   | 'rate_limited'
-  | 'reported_too_often';
+  | 'reported_too_often'
+  | 'too_many_codes';
 
 /**
  * The one place a join failure's wording lives.
@@ -147,6 +148,13 @@ const JOIN_COPY: Record<JoinReason, string> = {
   // who has just sent their sixth report -- the reason/message contradiction this table was
   // built to make impossible (#18's `code_too_soon` is the same call).
   reported_too_often: "Thanks — that's several reports in a row. Give it an hour and tell us anything else.",
+  /*
+   * #89: twenty codes that matched nothing in an hour, from this one identity. NOT
+   * `unknown_code` -- over budget the database refuses before it looks, so a CORRECT code is
+   * refused too, and "doesn't match an event" would send somebody off to doubt a code that
+   * is right. It names the wait because waiting is the only remedy.
+   */
+  too_many_codes: "Too many codes that didn't match. Try again in an hour.",
 };
 
 /**

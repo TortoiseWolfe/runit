@@ -866,6 +866,23 @@ objects where nothing but a service role can reach them — `storage.protect_del
 direct SQL. `init.sql` has said "BYTES FIRST, ROW SECOND" since the first migration and it
 was still got wrong here, stranding 840 bytes. `docs/smoke-live.md`.
 
+**A WRONG CODE COSTS SOMETHING NOW (#89, 2026-10-05), AND HALF OF IT WAITS FOR A BUILD.**
+`join_event`, `event_preview` and `claim_host` each answered a hit and a miss differently, so
+one session could sweep the ~8.9e8 code space unbounded. Each identity now has twenty misses an
+hour, shared by the two lookups, refused BEFORE the lookup (a correct code too) with a real 429
+through PostgREST's `sqlstate 'PGRST'` escape -- not 54023, which every client in the field reads
+as "this party is full". **A raise cannot count**: PostgREST runs an RPC in one transaction, so
+the miss row rolls back with the error. That is why `join_event` takes `p_miss_as_null` and a
+counted miss RETURNS NULL; the client (web now, native in the next banked build) maps null to
+the same "That code doesn't match an event." **Builds up to 17 do not send it and expect P0002,
+so they keep the old raise, uncounted, until `app_settings.legacy_code_errors` goes false** --
+one service-role UPDATE, the cutover, once no live build needs it. With it false every miss is
+counted and `claim_host` answers an unknown code as a bad key, after the same bcrypt work, so
+neither the reply nor its timing says which. Lane E holds eleven of it (273), mutation-checked by
+making the guard a no-op (three red). **Writing this found a lane E assertion stale since spec
+003**: it still expected approval ON for a new event and passed only because no run had rebuilt
+the database since -- `supabase db reset` is the proof, a long-lived local stack is not.
+
 **THE 09-23 REVIEW'S SCHEMA DELTA IS ON PRODUCTION SINCE 2026-10-04**: column-level INSERT
 grants on `broadcasts`, `song_requests`, `invitees` and `feedback`; `photos` UPDATE narrowed to
 `status`; the `broadcasts_author`, `requests_guard`, `folders_cap` and `photos_cap` triggers; the

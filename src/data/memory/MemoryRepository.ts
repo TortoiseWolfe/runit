@@ -250,6 +250,17 @@ const byVotesDesc = (a: SongRequest, b: SongRequest) =>
 export class MemoryRepository implements RunitRepository {
   private ev: RunitEvent | null;
   private previewable: EventPreview | null;
+  /**
+   * #89's wrong-code budget, as `join_event` and `event_preview` keep it: twenty misses, then
+   * every lookup refused -- a correct code included -- because the database refuses before it
+   * looks. The hour's window is NOT modelled; nothing in a test session lives that long, and a
+   * fixture that refuses forever is stricter than the backend rather than kinder, which is the
+   * safe direction for the failure this adapter exists to prevent.
+   */
+  private codeMisses = 0;
+  private spendCodeBudget(): void {
+    if (this.codeMisses >= 20) throw new JoinError('too_many_codes');
+  }
 
   /**
    * The event, or the same refusal the Supabase adapter gives.
@@ -705,7 +716,9 @@ export class MemoryRepository implements RunitRepository {
     joinAsGuest: async ({ code, nickname }: { code: string; nickname: string }) => {
       // The canvas sets joined:true unconditionally -- it never validates the
       // code and never checks capacity. Both are real failure modes.
+      this.spendCodeBudget();
       if (code.trim().toUpperCase() !== this.ev?.code) {
+        this.codeMisses += 1;
         throw new JoinError('unknown_code');
       }
       /*
@@ -1398,9 +1411,12 @@ export class MemoryRepository implements RunitRepository {
       // room arrives with a stray space and the wrong case about as often as not.
       const wanted = code.trim().toUpperCase();
       const from = (e: EventPreview | null) => (e && e.code.toUpperCase() === wanted ? e : null);
+      this.spendCodeBudget();
       // The joined event first, so a fixture that seeds both cannot answer one code
       // two ways -- which is the only way a preview and a join could disagree.
-      this.sigPreview.set(from(this.ev) ?? from(this.previewable));
+      const found = from(this.ev) ?? from(this.previewable);
+      if (!found) this.codeMisses += 1;
+      this.sigPreview.set(found);
     },
 
     create: async (input: NewEvent) => {

@@ -1072,8 +1072,16 @@ export class SupabaseRepository implements RunitRepository {
       const { data: guestId, error } = await this.db.rpc('join_event', {
         p_code: code,
         p_nickname: nickname,
+        // #89: ask for a wrong code as NULL rather than a raise, because a raise rolls back
+        // the database's count of it -- and an uncounted miss is an unbounded guess.
+        p_miss_as_null: true,
       });
       if (error) {
+        // #89: over the wrong-code budget. PostgREST's `PGRST` escape puts the function's
+        // own code in `code` and answers 429; checked first, because nothing below applies.
+        if (isPgError(error) && error.code === 'too_many_codes') {
+          throw new JoinError('too_many_codes', { cause: error });
+        }
         // P0002 is `unknown_code`, raised by the function itself. Discriminating on
         // the SQLSTATE rather than the message is what keeps this working if the
         // wording ever changes.
@@ -1110,6 +1118,11 @@ export class SupabaseRepository implements RunitRepository {
           throw new JoinError('session_unavailable', { cause: error });
         }
         throw error;
+      }
+      // #89: a counted miss. The same sentence the P0002 branch above gives, which a server
+      // still running the legacy raise -- or an old one -- produces instead.
+      if (guestId == null) {
+        throw new JoinError('unknown_code');
       }
 
       this.myGuestId = guestId as unknown as string;
@@ -2157,7 +2170,13 @@ export class SupabaseRepository implements RunitRepository {
       await this.ensureSession();
 
       const { data, error } = await this.db.rpc('event_preview', { p_code: code });
-      if (error) throw error;
+      if (error) {
+        // #89: a preview draws on the same wrong-code budget as a join.
+        if (isPgError(error) && error.code === 'too_many_codes') {
+          throw new JoinError('too_many_codes', { cause: error });
+        }
+        throw error;
+      }
 
       // Zero rows is the answer to a code that names nothing, not a failure -- so
       // NO assertWrote here. That helper exists because a denied WRITE is silent;

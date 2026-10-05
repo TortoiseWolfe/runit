@@ -1,20 +1,20 @@
 {
   "capturedFrom": "a LOCAL build of supabase/migrations/, verified group-for-group against the LIVE project qwusbxallkbzfladvgfx",
-  "capturedAt": "2026-10-04",
-  "verifiedAgainst": "Re-captured 2026-10-04 after the Event tier's max_guests went 300 -> 200 in production (the owner's call, to fit the Supabase free plan's ~200 live connections); tier_limits hash moves. PRODUCTION WAS RE-CHECKED: schema-fingerprint.sql through the Management API and against a local build of supabase/migrations/, all six groups identical. Earlier the same day: #90's retention floor, spec 008's attach_guest_list and the 09-23 review delta, each verified the same way. Constraints are still not one of the six groups (#68).",
+  "capturedAt": "2026-10-05",
+  "verifiedAgainst": "Re-captured 2026-10-05 after #89's wrong-code budget (code_attempts, guard_code_misses, record_code_miss, legacy_code_errors, join_event's third argument, event_preview as plpgsql, claim_host's collapse) was applied to production in one transaction. PRODUCTION WAS RE-CHECKED: before the apply it matched the previous baseline in all six groups; the delta was first rehearsed on a local build of main's migration and fingerprinted identical to a fresh build of the new one; after the apply production's schema-fingerprint.sql through the Management API matched that fresh build group for group. Re-captured 2026-10-04 after the Event tier's max_guests went 300 -> 200 in production (the owner's call, to fit the Supabase free plan's ~200 live connections); tier_limits hash moves. PRODUCTION WAS RE-CHECKED: schema-fingerprint.sql through the Management API and against a local build of supabase/migrations/, all six groups identical. Earlier the same day: #90's retention floor, spec 008's attach_guest_list and the 09-23 review delta, each verified the same way. Constraints are still not one of the six groups (#68).",
   "howToRefresh": "pnpm schema:fingerprint --write, and only after re-checking production. See docs/lane-e.md and issue #49.",
   "schema": {
     "columns": {
-      "n": 141,
-      "fingerprint": "b78582c91df9a312c198f69f403670f3"
+      "n": 144,
+      "fingerprint": "6230c94d9b1761e4dedf10e4166a7618"
     },
     "functions": {
-      "n": 49,
-      "fingerprint": "c76a1f89aa65154f6a37f8630729a28a"
+      "n": 52,
+      "fingerprint": "18050d3a2569962090a6b3b2c3c3883d"
     },
     "indexes": {
-      "n": 38,
-      "fingerprint": "aa86e9dbba7801efe8bd28a59e94053a"
+      "n": 39,
+      "fingerprint": "a630d462c7d6bb9ff9c7ad57b54e012a"
     },
     "policies": {
       "n": 39,
