@@ -1852,7 +1852,7 @@ hosting, and the report routes. Every button name on it is the app's own label; 
 together. It is a real directory, so `web/_redirects` passes `/help` and `/help/*` through before
 the catch-all, and lane G reads `id="help-guide"` back on both spellings -- before the deploy that
 check was red against the live host, which was answering `/help/` with the app shell under a 200.
-The in-app half, a host checklist that ticks itself from real state, is spec 012 and not built.
+The in-app half, a host checklist that ticks itself from real state, is spec 012: built 2026-10-05, live in the browser, banked for the next native build.
 
 **THE INVITATION HOST IS DEPLOYED (#52).** `runit-app.pages.dev` went up on 2026-09-07 by
 DIRECT UPLOAD -- `wrangler pages deploy web --project-name=runit-app` -- not git integration,
@@ -1946,7 +1946,11 @@ was green and the half a guest actually walks was dead.
   largest control on screen was a send button addressed to an empty room. `empty-room-share`
   draws only while `guestCount` and `invitedCount` are BOTH 0, and both clauses are
   mutation-pinned; it calls the same `onShare` as the quiet link rather than being a second
-  implementation.
+  implementation. **Since spec 012 it is the first item of `HostStartCard`** (invite, a first
+  announcement, the plan for the night), keeping its testID and label; `hostStartItems()` decides
+  what is done from real state and is unit-tested, and Hide is a per-device hint
+  (`src/lib/hints.ts`, `.web.ts` on localStorage because `expo-secure-store` has no web build).
+  The hide journey is mutation-checked: a hint that never saves turns it red in both schemes.
 - **`music.mine` IS A SEPARATE OBSERVABLE FROM `music.queue`, and it has to be.** `queue` drops
   `played` and `declined` -- correctly, a room should not vote on songs that are over -- so it
   is the one list that cannot answer "what happened to MY request". `useMyRequest` read it

@@ -3135,3 +3135,14 @@ into the event on one tap. Spec 008 makes that tap open a sheet listing the memb
 The lists also moved to the top of "Who is invited", and the empty state names them. On
 the owner's phone, his Family list had sat below "+ Add from contacts". Wireframe:
 `design/wireframes/2026-10-03-pick-from-a-list.html`.
+
+## BF. A new host gets a three-item checklist (spec 012)
+
+The canvas's Broadcast segment opens straight on the composer. Since #70 an empty room has
+shown a "Nobody can see this yet" nudge above it. Spec 012 turns that nudge into the first of
+three items at the top of Broadcast: invite your guests, post a first announcement, add the
+plan for the night. Each ticks from real state (invited or joined; a broadcast; a run-of-show
+row), only the first open item draws a button, and the card goes when all three are done or
+the host hides it, remembered per event on that device. It is not an intro carousel: the
+trouble testers had was before the app, and the help page at `/help/` is that half.
+Wireframe: `design/wireframes/2026-10-05-host-getting-started.html`.
