@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import {
   Keyboard,
   KeyboardAvoidingView,
+  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -24,7 +25,7 @@ import {
 } from "@/state/hooks";
 import { useJoinActions } from "@/state/actions";
 import { useToast } from "@/state/ToastProvider";
-import { icsFilename, icsFor } from "@/lib/invite";
+import { icsFilename, icsFor, INVITE_ORIGIN } from "@/lib/invite";
 import { openMaps } from "@/lib/maps";
 import { QrScanner } from "./QrScanner";
 import { AccountRow } from '@/components/ui/AccountRow';
@@ -488,6 +489,28 @@ export function JoinScreen() {
               </Text>
             </Pressable>
 
+            {/* HOW IT WORKS (spec 013). Somebody who installed RunIt without an invitation in
+                hand -- the first tester who did, on 2026-10-05, was the owner's mother --
+                lands here with no code and nothing on screen saying what the app is for. The
+                guide already exists (`web/help/index.html`, lane G reads it back), and no
+                screen linked to it. It opens in the browser rather than inside the app: it
+                is the same page anybody can be sent, and the TestFlight half of it only
+                makes sense to somebody who does not have the app yet.
+
+                Real padding, not hitSlop: react-native-web drops hitSlop, which is how the
+                hand-rolled report link here spent months under SC 2.5.8 (see ReportLink). */}
+            <Pressable
+              onPress={() => void Linking.openURL(`${INVITE_ORIGIN}/help/`)}
+              accessibilityRole="link"
+              accessibilityLabel="How RunIt works, a short guide"
+              testID="join-how-it-works"
+              style={s.howLink}
+            >
+              <Text style={[s.howLinkText, { color: alpha(tokens.baseContent, fade.soft) }]}>
+                New here? How RunIt works →
+              </Text>
+            </Pressable>
+
             {/* THE WAY BACK FOR A HOST ON A DIFFERENT PHONE (#18), and it is a LINK for
                 the same reason stated three comments up -- with more force, not less.
                 The fine print above is a product promise about accounts. A create link
@@ -679,6 +702,8 @@ const s = StyleSheet.create({
   // has no interactive neighbour, which is the condition under which slop is safe --
   // RN's own docs note slop never extends past the parent and loses to sibling z-order.
   createLink: { fontSize: 13, fontWeight: weight.semibold, marginTop: 10 },
+  howLink: { alignSelf: "flex-start", paddingVertical: 10, marginTop: 2 },
+  howLinkText: { fontSize: 13, fontWeight: weight.semibold },
   alreadyHere: { fontSize: 13, marginTop: 6 },
   calendarPill: {
     alignSelf: "flex-start",
