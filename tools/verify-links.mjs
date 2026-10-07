@@ -305,6 +305,22 @@ for (const path of ['/help/', '/help']) {
 }
 
 /**
+ * ROBOTS.TXT IS A ROBOTS FILE (2026-10-07). Link previewers read it before the page, and the
+ * catch-all answered it with the app's HTML; LinkedIn showed no preview for /beta while it did.
+ */
+try {
+  const robots = await get('/robots.txt');
+  const type = robots.res.headers.get('content-type') ?? '';
+  if (robots.res.status !== 200 || !type.startsWith('text/plain') || !/^User-agent:/m.test(robots.body)) {
+    problems.push(`/robots.txt answered ${robots.res.status} ${type} -- link previewers read it first (see web/_redirects).`);
+  } else {
+    console.log('  /robots.txt is a robots file');
+  }
+} catch (e) {
+  problems.push(`/robots.txt could not be fetched: ${e instanceof Error ? e.message : e}`);
+}
+
+/**
  * THE BETA PAGE (2026-10-07): served, and carrying the SAME Android download as the invite page.
  * Two pages link one APK, and the APK is repointed every two weeks; a repoint that touched one
  * page and not the other would send half the testers to a dead file while every status code
