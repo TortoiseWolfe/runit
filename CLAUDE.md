@@ -1723,9 +1723,11 @@ it, and `web/i/index.html`'s `id="android"` button is how a guest gets it. **EAS
 artifacts expire 14 days after they are built** -- measured: the APK built 2026-09-11 expires
 2026-09-25. When it does, that button answers **400** and the page says nothing: a door that
 will not open, at the top of the funnel. Lane G HEADs the link on every board now and fails
-the day it dies; it cannot warn ahead, because that needs the build id and an EAS token and
-the lane is credential-free on purpose. **So rebuild and repoint inside two weeks**, every two
-weeks, until #82's durable fix exists.
+the day it dies. **Since 2026-10-05 the button carries `data-expires`** -- EAS's own
+`expirationDate` for that build (`eas build:list --platform android --json`), changed together
+with the href -- so the page swaps the button for a pointer to the browser route after that
+moment, and lane G prints a `todo:` four days ahead instead of only failing on the day.
+**So rebuild and repoint inside two weeks**, every two weeks, until #82's durable fix exists.
 
 **CHECKING AN APK WITHOUT A DEVICE, AND TWO TOOLS THAT LIE ABOUT IT** (2026-09-21, build
 `d8e22e85`). With adb unavailable, the APK was verified from its bytes -- and two checks
