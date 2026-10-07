@@ -229,8 +229,17 @@
            build declares no https intent filter at all. So this must be repointed at a build
            that has one, in the same deploy as any change to the association file. -->
       <p style="margin:10px 0 0">
-        <a class="cta secondary" id="android" href="https://expo.dev/artifacts/eas/Tgl5xzZaev4_cUz12eGzVxGUzdjeu_CXv8Q8TMsivBs.apk">Android &middot; install now</a>
+        <a class="cta secondary" id="android" data-expires="2026-10-18T03:29:53Z" href="https://expo.dev/artifacts/eas/Tgl5xzZaev4_cUz12eGzVxGUzdjeu_CXv8Q8TMsivBs.apk">Android &middot; install now</a>
       </p>
+      <!-- THE DATE THE DOWNLOAD DIES, AND WHAT THE PAGE SAYS AFTER IT (#82, 2026-10-05).
+           EAS deletes an internal build 14 days after it is made, and until this the button
+           simply failed on that day with nothing on the page saying why: a door that will not
+           open, at the top of the funnel. `data-expires` is EAS's own `expirationDate` for the
+           build the href points at, copied when the link is repointed -- both change together.
+           After it, the button goes and this sentence takes its place, pointing at the browser
+           route, which never expires. Lane G reads the same attribute and warns days ahead. -->
+      <p class="route" id="androidGone" hidden>The Android app is being updated. Tap
+        <b>Join in your browser</b> above for now.</p>
       <p style="margin:10px 0 0">
         <a class="cta secondary" id="ios" href="#ask">iPhone &middot; how to get it</a>
       </p>
@@ -359,6 +368,15 @@
     // wrong and hiding the only route that would have worked.
     el('ask').hidden = false;
     el('installNote').textContent = 'Open this link on the phone you want RunIt on.';
+  }
+
+  // THE ANDROID DOWNLOAD'S EXPIRY. Checked after the platform choice, so an iPhone (which
+  // never shows the button) is not told about an app it was never offered.
+  var apkDies = Date.parse(el('android').getAttribute('data-expires') || '');
+  if (apkDies && Date.now() >= apkDies) {
+    el('android').hidden = true;
+    if (!isIOS) el('androidGone').hidden = false;
+    if (isAndroid) el('installNote').textContent = 'The Android app is being updated. Use the browser for now.';
   }
 
   // Reveal the iPhone explanation when someone taps through to it on a non-iOS browser.

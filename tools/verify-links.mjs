@@ -239,6 +239,25 @@ try {
    */
   const tag = /<a\b[^>]*\bid="android"[^>]*>/.exec(page.body)?.[0];
   const apkUrl = tag ? /\bhref="([^"]+)"/.exec(tag)?.[1] : undefined;
+  /*
+   * AND NOW IT CAN WARN AHEAD (2026-10-05), which this comment said it could not. The page
+   * carries EAS's own expiry for the build it links (`data-expires`), so the date is a fact on
+   * the page rather than a token call away. Missing is a failure -- the page would then fail
+   * silently on the day -- and under four days is a yellow line, not a red one: a gate that
+   * reds a working link is a gate that gets switched off.
+   */
+  const apkDies = tag ? Date.parse(/\bdata-expires="([^"]+)"/.exec(tag)?.[1] ?? '') : NaN;
+  if (tag && Number.isNaN(apkDies)) {
+    note('/i/HOUSE7\'s Android link carries no data-expires, so the page cannot say when the download dies.');
+  } else if (tag) {
+    const days = (apkDies - Date.now()) / 86_400_000;
+    if (days < 4) {
+      console.log(yellow(`  todo: the Android download expires ${new Date(apkDies).toISOString().slice(0, 16)}Z (${days < 0 ? 'already' : `in ${days.toFixed(1)} days`}).`));
+      console.log(yellow('        Rebuild (`eas build -p android --profile preview`), repoint id="android" and its data-expires, `pnpm deploy:web`.'));
+    } else {
+      console.log(`  Android download live until ${new Date(apkDies).toISOString().slice(0, 10)} (${Math.floor(days)} days)`);
+    }
+  }
   if (!apkUrl) {
     note('/i/HOUSE7 has no Android install link (id="android").');
   } else {
