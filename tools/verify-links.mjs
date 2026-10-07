@@ -341,6 +341,8 @@ try {
       problems.push(`/beta/ and /i/ disagree about the Android download:\n    beta   ${a.href} (${a.expires})\n    invite ${b.href} (${b.expires})\n    Repoint BOTH id="android" links and their data-expires together.`);
     } else if (!beta.body.includes('testflight.apple.com/join/')) {
       problems.push('/beta/ carries no public TestFlight link, so an iPhone visitor has nowhere to go.');
+    } else if (/testflight\.apple\.com\/join\/([A-Za-z0-9]+)/.exec(beta.body)?.[1] !== /id="tfcode">([^<]+)</.exec(beta.body)?.[1]?.trim()) {
+      problems.push('/beta/ shows a TestFlight code that is not its own public link\'s: repoint the link and the copy box together.');
     } else {
       // The link-preview image, which the catch-all would answer with HTML if `_redirects` let it.
       const img = await fetch(`${ORIGIN}/beta/runit-card-v2.jpg`, { signal: AbortSignal.timeout(15_000) });

@@ -99,6 +99,17 @@
   }
   .cta.secondary { background: transparent; color: var(--accent); border: 1px solid var(--line); }
   .note { color: var(--muted); font-size: 14px; margin: 6px 0 0; }
+  .codebox {
+    margin-top: 8px; padding: 10px 12px;
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .code { flex: 1; font-size: 24px; font-weight: 700; letter-spacing: .08em; color: var(--mark); font-variant-numeric: tabular-nums; }
+  .copy {
+    flex: none; cursor: pointer; min-height: 40px;
+    background: var(--accent); color: var(--accent-ink);
+    border: 0; border-radius: 8px; padding: 8px 14px; font: inherit; font-size: 15px; font-weight: 600;
+  }
   .then { font-size: 15px; margin: 0; }
   .then b { color: var(--mark); }
   a { color: var(--accent); }
@@ -133,6 +144,17 @@
         <a class="cta" id="testflight" href="https://testflight.apple.com/join/sjVRunHc">Join the RunIt beta</a>
       </li>
     </ol>
+    <!-- THE BOX PEOPLE ACTUALLY HIT (2026-10-07). Somebody who opens TestFlight straight from the
+         App Store lands on its empty screen and a "Redeem Code" box, and does not come back here.
+         No page or app can type into that box, so this puts the public link's own code one Copy
+         away: tap Copy, tap the box, Paste. Whether TestFlight's Redeem accepts a public-link code
+         was untested when this shipped; the Join button above always works. Lane G fails if this
+         code ever stops matching the link's. -->
+    <p class="note" style="margin-top:4px">TestFlight asking for a code? Copy this, tap the box, then <b>Paste</b>:</p>
+    <div class="codebox">
+      <span class="code" id="tfcode">sjVRunHc</span>
+      <button class="copy" id="tfcopy" type="button">Copy</button>
+    </div>
     </div>
   </details>
 
@@ -187,6 +209,17 @@
     el('android').hidden = true;
     el('androidGone').hidden = false;
   }
+
+  // COPY, inside the tap handler, which is what the Clipboard API requires (an on-load write
+  // fails silently in Safari). If the write is refused the code is still on screen, so the
+  // button says so rather than claiming success.
+  el('tfcopy').addEventListener('click', function () {
+    var btn = el('tfcopy');
+    var done = function (ok) { btn.textContent = ok ? 'Copied ✓' : 'Type it in'; };
+    try {
+      navigator.clipboard.writeText(el('tfcode').textContent.trim()).then(function () { done(true); }, function () { done(false); });
+    } catch (e) { done(false); }
+  });
 
   // /beta/#iphone or /beta/#android opens that fold; the name attribute closes the others.
   function openFromHash() {
