@@ -1,0 +1,5 @@
+# runit-app.pages.dev -- every crawler may read every page.
+# A real file because the catch-all used to answer /robots.txt with the app's HTML, and link
+# previewers (LinkedIn, Facebook) read this before a page.
+User-agent: *
+Allow: /

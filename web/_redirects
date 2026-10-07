@@ -52,4 +52,7 @@
 /assets/*        /assets/:splat             200
 /.well-known/*   /.well-known/:splat        200
 /metadata.json   /metadata.json             200
+# A real robots.txt (2026-10-07). The catch-all served the app's HTML here, which link previewers
+# read before a page; LinkedIn's was showing no preview for /beta.
+/robots.txt      /robots.txt                200
 /*               /                          200
