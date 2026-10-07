@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Try the RunIt beta</title>
+<meta name="description" content="One screen for a party: announcements, a shared photo album and song requests. Free beta, two taps on iPhone (TestFlight) or Android.">
+<meta name="robots" content="noindex">
+<!-- WHAT A PASTED LINK SAYS BEFORE ANYBODY TAPS IT. Chats (iMessage, Discord, Slack, WhatsApp)
+     build their preview from these, so the TL;DR lives here: what the app is, that it is a free
+     beta, and that it is two taps on either phone. The image is the app icon at 600px, a static
+     file beside this page, because a preview image must be an absolute URL that never changes
+     its name -- the app bundle's own assets are content-hashed. -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="RunIt">
+<meta property="og:title" content="Try the RunIt beta: a party app, free">
+<meta property="og:description" content="One screen for a party: announcements, a shared photo album and song requests. Free beta, two taps on iPhone (TestFlight) or Android.">
+<meta property="og:url" content="https://runit-app.pages.dev/beta/">
+<meta property="og:image" content="https://runit-app.pages.dev/beta/preview.png">
+<meta property="og:image:width" content="600">
+<meta property="og:image:height" content="600">
+<meta property="og:image:alt" content="The RunIt app icon">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Try the RunIt beta: a party app, free">
+<meta name="twitter:description" content="One screen for a party: announcements, a shared photo album and song requests. Free beta, two taps on iPhone (TestFlight) or Android.">
+<meta name="twitter:image" content="https://runit-app.pages.dev/beta/preview.png">
+<!--
+  THE BETA, IN TWO TAPS FOR WHATEVER PHONE THIS IS (2026-10-07).
+
+  Testers kept getting a paragraph of instructions per person: an App Store Connect email that
+  expired, a Redeem Code box nobody needed, a guide with four sections. This page is the TL;DR
+  and nothing else: on an iPhone, install TestFlight, then join the beta through the public
+  link; on Android, download the app. It detects the phone and shows that one route; a desktop
+  sees both, because there is no phone to guess.
+
+  THE ANDROID LINK IS THE SAME ONE `web/i/index.html` CARRIES, with the same `data-expires`.
+  Two pages, one download, and lane G fails if they ever disagree, so repointing one and
+  forgetting the other is caught rather than shipped. The public TestFlight link lives only
+  here.
+
+  Same shape as the other two pages: one file, no build step, no framework, no analytics.
+-->
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #F5F0EB; --card: #FFFFFF; --ink: #1F2937; --muted: #6B7280; --line: #DDD5CB;
+    --accent: #1F2937; --accent-ink: #F5F0EB; --mark: #9A6408;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1A1A2E; --card: #21213A; --ink: #E2E8F0; --muted: #9AA3B2; --line: #2E2E48;
+      --accent: #E2E8F0; --accent-ink: #1A1A2E; --mark: #F2B84B;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 28px 22px calc(28px + env(safe-area-inset-bottom));
+    background: var(--bg); color: var(--ink);
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { width: 100%; max-width: 440px; margin: 0 auto; }
+  h1 { font-size: 26px; line-height: 1.2; margin: 0 0 6px; font-weight: 600; }
+  .sub { color: var(--muted); margin: 0 0 22px; font-size: 15px; }
+  section { margin-top: 22px; }
+  h2 { font-size: 18px; margin: 0 0 12px; font-weight: 600; }
+  ol.steps { margin: 0; padding: 0; list-style: none; counter-reset: s; }
+  ol.steps > li { counter-increment: s; position: relative; padding-left: 34px; margin-bottom: 16px; }
+  ol.steps > li::before {
+    content: counter(s); position: absolute; left: 0; top: 1px;
+    width: 22px; height: 22px; border-radius: 50%;
+    background: var(--accent); color: var(--accent-ink);
+    font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center;
+  }
+  .cta {
+    display: block; text-align: center; text-decoration: none; margin-top: 8px;
+    background: var(--accent); color: var(--accent-ink);
+    padding: 14px 18px; border-radius: 12px; font-weight: 600;
+  }
+  .cta.secondary { background: transparent; color: var(--accent); border: 1px solid var(--line); }
+  .note { color: var(--muted); font-size: 14px; margin: 6px 0 0; }
+  .then { margin-top: 26px; padding: 14px 16px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; font-size: 15px; }
+  .then b { color: var(--mark); }
+  a { color: var(--accent); }
+  .fine { margin-top: 26px; color: var(--muted); font-size: 12px; }
+  .fine a { color: inherit; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main id="beta-page">
+  <h1>Try the RunIt beta</h1>
+  <p class="sub">RunIt is one screen for a party: announcements, a shared photo album and song requests.</p>
+
+  <section id="iphone">
+    <h2>iPhone</h2>
+    <ol class="steps">
+      <li>Install <b>TestFlight</b>, Apple's free app for trying apps before they're in the App Store.
+        <a class="cta secondary" href="https://apps.apple.com/app/testflight/id899247664">Get TestFlight</a>
+      </li>
+      <li>Come back here and join the beta. TestFlight opens; tap <b>Accept</b>, then <b>Install</b>.
+        <a class="cta" id="testflight" href="https://testflight.apple.com/join/sjVRunHc">Join the RunIt beta</a>
+      </li>
+    </ol>
+  </section>
+
+  <section id="android-section">
+    <h2>Android</h2>
+    <ol class="steps">
+      <li>Download the app. It's about 130&nbsp;MB, so use wi-fi.
+        <a class="cta" id="android" data-expires="2026-10-18T03:29:53Z" href="https://expo.dev/artifacts/eas/Tgl5xzZaev4_cUz12eGzVxGUzdjeu_CXv8Q8TMsivBs.apk">Download RunIt for Android</a>
+        <p class="note" id="androidGone" hidden>The Android app is being updated. Check back in a day or two, or <a href="/join">use RunIt in your browser</a> meanwhile.</p>
+      </li>
+      <li>Open the download and tap <b>Install</b>. If Android asks, allow installs from your browser.</li>
+    </ol>
+  </section>
+
+  <p class="then">Once it's open, join the demo party with the code <b>DEMO42</b>, or tap
+    <b>Running an event? Make one</b> to host your own.</p>
+
+  <p class="fine">
+    <a href="/join?report=1">Something not right? Tell us</a> &middot;
+    <a href="/help/">How RunIt works</a> &middot;
+    <a href="https://tortoisewolfe.github.io/runit-legal/privacy/">Privacy</a>
+  </p>
+</main>
+<script>
+  // One route per phone, detected rather than asked. A desktop or an unknown browser sees both.
+  var el = function (id) { return document.getElementById(id); };
+  var ua = navigator.userAgent || '';
+  var isIOS = /iPad|iPhone|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+  var isAndroid = /Android/.test(ua);
+  if (isIOS) el('android-section').hidden = true;
+  if (isAndroid) el('iphone').hidden = true;
+
+  // The Android download's own expiry (EAS deletes internal builds after 14 days). After it,
+  // the button goes and the sentence says so, instead of a download that silently fails.
+  var dies = Date.parse(el('android').getAttribute('data-expires') || '');
+  if (dies && Date.now() >= dies) {
+    el('android').hidden = true;
+    el('androidGone').hidden = false;
+  }
+</script>
+</body>
+</html>

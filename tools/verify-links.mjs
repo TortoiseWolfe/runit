@@ -305,6 +305,42 @@ for (const path of ['/help/', '/help']) {
 }
 
 /**
+ * THE BETA PAGE (2026-10-07): served, and carrying the SAME Android download as the invite page.
+ * Two pages link one APK, and the APK is repointed every two weeks; a repoint that touched one
+ * page and not the other would send half the testers to a dead file while every status code
+ * stayed green. So the href and the data-expires are compared, not merely checked to exist.
+ */
+try {
+  const beta = await get('/beta/');
+  const invite = await get('/i/HOUSE7');
+  const androidOf = (body) => {
+    const t = /<a\b[^>]*\bid="android"[^>]*>/.exec(body)?.[0] ?? '';
+    return { href: /\bhref="([^"]+)"/.exec(t)?.[1], expires: /\bdata-expires="([^"]+)"/.exec(t)?.[1] };
+  };
+  if (beta.res.status !== 200 || !beta.body.includes('id="beta-page"')) {
+    problems.push(`/beta/ answered ${beta.res.status} without id="beta-page" -- the beta page is not what is being served (see web/_redirects).`);
+  } else {
+    const a = androidOf(beta.body), b = androidOf(invite.body);
+    if (!a.href || a.href !== b.href || a.expires !== b.expires) {
+      problems.push(`/beta/ and /i/ disagree about the Android download:\n    beta   ${a.href} (${a.expires})\n    invite ${b.href} (${b.expires})\n    Repoint BOTH id="android" links and their data-expires together.`);
+    } else if (!beta.body.includes('testflight.apple.com/join/')) {
+      problems.push('/beta/ carries no public TestFlight link, so an iPhone visitor has nowhere to go.');
+    } else {
+      // The link-preview image, which the catch-all would answer with HTML if `_redirects` let it.
+      const img = await fetch(`${ORIGIN}/beta/preview.png`, { signal: AbortSignal.timeout(15_000) });
+      const imgType = img.headers.get('content-type') ?? '';
+      if (!img.ok || !imgType.startsWith('image/')) {
+        problems.push(`/beta/preview.png answered ${img.status} ${imgType} -- a pasted link would preview with no picture.`);
+      } else {
+        console.log('  /beta/ serves the beta page, with the same Android download as /i/ and a preview image');
+      }
+    }
+  }
+} catch (e) {
+  problems.push(`/beta/ could not be fetched: ${e instanceof Error ? e.message : e}`);
+}
+
+/**
  * THE SONG TYPE-AHEAD'S PROXY ANSWERS ON THIS HOST (spec 003 follow-up). `web/functions/api/
  * music.js` is a Pages Function; the browser build asks it because Apple's iTunes endpoint
  * sends no CORS headers. What is asserted is the SHAPE -- JSON with a `results` array --
