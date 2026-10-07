@@ -8,22 +8,23 @@
 <meta name="robots" content="noindex">
 <!-- WHAT A PASTED LINK SAYS BEFORE ANYBODY TAPS IT. Chats (iMessage, Discord, Slack, WhatsApp)
      build their preview from these, so the TL;DR lives here: what the app is, that it is a free
-     beta, and that it is two taps on either phone. The image is the app icon at 600px, a static
-     file beside this page, because a preview image must be an absolute URL that never changes
-     its name -- the app bundle's own assets are content-hashed. -->
+     beta, and that it is two taps on either phone. The image is the RunIt invitation card
+     (Hatch's art, 2026-10-07, tagline "Chat. Pics. Dance." -- the three tabs), a static file
+     beside this page because a preview image must be an absolute URL that never changes its
+     name; the app bundle's own assets are content-hashed. -->
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="RunIt">
-<meta property="og:title" content="Try the RunIt beta: a party app, free">
+<meta property="og:title" content="Try the RunIt beta: Chat. Pics. Dance.">
 <meta property="og:description" content="One screen for a party: announcements, a shared photo album and song requests. Free beta, two taps on iPhone (TestFlight) or Android.">
 <meta property="og:url" content="https://runit-app.pages.dev/beta/">
-<meta property="og:image" content="https://runit-app.pages.dev/beta/preview.png">
-<meta property="og:image:width" content="600">
-<meta property="og:image:height" content="600">
-<meta property="og:image:alt" content="The RunIt app icon">
-<meta name="twitter:card" content="summary">
-<meta name="twitter:title" content="Try the RunIt beta: a party app, free">
+<meta property="og:image" content="https://runit-app.pages.dev/beta/runit-envelope.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="1200">
+<meta property="og:image:alt" content="A RunIt invitation card in an envelope: Chat. Pics. Dance.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Try the RunIt beta: Chat. Pics. Dance.">
 <meta name="twitter:description" content="One screen for a party: announcements, a shared photo album and song requests. Free beta, two taps on iPhone (TestFlight) or Android.">
-<meta name="twitter:image" content="https://runit-app.pages.dev/beta/preview.png">
+<meta name="twitter:image" content="https://runit-app.pages.dev/beta/runit-envelope.jpg">
 <!--
   THE BETA, IN TWO TAPS FOR WHATEVER PHONE THIS IS (2026-10-07).
 
@@ -65,7 +66,9 @@
     -webkit-font-smoothing: antialiased;
   }
   main { width: 100%; max-width: 440px; margin: 0 auto; }
+  .hero { display: block; width: 100%; height: auto; aspect-ratio: 1; border-radius: 16px; margin: 0 0 20px; background: #1A1A2E; }
   h1 { font-size: 26px; line-height: 1.2; margin: 0 0 6px; font-weight: 600; }
+  .tag { color: var(--mark); margin: 0 0 8px; font-size: 15px; letter-spacing: .12em; font-weight: 600; }
   .sub { color: var(--muted); margin: 0 0 22px; font-size: 15px; }
   .folds { border-bottom: 1px solid var(--line); }
   details.sec { border-top: 1px solid var(--line); }
@@ -107,7 +110,10 @@
 </head>
 <body>
 <main id="beta-page">
+  <img class="hero" src="runit-envelope-720.jpg" width="720" height="720"
+       alt="A RunIt invitation card in an envelope: Chat. Pics. Dance.">
   <h1>Try the RunIt beta</h1>
+  <p class="tag">Chat. Pics. Dance.</p>
   <p class="sub">RunIt is one screen for a party: announcements, a shared photo album and song requests.</p>
 
   <div class="folds">
