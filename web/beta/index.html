@@ -38,6 +38,11 @@
   forgetting the other is caught rather than shipped. The public TestFlight link lives only
   here.
 
+  THE SECTIONS FOLD, ALL CLOSED, ONE OPEN AT A TIME (`<details name="beta">`, no script), the
+  same pattern as /help/. On a phone the other phone's section is still hidden, so an iPhone sees
+  two folds, its own and what to do once the app is open. /beta/#iphone and /beta/#android open
+  theirs.
+
   Same shape as the other two pages: one file, no build step, no framework, no analytics.
 -->
 <style>
@@ -62,8 +67,21 @@
   main { width: 100%; max-width: 440px; margin: 0 auto; }
   h1 { font-size: 26px; line-height: 1.2; margin: 0 0 6px; font-weight: 600; }
   .sub { color: var(--muted); margin: 0 0 22px; font-size: 15px; }
-  section { margin-top: 22px; }
-  h2 { font-size: 18px; margin: 0 0 12px; font-weight: 600; }
+  .folds { border-bottom: 1px solid var(--line); }
+  details.sec { border-top: 1px solid var(--line); }
+  details > summary { list-style: none; cursor: pointer; position: relative; padding: 16px 30px 16px 0; }
+  details > summary::-webkit-details-marker { display: none; }
+  details > summary::after {
+    content: ""; position: absolute; right: 6px; top: 50%;
+    width: 8px; height: 8px; margin-top: -6px;
+    border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted);
+    transform: rotate(45deg); transition: transform .15s;
+  }
+  details[open] > summary::after { transform: rotate(-135deg); margin-top: -2px; }
+  details.sec > .body { padding: 0 0 18px; }
+  h2 { font-size: 18px; margin: 0 0 2px; font-weight: 600; }
+  .lead { display: block; color: var(--muted); font-size: 14px; }
+  @media (prefers-reduced-motion: reduce) { details > summary::after { transition: none; } }
   ol.steps { margin: 0; padding: 0; list-style: none; counter-reset: s; }
   ol.steps > li { counter-increment: s; position: relative; padding-left: 34px; margin-bottom: 16px; }
   ol.steps > li::before {
@@ -79,7 +97,7 @@
   }
   .cta.secondary { background: transparent; color: var(--accent); border: 1px solid var(--line); }
   .note { color: var(--muted); font-size: 14px; margin: 6px 0 0; }
-  .then { margin-top: 26px; padding: 14px 16px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; font-size: 15px; }
+  .then { font-size: 15px; margin: 0; }
   .then b { color: var(--mark); }
   a { color: var(--accent); }
   .fine { margin-top: 26px; color: var(--muted); font-size: 12px; }
@@ -92,8 +110,13 @@
   <h1>Try the RunIt beta</h1>
   <p class="sub">RunIt is one screen for a party: announcements, a shared photo album and song requests.</p>
 
-  <section id="iphone">
-    <h2>iPhone</h2>
+  <div class="folds">
+  <details class="sec" name="beta" id="iphone">
+    <summary>
+      <h2>iPhone</h2>
+      <span class="lead">Two taps: TestFlight, then RunIt.</span>
+    </summary>
+    <div class="body">
     <ol class="steps">
       <li>Install <b>TestFlight</b>, Apple's free app for trying apps before they're in the App Store.
         <a class="cta secondary" href="https://apps.apple.com/app/testflight/id899247664">Get TestFlight</a>
@@ -102,21 +125,37 @@
         <a class="cta" id="testflight" href="https://testflight.apple.com/join/sjVRunHc">Join the RunIt beta</a>
       </li>
     </ol>
-  </section>
+    </div>
+  </details>
 
-  <section id="android-section">
-    <h2>Android</h2>
+  <details class="sec" name="beta" id="android-section">
+    <summary>
+      <h2>Android</h2>
+      <span class="lead">One download, about 130&nbsp;MB.</span>
+    </summary>
+    <div class="body">
     <ol class="steps">
-      <li>Download the app. It's about 130&nbsp;MB, so use wi-fi.
+      <li>Download the app. Use wi-fi if you can.
         <a class="cta" id="android" data-expires="2026-10-18T03:29:53Z" href="https://expo.dev/artifacts/eas/Tgl5xzZaev4_cUz12eGzVxGUzdjeu_CXv8Q8TMsivBs.apk">Download RunIt for Android</a>
         <p class="note" id="androidGone" hidden>The Android app is being updated. Check back in a day or two, or <a href="/join">use RunIt in your browser</a> meanwhile.</p>
       </li>
       <li>Open the download and tap <b>Install</b>. If Android asks, allow installs from your browser.</li>
     </ol>
-  </section>
+    </div>
+  </details>
 
-  <p class="then">Once it's open, join the demo party with the code <b>DEMO42</b>, or tap
-    <b>Running an event? Make one</b> to host your own.</p>
+  <details class="sec" name="beta" id="then">
+    <summary>
+      <h2>Once it's open</h2>
+      <span class="lead">Try the demo party, or host your own.</span>
+    </summary>
+    <div class="body">
+    <p class="then">Join the demo party with the code <b>DEMO42</b>, or tap
+      <b>Running an event? Make one</b> to host your own. A screenshot of anything confusing is
+      great feedback.</p>
+    </div>
+  </details>
+  </div>
 
   <p class="fine">
     <a href="/join?report=1">Something not right? Tell us</a> &middot;
@@ -140,6 +179,16 @@
     el('android').hidden = true;
     el('androidGone').hidden = false;
   }
+
+  // /beta/#iphone or /beta/#android opens that fold; the name attribute closes the others.
+  function openFromHash() {
+    var id = decodeURIComponent(location.hash.slice(1));
+    if (id === 'android') id = 'android-section';
+    var d = id && el(id);
+    if (d && d.tagName === 'DETAILS') { d.open = true; d.scrollIntoView({ block: 'start' }); }
+  }
+  openFromHash();
+  window.addEventListener('hashchange', openFromHash);
 </script>
 </body>
 </html>
