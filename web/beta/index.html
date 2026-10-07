@@ -109,7 +109,11 @@
 </head>
 <body>
 <main id="beta-page">
-  <img class="hero" src="runit-card-v2-720.jpg" width="720" height="720"
+  <!-- ABSOLUTE, NOT RELATIVE. `_redirects` serves this page at `/beta` as well as `/beta/` (a 200
+       rewrite keeps the URL), and at `/beta` a relative `runit-card-v2-720.jpg` resolves to the
+       ROOT, where the catch-all answers with the app's HTML: a broken image on the exact link
+       people were sent. Lane G loads it from `/beta` the way a browser would. -->
+  <img class="hero" src="/beta/runit-card-v2-720.jpg" width="720" height="720"
        alt="A RunIt invitation card in an envelope: Chat. Pics. Dance.">
   <h1>Try the RunIt beta</h1>
   <p class="sub">RunIt is one screen for a party: announcements, a shared photo album and song requests.</p>
