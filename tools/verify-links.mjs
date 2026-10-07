@@ -332,7 +332,20 @@ try {
       if (!img.ok || !imgType.startsWith('image/')) {
         problems.push(`/beta/runit-card-v2.jpg answered ${img.status} ${imgType} -- a pasted link would preview with no picture.`);
       } else {
-        console.log('  /beta/ serves the beta page, with the same Android download as /i/ and a preview image');
+        // EVERY <img> ON THE PAGE, resolved from `/beta` with no trailing slash -- the URL people
+        // are actually sent -- exactly as a browser resolves it. A relative src passes from `/beta/`
+        // and breaks from `/beta`, where it lands on the root and the catch-all serves HTML.
+        const broken = [];
+        for (const m of beta.body.matchAll(/<img\b[^>]*\bsrc="([^"]+)"/g)) {
+          const u = new URL(m[1], `${ORIGIN}/beta`);
+          const r = await fetch(u, { signal: AbortSignal.timeout(15_000) });
+          if (!r.ok || !(r.headers.get('content-type') ?? '').startsWith('image/')) broken.push(`${m[1]} -> ${u.pathname} (${r.status} ${r.headers.get('content-type')})`);
+        }
+        if (broken.length) {
+          problems.push(`/beta shows a broken image, resolved the way a browser does from the no-slash URL:\n    ${broken.join('\n    ')}`);
+        } else {
+          console.log('  /beta/ serves the beta page, with the same Android download as /i/, a preview image, and images that load from /beta');
+        }
       }
     }
   }
