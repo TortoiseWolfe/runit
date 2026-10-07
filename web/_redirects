@@ -37,7 +37,7 @@
 # THE BETA PAGE (2026-10-07), passed through for the same reason as /help: without these lines
 # the catch-all answers /beta/ with the app shell under a 200. Lane G reads `id="beta-page"`.
 # `:splat`, NOT `/beta/` like the two above: this directory holds a real file besides the page
-# (`runit-envelope*.jpg`, the hero and link-preview image), and `/beta/* /beta/` would answer them with the HTML.
+# (`runit-card-*.jpg`, the hero and link-preview image), and `/beta/* /beta/` would answer them with the HTML.
 /beta            /beta/                     200
 /beta/*          /beta/:splat               200
 /_expo/*         /_expo/:splat              200
