@@ -327,10 +327,10 @@ try {
       problems.push('/beta/ carries no public TestFlight link, so an iPhone visitor has nowhere to go.');
     } else {
       // The link-preview image, which the catch-all would answer with HTML if `_redirects` let it.
-      const img = await fetch(`${ORIGIN}/beta/preview.png`, { signal: AbortSignal.timeout(15_000) });
+      const img = await fetch(`${ORIGIN}/beta/runit-envelope.jpg`, { signal: AbortSignal.timeout(15_000) });
       const imgType = img.headers.get('content-type') ?? '';
       if (!img.ok || !imgType.startsWith('image/')) {
-        problems.push(`/beta/preview.png answered ${img.status} ${imgType} -- a pasted link would preview with no picture.`);
+        problems.push(`/beta/runit-envelope.jpg answered ${img.status} ${imgType} -- a pasted link would preview with no picture.`);
       } else {
         console.log('  /beta/ serves the beta page, with the same Android download as /i/ and a preview image');
       }
