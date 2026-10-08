@@ -770,6 +770,38 @@ try {
     .catch(() => false);
   check(back, 'and unblocking puts it back, so a mis-tap is not permanent');
 
+  // ------------------------------------------- walking back in as a guest (#116)
+  //
+  // THE NORMAL WAY BACK INTO A PARTY, and it landed a returning guest in a half-host view:
+  // `event.open` never read the seat, so it took the founder's `hosts` row, no guest id and
+  // no name -- no name pill, a "Guest view" footer, and a Request button that did nothing.
+  // Only this lane can see it: the journeys boot MemoryRepository, which always branched on
+  // the seat. A reload drops `event.current` and keeps the identity, which is exactly what a
+  // guest closing the tab tonight and coming back tomorrow does.
+  //
+  // `:visible`, because expo-router keeps a popped screen mounted and hides it with CSS.
+  await bo.goto(`${base}/join`, { waitUntil: 'networkidle' });
+  await bo.waitForSelector(`[data-testid="my-event-${code}"]`, { timeout: 30_000 });
+  await bo.getByTestId(`my-event-${code}`).click();
+  await bo.waitForSelector('[data-testid="chat-feed"]', { timeout: 30_000 });
+  const boFooter = await bo
+    .waitForSelector('[data-testid="guest-make-your-own"]:visible', { timeout: 20_000 })
+    .then(() => 1)
+    .catch(() => 0);
+  const boSwitch = await bo.locator('[data-testid="role-switch"]:visible').count();
+  const boName = (await bo.locator('[data-testid="name-pill"]:visible').first().innerText().catch(() => '')).trim();
+  check(boFooter === 1 && boSwitch === 0 && boName === 'Bo',
+        'a guest who reopens her party from the list comes back as herself (#116)',
+        `guest footer ${boFooter}, role-switch ${boSwitch}, name "${boName}"`);
+  // AND HER OWN SONG IS HERS. The strip keys on the guest id `my_events()` handed back; with
+  // none, her request belongs to nobody and the strip is not drawn.
+  await bo.getByTestId('tab-music').click();
+  const ownStrip = await bo
+    .waitForSelector('[data-testid="my-request"]:visible', { timeout: 30_000 })
+    .then(() => true)
+    .catch(() => false);
+  check(ownStrip, 'and her own request is recognised as hers after the reopen (#116)');
+
   check(boErrors.length === 0, 'no page errors on the second client', boErrors.slice(0, 2).join(' | '));
   // No path: discarded, exactly as `retain-on-failure` discards a passing journey's trace.
   await boCtx.tracing.stop().catch(() => {});

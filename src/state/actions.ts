@@ -176,7 +176,11 @@ export function useSessionActions() {
       openEvent: async (eventId: string) => {
         try {
           await repo.event.open(eventId);
-          router.replace('/host/broadcast');
+          // WHERE TO GO IS READ OFF THE SESSION `open` JUST MADE (#116), not assumed. It always
+          // went to the host console, and a guest seat only reached the guest tabs because the
+          // list row replaced the route a second time -- while `open` had in fact made a host
+          // session, which is the bug a guest saw.
+          router.replace(repo.session.current.get().kind === 'guest' ? '/chat' : '/host/broadcast');
         } catch (e) {
           show(e instanceof Error ? e.message : 'That event could not be opened.');
         }

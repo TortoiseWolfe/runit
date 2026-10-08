@@ -156,6 +156,12 @@ export class SupabaseRepository implements RunitRepository {
   private eventId: string | null = null;
   private myGuestId: string | null = null;
   /**
+   * #116: the caller's OWN guest id and nickname per guest seat, as `my_events()` hands them
+   * back. Private because they serve one purpose -- reopening a guest seat as that guest --
+   * and the list rows the screens render have no business carrying them.
+   */
+  private guestSeats = new Map<string, { guestId: string | null; nickname: string | null }>();
+  /**
    * Broadcast ids this session has already marked read (#24).
    *
    * The caller is a scroll handler, so the same ids arrive on every frame the feed moves.
@@ -2077,14 +2083,21 @@ export class SupabaseRepository implements RunitRepository {
        */
       if (!who.user) {
         this.sigMyEvents.set([]);
+        this.guestSeats = new Map();
         return;
       }
 
       const { data, error } = await this.db.rpc('my_events');
       if (error) {
         this.sigMyEvents.set([]);
+        this.guestSeats = new Map();
         return;
       }
+      this.guestSeats = new Map(
+        (data ?? [])
+          .filter((r) => r.seat !== 'host')
+          .map((r) => [r.event_id, { guestId: r.guest_id ?? null, nickname: r.nickname ?? null }]),
+      );
       this.sigMyEvents.set(
         (data ?? []).map((r) => ({
           id: r.event_id,
@@ -2121,17 +2134,45 @@ export class SupabaseRepository implements RunitRepository {
      * disconnect made a re-join race a socket that never opened).
      */
     open: async (eventId: string) => {
-      const target = this.sigMyEvents.get().find((e) => e.id === eventId);
+      let target = this.sigMyEvents.get().find((e) => e.id === eventId);
       if (!target) {
         await this.event.loadMine();
-        if (!this.sigMyEvents.get().some((e) => e.id === eventId)) {
-          throw new Error('You do not hold a host seat at that event.');
-        }
+        target = this.sigMyEvents.get().find((e) => e.id === eventId);
+        if (!target) throw new Error('You hold no seat at that event.');
       }
 
       await this.session.closeEvent();
 
       this.eventId = eventId;
+
+      /*
+       * A GUEST SEAT OPENS AS THAT GUEST (#116). This branch did not exist: every listed seat
+       * was named a HOST session from `hostRows[0]` -- the founder, since every member reads
+       * `hosts` -- so a returning guest saw somebody else's name, a console switch they could
+       * not use, and a Request button with no guest id behind it. The id goes in BEFORE
+       * `loadFetchOnce`, because that is what scopes the votes and the blocks to this guest.
+       * `my_events()` carries the id and the name since #116; an older server does not, so the
+       * id falls back to `my_guest_id` and the name to empty, which the screen asks for --
+       * never to a name that belongs to somebody else.
+       */
+      if (target.seat === 'guest') {
+        const known = this.guestSeats.get(eventId);
+        let guestId = known?.guestId ?? null;
+        if (!guestId) {
+          const { data, error } = await this.db.rpc('my_guest_id', { p_event: eventId });
+          if (error) throw error;
+          guestId = (data as unknown as string | null) ?? null;
+        }
+        if (!guestId) throw new Error('You hold no seat at that event.');
+        this.myGuestId = guestId;
+        await this.startTables(eventId);
+        await this.loadFetchOnce();
+        this.sigSession.set({ kind: 'guest', guestId, nickname: known?.nickname ?? '' });
+        this.recompute();
+        await this.event.loadMine();
+        return;
+      }
+
       await this.startTables(eventId);
       await this.loadFetchOnce();
 

@@ -1,6 +1,5 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { useRouter } from 'expo-router';
 
 import { useEvent, useMyEvents, useMyOtherEvents } from '@/state/hooks';
 import { useSessionActions } from '@/state/actions';
@@ -53,7 +52,6 @@ export function MyEventsList({
   hideCurrent?: boolean;
 }) {
   const { tokens, fade } = useTheme();
-  const router = useRouter();
   const all = useMyEvents();
   // The filtered view lives in `useMyOtherEvents` now, because the join screen's sign-in
   // link reads the same rule to choose its words (#80). This component consumes it rather
@@ -67,19 +65,15 @@ export function MyEventsList({
   const events = hideCurrent ? others : all;
 
   /**
-   * OPENING A GUEST ROW HAS TO TAKE YOU INTO THE PARTY (#76).
+   * OPENING A ROW TAKES YOU INTO THAT PARTY, AS WHAT YOU ARE THERE (#76, #116).
    *
-   * `openEvent` switches the context and navigates nowhere, which is right on the host
-   * console -- the console re-renders around the new event and you are already looking at
-   * it. From the join screen it is not: a guest tapping her party changed the world behind
-   * a screen that does not show it, so the tap read as dead.
-   *
-   * Only for a GUEST seat. A host row opening straight into the guest tabs would take the
-   * console away from somebody who was reaching for it.
+   * `openEvent` decides where to go from the session `open` produced: a guest seat lands on
+   * the guest tabs, a host seat on the console. This used to replace the route a second time
+   * for a guest row, which hid that `open` had made a HOST session for a guest -- one decision
+   * in one place now.
    */
   const openRow = async (e: (typeof events)[number]) => {
     await openEvent(e.id);
-    if (e.seat === 'guest') router.replace('/chat');
   };
   // Nothing to show is nothing to draw -- an empty "Your events" heading on the join
   // screen would be a promise to the guests who are most of this app's users.
