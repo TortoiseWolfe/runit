@@ -2078,6 +2078,14 @@ revoke execute on function public.claim_host(text, text) from public, anon;
 -- A FOUNDER WHO TOOK A GUEST SEAT HOLDS BOTH (#37) and must appear ONCE, as host. The
 -- `not exists` below is what does it: listing her twice would show two rows with one name,
 -- one of them offering less than she has.
+-- A GUEST SEAT CARRIES THE CALLER'S OWN GUEST ID AND NICKNAME (#116, 2026-10-07). Without
+-- them a guest reopening a party from YOUR EVENTS could not be put back as themselves: `guests`
+-- has no SELECT policy, so a client cannot read its own nickname, and re-joining through
+-- `join_event` would OVERWRITE it. The client's `event.open` treated every listed seat as a host
+-- seat for that reason and others, and a returning guest landed in the host view with the
+-- founder's name. These are only ever the caller's own row (`g.auth_user_id = auth.uid()`);
+-- host seats carry NULL for both. A return-table change is a DROP and a CREATE, never a REPLACE.
+drop function if exists public.my_events();
 create or replace function public.my_events()
 returns table (
   event_id    uuid,
@@ -2090,12 +2098,15 @@ returns table (
   seat        text,
   role        text,
   role_label  text,
-  guest_count integer
+  guest_count integer,
+  guest_id    uuid,
+  nickname    text
 )
 language sql stable security definer set search_path = public as $$
   select * from (
   select e.id, e.code, e.name, e.venue, e.starts_at, e.timezone, e.doors_label,
-         'host' as seat, h.role, h.role_label, public.guest_seats(e.id) as guest_count
+         'host' as seat, h.role, h.role_label, public.guest_seats(e.id) as guest_count,
+         null::uuid as guest_id, null::text as nickname
     from public.hosts h
     join public.events e on e.id = h.event_id
    where h.auth_user_id = auth.uid()
@@ -2106,7 +2117,8 @@ language sql stable security definer set search_path = public as $$
   -- printed title; the client renders the word "Guest" from `seat`, which is a statement
   -- about the seat rather than a value pretending to have come from `hosts`.
   select e.id, e.code, e.name, e.venue, e.starts_at, e.timezone, e.doors_label,
-         'guest', null, null, public.guest_seats(e.id)
+         'guest', null, null, public.guest_seats(e.id),
+         g.id, g.nickname
     from public.guests g
     join public.events e on e.id = g.event_id
    where g.auth_user_id = auth.uid()

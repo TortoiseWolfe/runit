@@ -323,6 +323,15 @@ export class MemoryRepository implements RunitRepository {
    * leave. Same shape as `Seed.event` being non-nullable until `?empty=1`.
    */
   private myGuestId: string | null;
+  /**
+   * WHO SHE WAS AT EACH PARTY SHE JOINED, so walking back in from the list is the same
+   * person (#116). `my_events()` hands the Supabase adapter the caller's own guest id and
+   * nickname for a guest seat; without this the fixture minted a fresh `gst` id and named
+   * her 'you', so a returning guest's votes and requests belonged to somebody else and her
+   * name pill read wrong -- the fixture being unlike the backend, in the kind direction.
+   * A seeded seat with no join behind it has no entry and keeps the old fallback.
+   */
+  private guestSeatsByEvent = new Map<string, { guestId: string; nickname: string }>();
   private blockList: BlockedGuest[] = [];
   private reportList: Report[] = [];
   private nextPhotoSeq: number;
@@ -750,6 +759,7 @@ export class MemoryRepository implements RunitRepository {
         guestId: this.myGuestId,
         nickname: nickname.trim(),
       });
+      this.guestSeatsByEvent.set(ev.id, { guestId: this.myGuestId, nickname: nickname.trim() });
       // #76: the party is hers to come back to now, and stays in her list after she leaves.
       this.rememberGuestSeat();
       this.recompute();
@@ -908,6 +918,7 @@ export class MemoryRepository implements RunitRepository {
       );
       const current = this.sigSession.get();
       if (current.kind === 'guest') this.sigSession.set({ ...current, nickname: stored });
+      if (this.ev) this.guestSeatsByEvent.set(this.ev.id, { guestId, nickname: stored });
       this.recompute();
       return stored;
     },
@@ -962,6 +973,7 @@ export class MemoryRepository implements RunitRepository {
       // into go with it. `closeEvent` deliberately does NOT do this -- it keeps the seat,
       // which is what makes walking back in a tap rather than a code (#76).
       this.joinedList = [];
+      this.guestSeatsByEvent.clear();
       this.sigMyEvents.set([]);
       this.myGuestId = null;
       this.sigAccount.set(null);
@@ -1304,6 +1316,7 @@ export class MemoryRepository implements RunitRepository {
        */
       this.hostedList = this.hostedList.filter((e) => e.id !== id);
       this.joinedList = this.joinedList.filter((e) => e.id !== id);
+      this.guestSeatsByEvent.delete(id);
       if (this.ev?.id === id) {
         this.ev = null;
         this.myGuestId = null;
@@ -1388,10 +1401,16 @@ export class MemoryRepository implements RunitRepository {
       this.sigHoldsHostSeat.set(target.seat === 'host');
       if (target.seat === 'guest') {
         // Back into a party she is a guest at: a guest seat and a guest view, which is
-        // what she had when she left it.
-        this.myGuestId = this.id('gst');
+        // what she had when she left it -- the SAME seat and name, as `my_events()` hands
+        // the Supabase adapter (#116). Only a seeded seat nobody joined falls back.
+        const known = this.guestSeatsByEvent.get(target.id);
+        this.myGuestId = known?.guestId ?? this.id('gst');
         this.seatIsStaff = false;
-        this.sigSession.set({ kind: 'guest', guestId: this.myGuestId, nickname: 'you' });
+        this.sigSession.set({
+          kind: 'guest',
+          guestId: this.myGuestId,
+          nickname: known?.nickname ?? 'you',
+        });
         this.recompute();
         return;
       }

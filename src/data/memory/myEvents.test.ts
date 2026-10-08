@@ -1,6 +1,7 @@
 import { MemoryRepository } from './MemoryRepository';
 import { weddingSeed } from './fixtures/wedding';
 import { emptySeed } from './fixtures/empty';
+import { guestSeed } from './fixtures/guest';
 
 /**
  * #17 — the list of events this identity is staff at, and the switch between them.
@@ -72,5 +73,38 @@ describe('the events this identity hosts', () => {
     await expect(repo.event.open('evt_somebody_elses')).rejects.toThrow(/hold no seat/i);
     // And leaves you where you were, rather than half-switched.
     expect(read(repo.event.current)!.code).toBe('SR1017');
+  });
+});
+
+describe('walking back into a party you are a guest at (#116)', () => {
+  it('opens a guest seat as a guest, holding no host seat', async () => {
+    const repo = build(guestSeed);
+    await repo.event.loadMine();
+    await repo.event.open('evt_sat');
+
+    expect(read(repo.event.current)!.code).toBe('BD4417');
+    expect(read(repo.session.current).kind).toBe('guest');
+    expect(read(repo.session.holdsHostSeat)).toBe(false);
+  });
+
+  it('comes back as the same guest, under the name she chose', async () => {
+    const repo = build(guestSeed);
+    await repo.event.loadMine();
+    await repo.session.joinAsGuest({ code: 'SR1017', nickname: 'Ada' });
+    const joined = read(repo.session.current);
+    if (joined.kind !== 'guest') throw new Error('expected a guest session');
+    await repo.session.setNickname('Ada B');
+
+    // Out to the other party and back from the list, which is how a returning guest
+    // arrives: a fresh id here would hand her votes and requests to somebody else.
+    await repo.event.open('evt_sat');
+    await repo.event.open('evt_wedding');
+
+    expect(read(repo.session.current)).toEqual({
+      kind: 'guest',
+      guestId: joined.guestId,
+      nickname: 'Ada B',
+    });
+    expect(read(repo.session.holdsHostSeat)).toBe(false);
   });
 });

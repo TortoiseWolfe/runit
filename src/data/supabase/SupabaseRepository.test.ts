@@ -251,6 +251,77 @@ describe('host sign-in chooses between two calls, and one of them is destructive
 });
 
 /*
+ * #116: A GUEST WHO REOPENS A PARTY FROM "YOUR EVENTS" LANDED IN THE HOST VIEW.
+ *
+ * `event.open` never read `seat`. It named a HOST session from `hostRows[0]` -- the founder's
+ * row, readable by every member -- set `holdsHostSeat`, and left `myGuestId` null, so the
+ * returning guest saw the founder's name, a console switch, and a Request button with no guest
+ * behind it. Memory had always branched on the seat, which is why no journey could see it.
+ */
+describe('reopening a party from the list (#116)', () => {
+  const OTHER = 'g0000000-0000-0000-0000-000000000002';
+  const seatRow = (over: Record<string, unknown> = {}) => ({
+    event_id: EVENT, code: 'TEST01', name: 'Party', venue: 'Barn', starts_at: FIXED,
+    timezone: 'America/New_York', doors_label: '', seat: 'guest', role: null, role_label: null,
+    guest_count: 3, guest_id: OTHER, nickname: 'Ada', ...over,
+  });
+  const listing = (row: Record<string, unknown>) => (c: FakeClient) => {
+    c.user = { id: 'auth-user' };
+    c.seed('hosts', [hostRow]); // every member can read the founder's row; that was the trap
+    c.on((op) => (op.kind === 'rpc' && op.table === 'my_events' ? { data: [row], error: null } : undefined));
+    c.on((op) => (op.kind === 'rpc' && op.table === 'is_host' ? { data: row.seat === 'host', error: null } : undefined));
+  };
+
+  it('opens a guest seat as that guest: their own id and name, and no host seat', async () => {
+    const c = ready(listing(seatRow()));
+    const repo = build(c);
+    await repo.event.loadMine();
+
+    await repo.event.open(EVENT);
+
+    expect(repo.session.current.get()).toEqual({ kind: 'guest', guestId: OTHER, nickname: 'Ada' });
+    expect(repo.session.holdsHostSeat.get()).toBe(false);
+    // The votes read is THIS guest's, which is what makes a vote toggle and a request work.
+    const votes = c.find('select', 'song_votes')[0];
+    expect(votes?.filters).toEqual([['guest_id', OTHER]]);
+  });
+
+  it('asks my_guest_id when the list came from a server older than #116', async () => {
+    const c = ready((cl) => {
+      listing(seatRow({ guest_id: undefined, nickname: undefined }))(cl);
+      cl.on((op) => (op.kind === 'rpc' && op.table === 'my_guest_id' ? { data: OTHER, error: null } : undefined));
+    });
+    const repo = build(c);
+    await repo.event.loadMine();
+
+    await repo.event.open(EVENT);
+
+    expect(c.find('rpc', 'my_guest_id')[0]!.payload).toEqual({ p_event: EVENT });
+    // No name to restore from an old server: an empty name, which the screen asks for, rather
+    // than somebody else's.
+    expect(repo.session.current.get()).toEqual({ kind: 'guest', guestId: OTHER, nickname: '' });
+  });
+
+  it('still opens a host seat as the host', async () => {
+    const c = ready(listing(seatRow({ seat: 'host', role: 'host', role_label: 'Host', guest_id: null, nickname: null })));
+    const repo = build(c);
+    await repo.event.loadMine();
+
+    await repo.event.open(EVENT);
+
+    expect(repo.session.current.get()).toMatchObject({ kind: 'host', hostId: hostRow.id });
+    expect(repo.session.holdsHostSeat.get()).toBe(true);
+  });
+
+  it('refuses an event this identity holds no seat at', async () => {
+    const c = ready(listing(seatRow()));
+    const repo = build(c);
+
+    await expect(repo.event.open('e0000000-0000-0000-0000-00000000ffff')).rejects.toThrow(/hold no seat/i);
+  });
+});
+
+/*
  * THE PERSON THE JOIN SCREEN'S REPORT LINK EXISTS FOR COULD NOT SEND ONE (#81).
  *
  * "Something not right? Tell us" is on the join screen for somebody who CANNOT GET IN -- the

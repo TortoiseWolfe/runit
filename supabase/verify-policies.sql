@@ -55,6 +55,7 @@ declare
   -- #76: the code of an event she holds no seat at yet, read as a fixture rather than
   -- as a client -- `events_read` correctly shows her nothing there until she joins.
   gcode text;
+  myg uuid;
   -- invite_host fixtures: the DJ who gets a seat but never an account.
   muid uuid := 'aaaaaaaa-0000-0000-0000-000000000003';
   iv record;
@@ -1005,6 +1006,12 @@ begin
   select me.seat into lbl from public.my_events() me where me.event_id = ce.event_id;
   out := out || format('%s the seat she holds at her own event reads host (%s)',
                        case when lbl = 'host' then 'PASS' else 'FAIL' end, coalesce(lbl,'null'));
+  -- #116: a HOST row names no guest. The two columns exist so a guest can walk back in as
+  -- herself; on a host row they would be an invitation to open her own party as a guest.
+  select count(*) into n from public.my_events() me
+   where me.event_id = ce.event_id and me.guest_id is null and me.nickname is null;
+  out := out || format('%s and a host row carries no guest id or nickname (%s, want 1)',
+                       case when n = 1 then 'PASS' else 'FAIL' end, n);
 
   execute 'reset role';
 
@@ -1020,7 +1027,7 @@ begin
 
   perform set_config('request.jwt.claims', json_build_object('sub',cuid,'role','authenticated')::text, true);
   execute 'set local role authenticated';
-  perform public.join_event(gcode, 'Ruth the guest');
+  myg := public.join_event(gcode, 'Ruth the guest');
   select count(*) into n from public.my_events() me where me.event_id = eid;
   out := out || format('%s a party she JOINED is in her list now (%s, want 1)',
                        case when n = 1 then 'PASS' else 'FAIL' end, n);
@@ -1032,6 +1039,14 @@ begin
   select count(*) into n from public.my_events() me
    where me.event_id = eid and me.role is null and me.role_label is null;
   out := out || format('%s with no role or label invented for it (%s, want 1)',
+                       case when n = 1 then 'PASS' else 'FAIL' end, n);
+  -- #116. HER OWN GUEST ID AND NAME, AND ONLY HERS. `guests` has no SELECT policy, so this
+  -- row is the one way a returning guest learns who she is at a party: without it, Open
+  -- landed her in a host view holding nobody's seat. `eid` is furnished with other guests,
+  -- so a join that picked the wrong row would name one of them.
+  select count(*) into n from public.my_events() me
+   where me.event_id = eid and me.guest_id = myg and me.nickname = 'Ruth the guest';
+  out := out || format('%s and it names her own guest seat and nickname (%s, want 1)',
                        case when n = 1 then 'PASS' else 'FAIL' end, n);
 
   -- AND SHE APPEARS ONCE AT HER OWN EVENT EVEN HOLDING BOTH SEATS (#37). A founder who

@@ -291,6 +291,9 @@ export type Database = {
           // `role_label` are null on a guest row -- see HostedEvent.
           seat: string; role: string | null; role_label: string | null;
           guest_count: number;
+          // #116: the caller's OWN guest id and nickname on a guest row, null on a host row.
+          // Optional because a server older than #116 does not send them.
+          guest_id?: string | null; nickname?: string | null;
         }[];
       };
       /**
