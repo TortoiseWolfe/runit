@@ -496,6 +496,40 @@ test.describe('what the empty album promises (#67)', () => {
  * is the only way to reach `failed` at all, because the in-memory transfer completes
  * instantly.
  */
+/**
+ * THE EMPTY ALBUM'S FOLDER CHIP IS A PILL, NOT A WALL (#118).
+ *
+ * Found on the live site: a new party's Photos tab drew "All photos · 0" as a grey slab about
+ * 111x344 with its label clipped by the pill radius. In this branch the chips' horizontal
+ * ScrollView is a direct child of a flex column, and React Native gives a ScrollView
+ * `flexGrow: 1` by default -- so the row took half the screen and the chip stretched to fill
+ * it. The grid branch never showed it, because there the chips are the FlatList's header.
+ *
+ * GEOMETRY IS HONEST HERE, unlike `hitSlop`: react-native-web renders the flex layout as real
+ * CSS, so the box is where the pixels are. Yoga applies the same default, so a device drew it
+ * too. 24-44 is the chip's own range -- SC 2.5.8's floor to the height of a stretched row's
+ * first sign -- not a pixel-perfect pin a font change would break.
+ */
+test.describe('the empty album (#118)', () => {
+  test('draws its folder chip as a pill and keeps the shutter on screen', async ({ page }, testInfo) => {
+    await page.goto('/join?fresh=1');
+    await ready(page, testInfo.project.name as 'dark' | 'light');
+    await page.getByTestId('join-nickname').fill('Ada');
+    await page.getByTestId('join-submit').click();
+    await expect(page.getByTestId('chat-feed')).toBeVisible();
+    await page.getByTestId('tab-photos').click();
+    await expect(page.getByTestId('shutter')).toBeVisible();
+
+    const chip = page.locator('[data-testid^="folder-"]:visible').first();
+    const box = await chip.boundingBox();
+    expect(box, 'the folder chip is drawn').not.toBeNull();
+    expect(box!.height).toBeGreaterThanOrEqual(24);
+    expect(box!.height).toBeLessThanOrEqual(44);
+    // The whole shutter, not a sliver of it: a stretched chip row squeezed the pane below.
+    await expect(page.getByTestId('shutter')).toBeInViewport({ ratio: 1 });
+  });
+});
+
 test.describe('a failed upload on an empty album', () => {
   const shootIntoNothing = async (page: Page, scheme: 'dark' | 'light') => {
     await page.goto('/join?fresh=1&flaky=1');

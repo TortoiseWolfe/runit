@@ -127,9 +127,20 @@ export function PhotosScreen() {
    * guest -- with no way back, because an upload lands `pending` and never flips
    * the pane. Two of the three seeded folders are empty, so it was one tap away,
    * and the only escape was a force-quit, which loses everything.
+   *
+   * `s.chipsScroll` IS LOAD-BEARING IN THE EMPTY BRANCH (#118). There the ScrollView is a
+   * direct child of a flex column, and React Native gives a ScrollView `flexGrow: 1` by
+   * default -- so the row took half the screen, the chip stretched to ~312pt, its label was
+   * clipped by the pill radius and the filing pill was pushed under the tab bar. The grid
+   * branch never showed it: there the chips are the FlatList's header.
    */
   const folderChips = (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chips}>
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      style={s.chipsScroll}
+      contentContainerStyle={s.chips}
+    >
       {folders.map((f) => {
         const on = f.id === active?.id;
         return (
@@ -550,7 +561,10 @@ const s = StyleSheet.create({
   filingText: { fontSize: 12 },
   filingName: { fontWeight: weight.bold },
 
-  chips: { gap: 8, paddingTop: 14, paddingBottom: 6, paddingHorizontal: 20 },
+  // No growing: as a column's child a ScrollView defaults to `flexGrow: 1` (#118).
+  chipsScroll: { flexGrow: 0, flexShrink: 0 },
+  // `center`, not the row's default `stretch`, so a chip is a pill in any container.
+  chips: { gap: 8, paddingTop: 14, paddingBottom: 6, paddingHorizontal: 20, alignItems: 'center' },
   chip: { paddingVertical: 7, paddingHorizontal: 12, borderRadius: radius.pill, borderWidth: border },
   chipText: { fontSize: 13 },
   // 28 clears WCAG 2.2 SC 2.5.8 (24, AA) on its own, and hitSlop 6 takes the real
