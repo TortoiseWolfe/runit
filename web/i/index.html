@@ -317,13 +317,19 @@
 </main>
 
 <script>
-  // The code is the last path segment: /i/HOUSE7 -> HOUSE7. Same alphabet the app mints
-  // from (no 0/O, no 1/I/L), upper-cased because a QR may carry any case and a person
-  // reading it aloud will not preserve one.
+  // The code is the last path segment: /i/HOUSE7 -> HOUSE7. Upper-cased because a QR may carry
+  // any case and a person reading it aloud will not preserve one.
+  //
+  // EVERY LETTER AND DIGIT, NOT THE MINTING ALPHABET (2026-10-07). This filtered to the
+  // alphabet `mint_token` draws from (no 0/O, no 1/I/L), and that alphabet is a rule about
+  // codes the app MAKES, not about codes that exist: DEMO42 -- the demo party Apple's
+  // reviewers and every beta tester are pointed at -- was seeded by hand, so /i/DEMO42 handed
+  // out "DEM42" and every tap on it ended in "That code doesn't match an event." Nothing in
+  // the app filters a code this way; `join_event` matches `upper(code)` and decides.
   var seg = location.pathname.split('/').filter(Boolean).pop() || '';
   var raw;
   try { raw = decodeURIComponent(seg); } catch (e) { raw = seg; } // a bad %-sequence is not a reason to draw nothing
-  var code = raw.toUpperCase().replace(/[^A-HJ-NP-Z2-9]/g, '').slice(0, 12);
+  var code = raw.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12);
 
   var el = function (id) { return document.getElementById(id); };
 
