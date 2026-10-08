@@ -1,8 +1,9 @@
 import { songKey } from '@/domain/songKey';
 
 /**
- * Shared by `musicSearch.ts` (native, calls iTunes directly) and `musicSearch.web.ts`
- * (browser, calls our same-origin proxy at /api/music, which returns the same shape).
+ * Shared by `musicSearch.ts` (native) and `musicSearch.web.ts` (browser). Both ask iTunes
+ * directly; the browser falls back to our same-origin proxy at /api/music, which returns the
+ * same shape (#117).
  *
  * A SEPARATE FILE for the reason `captureConstants.ts` and `musicSearchConstants.ts` state
  * outright: inside a web bundle Metro resolves `./musicSearch` to `musicSearch.web.ts`
@@ -14,6 +15,24 @@ export interface SongMatch {
 }
 
 export const LIMIT = 8;
+
+const ITUNES = 'https://itunes.apple.com/search';
+
+/**
+ * ONE CALL TO APPLE, FROM THIS DEVICE'S OWN CONNECTION. `null` means the call FAILED and `[]`
+ * means Apple answered and found nothing -- the browser falls back on the first and must not on
+ * the second, so the difference is the return type rather than a guess. An abort is a failure
+ * here; the caller decides whether it was one.
+ */
+export async function askItunes(term: string, signal?: AbortSignal): Promise<SongMatch[] | null> {
+  try {
+    const res = await fetch(`${ITUNES}?term=${encodeURIComponent(term)}&entity=song&limit=${LIMIT}`, { signal });
+    if (!res.ok) return null;
+    return toMatches(await res.json());
+  } catch {
+    return null;
+  }
+}
 
 interface RawTrack {
   trackName?: unknown;

@@ -373,8 +373,9 @@ try {
 
 /**
  * THE SONG TYPE-AHEAD'S PROXY ANSWERS ON THIS HOST (spec 003 follow-up). `web/functions/api/
- * music.js` is a Pages Function; the browser build asks it because Apple's iTunes endpoint
- * sends no CORS headers. What is asserted is the SHAPE -- JSON with a `results` array --
+ * music.js` is a Pages Function, and since #117 it is the browser's FALLBACK: the browser asks
+ * Apple from its own connection first, because from Cloudflare's shared egress Apple answers
+ * 429. A degraded upstream is therefore a `todo:`, not a failure. What is asserted is the SHAPE -- JSON with a `results` array --
  * never that Apple answered: the function returns 200 and no results when Apple is down,
  * so this cannot go red on a third party's outage. It CAN go red on a `_redirects` catch-all
  * swallowing the route and serving the app's HTML shell, which is the failure measured on
@@ -390,6 +391,9 @@ try {
     problems.push(`/api/music answered ${music.res.status} ${type || '(no content-type)'} -- the song type-ahead is dead in the browser (a _redirects catch-all serving the app shell looks exactly like this).`);
   } else {
     console.log(`  /api/music answers JSON (${shape.results.length} result(s) for "journey"; upstream ${shape.upstream ?? 'n/a'})`);
+    if (shape.upstream && shape.upstream !== 'ok') {
+      console.log(yellow(`  todo: the fallback proxy's upstream answered "${shape.upstream}" -- browsers still ask Apple directly first (#117), so this only bites a guest whose network blocks itunes.apple.com.`));
+    }
   }
 } catch (e) {
   problems.push(`/api/music could not be fetched: ${e instanceof Error ? e.message : e}`);

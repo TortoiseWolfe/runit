@@ -1000,8 +1000,9 @@ prompt and autoplay rules are proved only on an iPhone.
 
 **AND THE FLAG CUTS THE OTHER WAY, WHICH IS WHERE THE LIVE DEFECT WAS.** Two web halves are
 keyed `!== '1'`, so they go dead when the harness flag is ABSENT -- the guest build.
-`musicSearch.web.ts` returning `[]` was honest and documented (no CORS on the iTunes endpoint)
-until 2026-10-03; it calls the same-origin `/api/music` proxy outside the harness now.
+`musicSearch.web.ts` returning `[]` was documented as honest (no CORS on the iTunes endpoint,
+which was never true -- see #117 under Things that will bite you) until 2026-10-03; outside the
+harness it asks Apple directly now, with the same-origin `/api/music` proxy as the fallback.
 `pickScreenshot.web.ts` returning `null` was not: `FeedbackSheet.tsx:103` draws "Add a picture"
 unconditionally, so a browser visitor tapped a control and **nothing happened** -- the
 drawn-control-that-does-nothing failure `empty-world.spec.ts` exists to catch, invisible to
@@ -1974,15 +1975,29 @@ was green and the half a guest actually walks was dead.
   in the queue" beside "Not this time" is two sentences arguing on one strip. #70 · 5 of 5.
 - **THE SONG TYPE-AHEAD CALLS A THIRD PARTY, AND IT IS THE ONLY THING IN THE APP THAT DOES.**
   `src/lib/musicSearch.ts` hits the iTunes Search API -- no key, no account, nothing to leak.
-  Everything else goes through supabase-js. **It sends no CORS headers**, so a browser cannot
-  call it directly -- which is why there is a `.web.ts` half serving a four-song fixture under
+  Everything else goes through supabase-js. The `.web.ts` half serves a four-song fixture under
   `EXPO_PUBLIC_FIDELITY=1` (no test here may depend on a third party's uptime, ranking or rate
-  limit), and why, outside the harness, that half calls **our own origin** instead:
-  `web/functions/api/music.js` is a Cloudflare Pages Function at `/api/music` that forwards
-  the term, caches an hour per term at the edge, and returns `trackName`/`artistName` only --
-  the first server code this product runs outside Supabase (spec 003 T6, 2026-10-03). It
-  always answers 200 with an `upstream` field, so a dead iTunes is an empty list and not a red
-  composer. `musicSearchConstants.ts` exists for the reason `captureConstants.ts`
+  limit); outside the harness it asks Apple FROM THE BROWSER, and falls back to **our own
+  origin**: `web/functions/api/music.js` is a Cloudflare Pages Function at `/api/music` that
+  forwards the term, caches a SUCCESS an hour per term at the edge, and returns
+  `trackName`/`artistName` only -- the first server code this product runs outside Supabase
+  (spec 003 T6, 2026-10-03). It always answers 200 with an `upstream` field, so a dead iTunes is
+  an empty list and not a red composer, and a failure is `no-store`.
+- **THE PROXY WAS BUILT ON A FALSE PREMISE AND IT EMPTIED THE TYPE-AHEAD FOR EVERY BROWSER
+  (#117, 2026-10-07).** This file and three source comments said iTunes sends no CORS headers,
+  one of them "verified against the live endpoint". It sends `Access-Control-Allow-Origin: *`,
+  with and without an Origin header, and a real Chromium page on our live origin reads it.
+  Meanwhile Apple answered **429 to every term from Cloudflare's SHARED egress** -- a random
+  never-asked term too, so it was a standing block and not a cached failure -- while a direct
+  curl from here got 200. Every browser guest came through the proxy, so every browser guest
+  had no suggestions, and the response carried `max-age=3600` even on the 429. The phone app,
+  asking from its own connection, never noticed. **Measure a CORS claim in a browser, not with
+  curl**: curl never enforces CORS, so it can neither prove nor disprove one. Both halves share
+  `askItunes()` in `musicSearchMap.ts`, which returns `null` for a FAILED call and `[]` for an
+  empty answer -- the browser falls back on the first, never on the second (a local band) and
+  never after an abort (the composer moving on). Both guards are mutation-checked. Lane G
+  prints a `todo:` when the proxy's upstream is degraded rather than failing: Apple blocking
+  Cloudflare is not our outage, and it no longer reaches a guest. `musicSearchConstants.ts` exists for the reason `captureConstants.ts`
   states outright -- Metro resolves `./musicSearch` from inside `musicSearch.web.ts` back to
   itself, so a value import there is a cycle; the type is `import type` and erased.
   **#8 named MusicBrainz "the cheap win" and that is wrong for this job**, measured: queried

@@ -530,9 +530,9 @@ test.describe('the song actually starts', () => {
  * `pressSequentially` is load-bearing here, not a style choice.
  *
  * WHAT THE LIST IS: `musicSearch.web.ts`'s four-song fixture, under EXPO_PUBLIC_FIDELITY=1.
- * The real catalogue is Apple's iTunes Search API, which sends no CORS headers and so cannot
- * be reached from a browser at all -- and pointing 300-plus journeys at a third party's
- * uptime and ranking would make a green board a statement about somebody else's service.
+ * The real catalogue is Apple's iTunes Search API, which the guest build asks from the browser
+ * (#117) -- and pointing 300-plus journeys at a third party's uptime and ranking would make a
+ * green board a statement about somebody else's service.
  */
 test.describe('the song type-ahead', () => {
   const typeInto = async (page: Page, text: string) => {
