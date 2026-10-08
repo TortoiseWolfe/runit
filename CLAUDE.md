@@ -808,7 +808,7 @@ undecodable, which is the contrast/quiet-zone/resolution class a camera in a dim
 would hit.
 
 **H — the adapter that ships, against the database that ships** (`pnpm export:web:live &&
-pnpm smoke:live`). Forty-one checks driving `SupabaseRepository` through a real browser against
+pnpm smoke:live`). Forty-three checks driving `SupabaseRepository` through a real browser against
 the live project: `create_event`, the founding host seat, a broadcast round-tripping through
 realtime, a founder taking a guest seat (#37), her seat NOT counted in the room,
 `request_song` both inserting and merging (#44), and **the whole photo chain** — two objects
@@ -2235,6 +2235,18 @@ had left. It carries guest seats now, with a `seat` column saying which. **`seat
 it would make every policy reading `role` answer a question it was not asked. Guest rows carry
 NULL role and label -- the word "Guest" is rendered from `seat`, never invented into `hosts`
 data. A founder holding both seats at one event appears ONCE, as host.
+
+**#76 PUT THE ROW IN THE LIST AND NOBODY TAUGHT `open` TO READ IT (#116, 2026-10-07).**
+`SupabaseRepository.event.open` predated guest rows and never read `seat`: it took the founder's
+`hosts` row (every member can read `hosts`), set `holdsHostSeat`, and left `myGuestId` null. So
+a guest who reloaded and tapped Open got no name pill, a "Guest view" footer and a Request
+button that did nothing -- on the NORMAL route back into a party. No lane saw it because
+`MemoryRepository.open` always branched; the fixture was right and the adapter was not.
+**A guest cannot read her own nickname back** (`guests` has no SELECT policy), so `my_events()`
+returns `guest_id` and `nickname` on a guest row -- the caller's own, from the `g` already in
+scope -- and NULLs on a host row. `open` sets the guest id BEFORE the first fetch, or votes and
+blocks load empty. `openEvent` navigates by the session `open` produced, not by a guess. Lane H
+reloads its second guest and reopens from the list; lane E holds both new columns.
 
 **AND THERE WAS NEVER A PERMISSION GATE ON HOSTING, only a missing door.** `create_event` is
 granted to `authenticated`, which an anonymous guest session already holds, so a guest can make
