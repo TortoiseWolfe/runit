@@ -66,11 +66,38 @@ const DEFAULT_LIMIT = 200;
  */
 type Payload = { dry_run?: boolean; limit?: number; event?: string };
 
-const json = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+/**
+ * CORS, BECAUSE THE BROWSER ROUTE CALLS THIS TOO (2026-10-07). The native app sends no Origin
+ * and never needed it, so for as long as hosts only deleted from phones this function answered
+ * no preflight and nobody noticed. The guest web app at runit-app.pages.dev runs the same
+ * `functions.invoke`, the browser preflights it (Authorization is not a simple header), and with
+ * no Access-Control-Allow-Origin the delete never left the page: found by walking the live site
+ * as a host and pressing Delete. The tap did nothing visible.
+ *
+ * AN ALLOWLIST, NOT `*`. The credential is the caller's own bearer token, so `*` would not be a
+ * CSRF hole; naming the origins is defence in depth and costs nothing. Our Pages host and its
+ * preview subdomains, plus localhost for development.
+ */
+const corsFor = (req: Request): Record<string, string> => {
+  const origin = req.headers.get('Origin') ?? '';
+  const ours = /^https:\/\/([a-z0-9-]+\.)?runit-app\.pages\.dev$/.test(origin) ||
+    /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+  return ours
+    ? {
+        'Access-Control-Allow-Origin': origin,
+        'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        Vary: 'Origin',
+      }
+    : { Vary: 'Origin' };
+};
 
 Deno.serve(async (req) => {
-  if (req.method !== 'POST') return new Response('method not allowed', { status: 405 });
+  const cors = corsFor(req);
+  const json = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
+  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
+  if (req.method !== 'POST') return new Response('method not allowed', { status: 405, headers: cors });
 
   const authHeader = req.headers.get('Authorization') ?? '';
   const url = Deno.env.get('SUPABASE_URL') ?? '';

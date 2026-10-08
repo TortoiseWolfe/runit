@@ -1856,6 +1856,16 @@ the catch-all, and lane G reads `id="help-guide"` back on both spellings -- befo
 check was red against the live host, which was answering `/help/` with the app shell under a 200.
 The in-app half, a host checklist that ticks itself from real state, is spec 012: built 2026-10-05, live in the browser, banked for the next native build.
 
+**AN EDGE FUNCTION THE BROWSER CALLS NEEDS CORS, AND `delete-account` HAD NONE UNTIL 2026-10-07.**
+The native app sends no Origin, so deleting a party or an account from a phone always worked and
+nothing noticed. The guest web app runs the same `functions.invoke`, the browser preflights it, and
+with no `Access-Control-Allow-Origin` the request never left the page: found by walking the live
+site as a new host and pressing Delete. It answers OPTIONS now and allowlists our Pages host, its
+preview subdomains and localhost, rather than `*`. Deployed with `supabase functions deploy
+--use-api` under the account token passed for one invocation; proven by a preflight from our origin
+(204 with the header) and a foreign one (204 without), and by creating and deleting a party from
+the live site. `send-push` and `sweep-photos` are only ever called server-side and need none.
+
 **THE INVITATION HOST IS DEPLOYED (#52).** `runit-app.pages.dev` went up on 2026-09-07 by
 DIRECT UPLOAD -- `wrangler pages deploy web --project-name=runit-app` -- not git integration,
 so **a push to `main` does not redeploy it**; re-run that command when `web/` changes. Lane G
