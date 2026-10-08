@@ -2048,6 +2048,14 @@ was green and the half a guest actually walks was dead.
   so the album specs did not move. Folder chips are the header; retention, the moderation line and
   `ReportLink` are the footer. No `getItemLayout`: header and footer have no fixed height. The other
   six `.map` lists in #93 are still `.map`; Chat's needs `onViewableItemsChanged` for seen-by.
+- **A HORIZONTAL `ScrollView` IN A COLUMN GROWS TO FILL IT (#118).** React Native gives every
+  ScrollView `flexGrow: 1` by default, and a horizontal one's content row stretches its
+  children to its height. The Photos tab's folder chips sat in a column in the empty-album
+  branch, so a new party's only chip rendered ~312pt tall with its label clipped by the pill
+  radius, and the filing pill went under the tab bar -- on every new party's first visit to
+  Photos. The grid branch hid it, because there the chips are a FlatList header. Give a strip
+  like that `flexGrow: 0` and `alignItems: 'center'`; react-native-web lays it out as real CSS,
+  so a `boundingBox()` assertion measures it honestly (`guest-photos.spec.ts`, the #118 block).
 - **`viewer-prev` and `viewer-next` must never be named `tile-something`.** `photo-viewer.spec.ts`
   counts `/^tile-/` to assert the album is nine, and a second node per tile matching that prefix
   silently doubled it once already. Mutation-checked: renaming them to `tile-prev`/`tile-next`
