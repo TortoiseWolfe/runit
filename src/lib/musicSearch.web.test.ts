@@ -1,10 +1,8 @@
 /**
- * The web half, which deliberately does not search.
- *
- * Two independent reasons, either sufficient: the endpoint sends no CORS headers, so a
- * browser refuses the request before it leaves; and no test in this repo may depend on a
- * third-party API's uptime, ranking or rate limit. The fixture is what makes the type-ahead
- * assertable in Lane B at all.
+ * The web half. Under the harness flag it searches a four-song fixture, because no test in
+ * this repo may depend on a third-party API's uptime, ranking or rate limit -- the fixture is
+ * what makes the type-ahead assertable in Lane B at all. Without the flag it asks iTunes from
+ * the browser, falling back to our own proxy; every `fetch` below is mocked.
  */
 import { searchSongs } from './musicSearch.web';
 
@@ -19,7 +17,9 @@ describe('searchSongs on web', () => {
     }
   };
 
-  it('answers nothing without the harness flag when the proxy is unreachable, because CORS blocks the direct call', async () => {
+  it('answers nothing without the harness flag when every route is unreachable', async () => {
+    // Mocked, never the real network: without the flag the first call goes to Apple.
+    (global as unknown as { fetch: unknown }).fetch = async () => { throw new TypeError('Failed to fetch'); };
     await withFidelity(false, async () => {
       await expect(searchSongs('dont stop')).resolves.toEqual([]);
     });
@@ -109,12 +109,17 @@ describe('searchSongs on web', () => {
 
 
 /**
- * WITHOUT THE HARNESS FLAG the web half asks OUR origin, `/api/music`, which is the Pages
- * Function in `web/functions/api/music.js` -- the same shape iTunes returns, through a host
- * that sends CORS headers because it IS the host. The fetch is mocked here; the live route is
- * asserted by lane G on every board, and a journey never depends on Apple.
+ * WITHOUT THE HARNESS FLAG THE BROWSER ASKS APPLE ITSELF, and our proxy is the fallback (#117).
+ *
+ * iTunes sends `Access-Control-Allow-Origin: *` -- measured 2026-10-07 with and without an
+ * Origin header, and read back from a real Chromium page on runit-app.pages.dev. The proxy
+ * existed on the belief that it did not, and from Cloudflare's SHARED egress Apple answers 429
+ * to every term, so the proxy alone left the type-ahead empty for every browser guest. From the
+ * guest's own connection it answers like it does for the phone app. The proxy stays for a
+ * network or blocker that stops `itunes.apple.com`. The fetch is mocked here; lane G asserts
+ * the proxy's shape on every board, and a journey never depends on Apple.
  */
-describe('the browser search goes through our own proxy', () => {
+describe('the browser asks iTunes directly, and falls back to our proxy', () => {
   const withFlag = async (on: boolean, fn: () => Promise<void>) => {
     const prev = process.env.EXPO_PUBLIC_FIDELITY;
     process.env.EXPO_PUBLIC_FIDELITY = on ? '1' : '';
@@ -123,27 +128,88 @@ describe('the browser search goes through our own proxy', () => {
   const mockFetch = (impl: unknown) => {
     (global as unknown as { fetch: unknown }).fetch = impl;
   };
+  const answer = (results: unknown[]) => ({ ok: true, json: async () => ({ results }) });
+  const journey = { trackName: "Don't Stop Believin'", artistName: 'Journey' };
 
-  it('asks /api/music on the page origin and maps what comes back', async () => {
+  it('asks iTunes first, from the browser, and maps what comes back', async () => {
     const calls: string[] = [];
     mockFetch(async (url: string) => {
       calls.push(url);
-      return { ok: true, json: async () => ({ results: [
-        { trackName: "Don't Stop Believin'", artistName: 'Journey' },
+      return answer([
+        journey,
         // The same song under the product's own identity rule (punctuation and case folded),
         // so the mapper must return ONE row -- a remaster with a different title is not.
         { trackName: 'DONT STOP BELIEVIN', artistName: 'journey' },
-      ] }) };
+      ]);
     });
     await withFlag(false, async () => {
       const out = await searchSongs('journey');
-      expect(calls[0]).toMatch(/\/api\/music\?term=journey$/);
+      expect(calls).toEqual(['https://itunes.apple.com/search?term=journey&entity=song&limit=8']);
       expect(out).toEqual([{ title: "Don't Stop Believin'", artist: 'Journey' }]);
     });
   });
 
-  it('answers nothing, never an error, when the proxy fails', async () => {
-    mockFetch(async () => ({ ok: false, status: 502, json: async () => ({}) }));
+  it('falls back to /api/music on the page origin when the direct call fails', async () => {
+    const calls: string[] = [];
+    mockFetch(async (url: string) => {
+      calls.push(url);
+      if (url.startsWith('https://itunes.apple.com/')) return { ok: false, status: 403, json: async () => ({}) };
+      return answer([journey]);
+    });
+    await withFlag(false, async () => {
+      const out = await searchSongs('journey');
+      expect(calls).toHaveLength(2);
+      expect(calls[1]).toMatch(/\/api\/music\?term=journey$/);
+      expect(out).toEqual([{ title: "Don't Stop Believin'", artist: 'Journey' }]);
+    });
+  });
+
+  it('and when the direct call is refused outright, the way a blocked request rejects', async () => {
+    const calls: string[] = [];
+    mockFetch(async (url: string) => {
+      calls.push(url);
+      if (url.startsWith('https://itunes.apple.com/')) throw new TypeError('Failed to fetch');
+      return answer([journey]);
+    });
+    await withFlag(false, async () => {
+      await expect(searchSongs('journey')).resolves.toEqual([{ title: "Don't Stop Believin'", artist: 'Journey' }]);
+      expect(calls).toHaveLength(2);
+    });
+  });
+
+  /**
+   * AN EMPTY ANSWER IS AN ANSWER. A local band is in no catalogue, and asking the proxy the
+   * same question again would double every such keystroke for nothing.
+   */
+  it('does not fall back when Apple answered and simply found nothing', async () => {
+    const calls: string[] = [];
+    mockFetch(async (url: string) => { calls.push(url); return answer([]); });
+    await withFlag(false, async () => {
+      await expect(searchSongs('the bridesmaids band')).resolves.toEqual([]);
+      expect(calls).toHaveLength(1);
+    });
+  });
+
+  /**
+   * AN ABORT IS THE COMPOSER MOVING ON, not a failure. The screen aborts the previous search on
+   * every keystroke; falling back after one would fire a stale proxy request per letter typed.
+   */
+  it('does not fall back after the search was aborted', async () => {
+    const calls: string[] = [];
+    const ac = new AbortController();
+    mockFetch(async (url: string) => {
+      calls.push(url);
+      ac.abort();
+      throw new DOMException('The operation was aborted.', 'AbortError');
+    });
+    await withFlag(false, async () => {
+      await expect(searchSongs('journey', ac.signal)).resolves.toEqual([]);
+      expect(calls).toHaveLength(1);
+    });
+  });
+
+  it('answers nothing, never an error, when both routes fail', async () => {
+    mockFetch(async () => ({ ok: false, status: 429, json: async () => ({}) }));
     await withFlag(false, async () => {
       await expect(searchSongs('journey')).resolves.toEqual([]);
     });
@@ -151,7 +217,7 @@ describe('the browser search goes through our own proxy', () => {
 
   it('does not ask at all below the minimum query', async () => {
     const calls: string[] = [];
-    mockFetch(async (url: string) => { calls.push(url); return { ok: true, json: async () => ({ results: [] }) }; });
+    mockFetch(async (url: string) => { calls.push(url); return answer([]); });
     await withFlag(false, async () => {
       await searchSongs('j');
       expect(calls).toHaveLength(0);

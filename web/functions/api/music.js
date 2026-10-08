@@ -1,17 +1,24 @@
 /**
  * /api/music?term=... -- the song type-ahead, for the browser.
  *
- * WHY THIS EXISTS. The native app calls the iTunes Search API directly (no key, no account,
- * the only third party the app talks to). Apple sends no CORS headers on it, so a browser
- * cannot make that call, and until this existed the web build's search returned nothing --
- * honest, documented, and the one thing a guest in Safari was missing that mattered: two
- * guests spelling the same song differently make two rows, and the votes split.
+ * IT IS THE FALLBACK NOW, NOT THE ROUTE (#117). It was built on the belief that Apple sends
+ * no CORS headers on the iTunes Search API. Apple sends `Access-Control-Allow-Origin: *`, and
+ * from Cloudflare's SHARED egress it answers 429 to every term -- so while every browser came
+ * through here, the type-ahead was empty for all of them. The browser asks Apple from its own
+ * connection first; this answers when that call fails (a network or blocker that stops
+ * `itunes.apple.com`). Two guests spelling one song differently make two rows and split the
+ * vote, which is why the type-ahead is worth a second route at all.
  *
  * SAME ORIGIN, SO NO CORS AT ALL. This runs as a Cloudflare Pages Function on
  * runit-app.pages.dev, the host the web app is served from. It is deliberately NOT an open
  * proxy: it accepts one parameter, bounds it, hits one fixed endpoint, returns only the two
  * fields the app reads, and caches at the edge so a room full of phones typing "journey"
  * costs Apple one request.
+ *
+ * A FAILURE IS NEVER CACHED, BY US OR BY ANYONE ELSE. The edge cache only ever stored a
+ * success, but the RESPONSE carried `max-age=3600` either way, so a browser that saw one 429
+ * kept serving itself the empty answer for an hour after Apple recovered. `no-store` unless
+ * the upstream answered.
  *
  * AN UPSTREAM FAILURE IS A 200 WITH NO RESULTS, not a 5xx. The client treats "no
  * suggestions" as exactly that, and lane G asserts this route's SHAPE on every board -- a
@@ -56,7 +63,9 @@ export async function onRequestGet({ request }) {
     upstream = 'unreachable';
   }
 
-  const out = new Response(JSON.stringify({ results, upstream }), { headers });
+  const out = new Response(JSON.stringify({ results, upstream }), {
+    headers: upstream === 'ok' ? headers : { ...headers, 'Cache-Control': 'no-store' },
+  });
   if (cache && upstream === 'ok') await cache.put(key, out.clone());
   return out;
 }

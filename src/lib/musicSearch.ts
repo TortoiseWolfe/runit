@@ -19,29 +19,20 @@
  * in 165-350ms, which is inside a type-ahead's budget. #8's recommendation is wrong for this
  * job and should be corrected rather than followed.
  *
- * IT SENDS NO CORS HEADERS, which is why this file has a `.web.ts` sibling. React Native's
- * fetch is not subject to CORS so a device is fine; a browser is not. Same split as
- * `capture`, `contacts`, `push`, `save` and `share`.
+ * THE `.web.ts` SIBLING IS NOT ABOUT CORS ANY MORE. This said iTunes sends no CORS headers;
+ * it sends `Access-Control-Allow-Origin: *` (measured 2026-10-07, read back from a real
+ * browser), so the web half asks Apple the same way. The sibling exists for the harness
+ * fixture and for the browser's fallback to our own proxy (#117).
  *
  * NO KEY, NO AUTH, NO SECRET. There is nothing here to leak and nothing to put in Vault.
  */
 import { MIN_QUERY } from './musicSearchConstants';
-import { LIMIT, toMatches, type SongMatch } from './musicSearchMap';
+import { askItunes, type SongMatch } from './musicSearchMap';
 
 export { MIN_QUERY, type SongMatch };
-
-const ENDPOINT = 'https://itunes.apple.com/search';
 
 export async function searchSongs(q: string, signal?: AbortSignal): Promise<SongMatch[]> {
   const term = q.trim();
   if (term.length < MIN_QUERY) return [];
-
-  try {
-    const url = `${ENDPOINT}?term=${encodeURIComponent(term)}&entity=song&limit=${LIMIT}`;
-    const res = await fetch(url, { signal });
-    if (!res.ok) return [];
-    return toMatches(await res.json());
-  } catch {
-    return [];
-  }
+  return (await askItunes(term, signal)) ?? [];
 }

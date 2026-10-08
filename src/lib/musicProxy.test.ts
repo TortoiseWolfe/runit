@@ -34,6 +34,28 @@ describe('/api/music', () => {
     expect(r.body).toEqual({ results: [], upstream: 'unreachable' });
   });
 
+  /**
+   * A FAILURE MUST NOT BE CACHED BY ANYONE (#117). The edge cache already skipped failures, but
+   * the response itself carried `max-age=3600`, so a browser that saw one 429 kept serving
+   * itself the empty answer for an hour after Apple recovered.
+   */
+  it('tells nobody to cache a failure, and caches a success for an hour', async () => {
+    const headerFor = async (impl: unknown) => {
+      mockFetch(impl);
+      const res = (await onRequestGet({ request: new Request('https://runit-app.pages.dev/api/music?term=journey') } as Ctx)) as Response;
+      return { cache: res.headers.get('cache-control'), body: await res.json() };
+    };
+    const limited = await headerFor(async () => ({ ok: false, status: 429, json: async () => ({}) }));
+    expect(limited.body).toEqual({ results: [], upstream: 'http 429' });
+    expect(limited.cache).toBe('no-store');
+
+    const down = await headerFor(async () => { throw new Error('ECONNRESET'); });
+    expect(down.cache).toBe('no-store');
+
+    const fine = await headerFor(async () => ({ ok: true, json: async () => ({ results: [] }) }));
+    expect(fine.cache).toBe('public, max-age=3600');
+  });
+
   it('refuses to call Apple at all for a one-character term', async () => {
     const seen: string[] = [];
     mockFetch(async (url: string) => { seen.push(url); return { ok: true, json: async () => ({ results: [] }) }; });

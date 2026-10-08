@@ -1,14 +1,16 @@
 /**
- * The web half of the song type-ahead, and it does not search.
+ * The web half of the song type-ahead.
  *
- * TWO SEPARATE REASONS, and each alone would be enough.
+ * OUTSIDE THE HARNESS IT ASKS APPLE FROM THE BROWSER, THEN OUR PROXY (#117). This file used to
+ * say the iTunes API sends no CORS headers, "verified against the live endpoint". It sends
+ * `Access-Control-Allow-Origin: *`, with or without an Origin header, and a real Chromium page
+ * on runit-app.pages.dev reads it -- measured 2026-10-07. Believing otherwise routed every
+ * browser through `/api/music`, and from Cloudflare's SHARED egress Apple answers 429 to every
+ * term: the type-ahead was empty for every browser guest while a phone, asking from its own
+ * connection, was fine. Now the browser asks from its own connection too, and the proxy is the
+ * fallback for a network or blocker that stops `itunes.apple.com`.
  *
- * THE API SENDS NO CORS HEADERS. Verified against the live endpoint: no
- * `access-control-allow-origin` on the response. React Native's fetch is not subject to CORS,
- * so `musicSearch.ts` works on a device; a browser refuses the request before it is sent.
- * There is no header to add from this side -- it is Apple's response, not ours.
- *
- * AND NO TEST MAY TOUCH A THIRD-PARTY API. Lane B runs 300-plus journeys many times an hour.
+ * UNDER THE HARNESS FLAG IT SEARCHES A FIXTURE, BECAUSE NO TEST MAY TOUCH A THIRD-PARTY API. Lane B runs 300-plus journeys many times an hour.
  * Pointing any of them at a live catalogue would make the suite depend on somebody else's
  * uptime, ranking and rate limit -- so a green board would stop being a statement about this
  * app, and a red one would usually mean nothing. The fixture below is what makes the
@@ -22,7 +24,7 @@ import { songKey } from '@/domain/songKey';
 // TYPE-ONLY from the sibling -- erased at compile time, so it cannot become the cycle
 // `captureConstants.ts` warns about. The VALUE comes from the shared module.
 import { MIN_QUERY } from './musicSearchConstants';
-import { toMatches, type SongMatch } from './musicSearchMap';
+import { askItunes, toMatches, type SongMatch } from './musicSearchMap';
 
 export { MIN_QUERY, type SongMatch };
 
@@ -65,10 +67,13 @@ export async function searchSongs(q: string, signal?: AbortSignal): Promise<Song
   const term = q.trim();
   if (term.length < MIN_QUERY) return [];
   if (process.env.EXPO_PUBLIC_FIDELITY !== '1') {
-    // THE REAL THING, through our own origin. Apple sends no CORS headers on the iTunes
-    // Search API, so the browser calls `web/functions/api/music.js` on the host it was served
-    // from, which calls Apple and returns the same two fields. Any failure is "no
-    // suggestions", never an error: a local band must stay requestable.
+    // THE REAL THING. Apple first, from this browser's own connection; an empty answer is an
+    // answer (a local band is in no catalogue). Only a FAILED call falls back to
+    // `web/functions/api/music.js` on our own origin -- and never an aborted one, which is the
+    // composer moving on to the next keystroke. Any failure is "no suggestions", never an error.
+    const direct = await askItunes(term, signal);
+    if (direct) return direct;
+    if (signal?.aborted) return [];
     try {
       // `window` exists without `location` in React Native's jest environment; a browser has both.
       const origin = (typeof window !== 'undefined' && window.location?.origin) || '';
