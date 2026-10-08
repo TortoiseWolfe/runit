@@ -54,6 +54,10 @@ export function CreateEventScreen() {
   const [busy, setBusy] = useState(false);
   /** Set once, and it holds the only copy of the key that will ever exist. */
   const [made, setMade] = useState<CreatedEvent | null>(null);
+  // #113: set when Create was tapped before the form could make an event. From then on the line
+  // under the button names what is missing and that field is outlined.
+  const [tried, setTried] = useState(false);
+  const [dateOpen, setDateOpen] = useState(false);
 
   /**
    * THE FLOOR, IN THE EVENT'S OWN ZONE. Nothing anywhere refused an event in the past --
@@ -71,8 +75,22 @@ export function CreateEventScreen() {
   const startsAt = useMemo(() => instantFrom(date, time, zone), [date, time, zone]);
   const ready = name.trim().length > 0 && startsAt !== null && !busy;
 
+  const missingName = name.trim().length === 0;
+  const missingDate = startsAt === null;
+
   const onCreate = async () => {
-    if (!ready || !startsAt) return;
+    if (busy) return;
+    if (missingName) {
+      setTried(true);
+      nameRef.current?.focus();
+      return;
+    }
+    if (missingDate || !startsAt) {
+      setTried(true);
+      setDateOpen(true);
+      return;
+    }
+    if (!ready) return;
     setBusy(true);
     try {
       const result = await createEvent({
@@ -243,6 +261,9 @@ export function CreateEventScreen() {
               accessibilityLabel="Date of the event"
               testID="create-date"
               minDate={today}
+              highlight={tried && !missingName && missingDate}
+              open={dateOpen}
+              onOpenChange={setDateOpen}
             />
           </View>
           <View style={s.half}>
@@ -309,22 +330,31 @@ export function CreateEventScreen() {
           style={fieldStyle}
         />
 
-        {/* Not drawn until it can act, the same rule as the calendar pill and the invite
-            row. A greyed Create with no explanation reads as broken software -- three
-            device reports' worth of evidence for that. `?empty=1` holds the general
-            form: nothing visible anywhere may be aria-disabled. */}
-        {ready ? (
-          <Button
-            onPress={onCreate}
-            testID="create-submit"
-            style={s.ctaGap}
-            label={busy ? 'Creating…' : 'Create it'}
-          />
-        ) : (
-          <Text testID="create-blocked" style={[s.helper, { color: alpha(tokens.baseContent, fade.muted) }]}>
-            A name and a date are all it needs.
+        {/* ALWAYS DRAWN, AND NEVER DISABLED (#113). It used to be drawn only once a name and a
+            date were set, because a greyed Create "reads as broken software" -- true, and the
+            missing button read as "there is no way to finish": the owner, creating his own
+            party, asked how to actually create it. So the button is there from the start and
+            a tap too early is answered rather than refused in silence: it names the missing
+            thing, outlines that field, focuses the name or opens the date picker (native). It
+            always does something, so `?empty=1`'s rule -- nothing aria-disabled -- holds. */}
+        <Button
+          onPress={onCreate}
+          testID="create-submit"
+          style={s.ctaGap}
+          label={busy ? 'Creating…' : 'Create it'}
+        />
+        {!ready && !busy ? (
+          <Text
+            testID="create-blocked"
+            style={[s.helper, { color: tried ? tokens.accent : alpha(tokens.baseContent, fade.muted) }]}
+          >
+            {!tried
+              ? 'A name and a date are all it needs.'
+              : missingName
+                ? 'Give the party a name first.'
+                : 'Pick a date first, just above.'}
           </Text>
-        )}
+        ) : null}
 
         {/* Said plainly rather than discovered at the tenth guest. There is no purchase
             path (#30), so every new event runs on the free plan, and implying otherwise
