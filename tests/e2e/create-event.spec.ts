@@ -49,22 +49,39 @@ test.describe('making your own event', () => {
     await expect(page.getByTestId('create-event')).toBeVisible();
   });
 
-  test('does not offer Create until it has something to create', async ({ page }, testInfo) => {
+  /*
+   * #113. This test used to assert the opposite -- Create absent until a name and a date were
+   * set -- and the owner, making his own party, could not find a way to finish. The button is
+   * there from the start now, never disabled, and a tap too early is ANSWERED: it names what is
+   * missing and creates nothing. Each clause below is a mutation that must die: hiding the
+   * button again, letting a nameless or dateless tap through, or a message that does not move.
+   */
+  test('offers Create from the start, and says what is missing when tapped too early', async ({ page }, testInfo) => {
     const scheme = testInfo.project.name as 'dark' | 'light';
     await open(page, scheme, '/create', 'create-event');
 
-    // A control that cannot act is not drawn, the same rule as the calendar pill.
-    await expect(page.getByTestId('create-submit')).toHaveCount(0);
-    await expect(page.getByTestId('create-blocked')).toBeVisible();
+    await expect(page.getByTestId('create-submit')).toBeVisible();
+    await expect(page.getByTestId('create-blocked')).toHaveText('A name and a date are all it needs.');
     await expect(page.locator('[aria-disabled="true"]')).toHaveCount(0);
 
-    // A name alone is not enough: an event with no date is the bug this whole arc came
-    // out of, so the form refuses to make one.
-    await page.getByTestId('create-name').fill("Ruth's 40th");
-    await expect(page.getByTestId('create-submit')).toHaveCount(0);
+    // Nothing filled in: it asks for the name and creates nothing.
+    await page.getByTestId('create-submit').click();
+    await expect(page.getByTestId('create-blocked')).toHaveText('Give the party a name first.');
+    await expect(page.getByTestId('created-key')).toHaveCount(0);
+    await expect(page.getByTestId('create-name')).toBeFocused();
 
-    await page.getByTestId('create-date').fill('2026-09-11');
-    await expect(page.getByTestId('create-submit')).toBeVisible();
+    // A name alone is still not an event: an event with no date is the bug this whole arc came
+    // out of, so it asks for the date next.
+    await page.getByTestId('create-name').fill("Ruth's 40th");
+    await page.getByTestId('create-submit').click();
+    await expect(page.getByTestId('create-blocked')).toHaveText('Pick a date first, just above.');
+    await expect(page.getByTestId('created-key')).toHaveCount(0);
+
+    // With both, the line goes and the same button makes the event.
+    await page.getByTestId('create-date').fill(UPCOMING);
+    await expect(page.getByTestId('create-blocked')).toHaveCount(0);
+    await page.getByTestId('create-submit').click();
+    await expect(page.getByTestId('created-key')).toBeVisible();
   });
 
   test('reads the typed date and time back before anything is created', async ({

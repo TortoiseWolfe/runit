@@ -30,7 +30,7 @@ export { toDateValue, toTimeValue } from './DateTimeField';
  * already parses. The DOM agreed with the schema before either of us did.
  */
 export function DateTimeField({
-  mode, value, onChange, placeholder, accessibilityLabel, testID, minDate,
+  mode, value, onChange, placeholder, accessibilityLabel, testID, minDate, highlight,
 }: DateTimeFieldProps) {
   const { tokens, fade } = useTheme();
 
@@ -52,9 +52,9 @@ export function DateTimeField({
           minHeight: 46,
           paddingLeft: 14,
           paddingRight: 14,
-          borderWidth: 1,
+          borderWidth: highlight ? 2 : 1,
           borderStyle: 'solid',
-          borderColor: tokens.base300,
+          borderColor: highlight ? tokens.accent : tokens.base300,
           borderRadius: radius.field,
           backgroundColor: tokens.base100,
           color: value ? tokens.baseContent : alpha(tokens.baseContent, fade.faint),

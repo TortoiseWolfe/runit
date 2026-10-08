@@ -36,6 +36,18 @@ export interface DateTimeFieldProps {
   testID: string;
   /** `YYYY-MM-DD`. Dates before this cannot be chosen. Ignored in time mode. */
   minDate?: string;
+  /**
+   * Outline the field as the one still missing (#113). Set by a form after somebody tapped its
+   * submit button too early, so the eye lands on the thing to fix.
+   */
+  highlight?: boolean;
+  /**
+   * Controlled open state, optional. Lets a form open the picker for somebody who tapped submit
+   * before choosing (#113). Native only: a browser will not open a date input's picker without
+   * a tap on the input itself, so the web half ignores it and relies on `highlight`.
+   */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -76,10 +88,13 @@ function display(mode: 'date' | 'time', value: string): string | null {
 }
 
 export function DateTimeField({
-  mode, value, onChange, placeholder, accessibilityLabel, testID, minDate,
+  mode, value, onChange, placeholder, accessibilityLabel, testID, minDate, highlight,
+  open: openProp, onOpenChange,
 }: DateTimeFieldProps) {
   const { tokens, fade } = useTheme();
-  const [open, setOpen] = useState(false);
+  const [openLocal, setOpenLocal] = useState(false);
+  const open = openProp ?? openLocal;
+  const setOpen = onOpenChange ?? setOpenLocal;
   const shown = display(mode, value);
 
   const commit = (event: DateTimePickerEvent, picked?: Date) => {
@@ -103,7 +118,8 @@ export function DateTimeField({
         testID={testID}
         style={[
           s.field,
-          { borderColor: tokens.base300, backgroundColor: tokens.base100 },
+          { borderColor: highlight ? tokens.accent : tokens.base300, backgroundColor: tokens.base100 },
+          highlight ? { borderWidth: 2 } : null,
         ]}
       >
         <Text
