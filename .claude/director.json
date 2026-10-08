@@ -6,9 +6,13 @@
     "Three lanes skip LOUDLY without credentials (lane E RLS, auth config drift, live auth settings). The director's workers never hold secrets, so those stay with the owner.",
     "-p runit-wf keeps the dev stack's volumes untouched; every compose call must keep it, or each worktree leaks a network. -v /app/node_modules gives each run its own install, so parallel worktrees never race on the shared volume; the pnpm store stays shared (content-addressed). -v $G:$G:ro lets git resolve a worktree's .git inside the container.",
     "image: runit-checks:local is a fixed tag shared with the main checkout, so a worktree that changes docker/checks.Dockerfile and runs CHECK_IMAGE retags the image the main checkout uses.",
-    "While the re-spec sprint's work sits unmerged on claude/exciting-planck-umrj5a (see #1), run the director with base: origin/claude/exciting-planck-umrj5a for that work."
+    "While the re-spec sprint's work sits unmerged on claude/exciting-planck-umrj5a (see #1), run the director with base: origin/claude/exciting-planck-umrj5a for that work.",
+    "panel.class \"public\" mirrors ~/.config/panel/classes.json; panel_gate.py uses the stricter of the two, so this can never loosen what the map allows."
   ],
   "base": "origin/main",
+  "panel": {
+    "class": "public"
+  },
   "checks": {
     "CHECK_SUITE": "G=$(git rev-parse --path-format=absolute --git-common-dir); docker compose -p runit-wf run --rm -T -v /app/node_modules -v \"$G\":\"$G\":ro checks",
     "CHECK_IMAGE": "docker compose -p runit-wf build checks"
