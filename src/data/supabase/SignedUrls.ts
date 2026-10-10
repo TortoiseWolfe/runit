@@ -68,6 +68,12 @@ export class SignedUrls {
   /** Pending re-sign timers, so closing the event can cancel every one of them. */
   private timers = new Set<ReturnType<typeof setTimeout>>();
 
+  /**
+   * Keys asked for through `resolveOne` in the CURRENT TICK, and the promise that signs them
+   * (#94). Null between batches.
+   */
+  private batch: { keys: Set<string>; done: Promise<void> } | null = null;
+
   constructor(
     private readonly db: RunitClient,
     private readonly now: () => number = () => Date.now(),
@@ -179,12 +185,29 @@ export class SignedUrls {
    *
    * For the full-size original, which is signed only when somebody opens a photo. It goes
    * through the same cache as the grid, so opening the same photo twice in an hour is one
-   * request -- and closing the event drops it with everything else.
+   * request, and closing the event drops it with everything else.
+   *
+   * KEYS ASKED FOR IN THE SAME TICK SHARE ONE REQUEST (#94). The viewer asks for the photo
+   * it opened and both neighbours in the same commit, and each used to be its own
+   * `createSignedUrls`: up to three per swipe. They are gathered until the current task's
+   * microtasks run and then signed together through `resolve`, which still skips anything
+   * cached or already in flight.
    */
   async resolveOne(key: string): Promise<string | null> {
     const hit = this.get(key);
     if (hit !== null) return hit;
-    await this.resolve([key]);
+    let batch = this.batch;
+    if (batch === null) {
+      const keys = new Set<string>();
+      const done = Promise.resolve().then(() => {
+        this.batch = null;
+        return this.resolve([...keys]).then(() => undefined);
+      });
+      batch = { keys, done };
+      this.batch = batch;
+    }
+    batch.keys.add(key);
+    await batch.done;
     return this.get(key);
   }
 

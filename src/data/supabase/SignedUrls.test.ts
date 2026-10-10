@@ -190,3 +190,41 @@ describe('refreshing before expiry (#94)', () => {
     expect(timers[0]!.cancelled).toBe(true);
   });
 });
+
+/*
+ * #94, PART 2: THE VIEWER'S SIGNS ARE ONE REQUEST. It asks for the open photo and both
+ * neighbours in one commit; each used to be its own createSignedUrls.
+ */
+describe('resolving full-size photos (#94)', () => {
+  it('signs every key asked for in the same tick in ONE request', async () => {
+    const { c, s } = make();
+    const urls = await Promise.all([
+      s.resolveOne('e1/a.jpg'),
+      s.resolveOne('e1/b.jpg'),
+      s.resolveOne('e1/c.jpg'),
+    ]);
+    const calls = c.find('sign', 'event-photos');
+    expect(calls).toHaveLength(1);
+    expect([...(calls[0]!.payload as { paths: string[] }).paths].sort()).toEqual([
+      'e1/a.jpg', 'e1/b.jpg', 'e1/c.jpg',
+    ]);
+    // Keyed by path, not by position: the fake answers in reverse order on purpose.
+    expect(urls[0]).toContain('e1/a.jpg');
+    expect(urls[1]).toContain('e1/b.jpg');
+    expect(urls[2]).toContain('e1/c.jpg');
+  });
+
+  it('answers a key it already holds from the cache, without asking again', async () => {
+    const { c, s } = make();
+    await s.resolveOne('e1/a.jpg');
+    expect(await s.resolveOne('e1/a.jpg')).toContain('e1/a.jpg');
+    expect(c.find('sign', 'event-photos')).toHaveLength(1);
+  });
+
+  it('starts a new batch for a key asked for after the last one left', async () => {
+    const { c, s } = make();
+    await s.resolveOne('e1/a.jpg');
+    await s.resolveOne('e1/b.jpg');
+    expect(c.find('sign', 'event-photos')).toHaveLength(2);
+  });
+});

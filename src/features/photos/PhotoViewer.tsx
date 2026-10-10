@@ -98,15 +98,18 @@ export function PhotoViewer({
   /**
    * WARM THE NEIGHBOURS, because without this a carousel feels broken on a phone.
    *
-   * Thumbnails are signed in bulk after every recompute, but the FULL size is resolved one
-   * at a time on demand (`SignedUrls.resolveOne`) -- so every step would otherwise be a
-   * fresh network round trip that nothing had started. Asking for index +/- 1 and throwing
-   * the answer away costs one request and fills the same cache the next step reads;
-   * `SignedUrls.resolve` already de-dupes against its in-flight set, so a fast swipe does
-   * not stack requests.
+   * Thumbnails are signed in bulk after every recompute, but the FULL size is resolved on
+   * demand, so every step would otherwise be a fresh network round trip that nothing had
+   * started. Asking for index +/- 1 and throwing the answer away fills the same cache the
+   * next step reads.
    *
-   * Deliberately fire-and-forget and deliberately unasserted: it changes latency, not
-   * behaviour, so a test that noticed it would be asserting a timing accident.
+   * ONE REQUEST FOR ALL THREE (#94). This effect and the one above run in the same commit,
+   * so the open photo and both neighbours reach `SignedUrls.resolveOne` in the same tick, and
+   * it signs every key asked for in one tick in a single `createSignedUrls`. It used to be up
+   * to three requests per swipe.
+   *
+   * Deliberately fire-and-forget and deliberately unasserted here: it changes latency, not
+   * behaviour. The batching itself is asserted in SignedUrls.test.ts.
    */
   useEffect(() => {
     if (index === null) return;
