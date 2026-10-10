@@ -43,6 +43,7 @@ import type {
 } from '@/data/types';
 import { useRepository } from './RepositoryProvider';
 import { useToast } from './ToastProvider';
+import { deletionFailureMessage } from './deletionFailure';
 
 /**
  * Runs a repository write and turns an EntitlementError into a contextual REFUSAL
@@ -502,7 +503,7 @@ export function useAccountActions() {
           await repo.session.deleteAccount();
           return true;
         } catch (e) {
-          show(e instanceof Error ? e.message : 'Could not delete your account.');
+          show(deletionFailureMessage(e, 'account'));
           return false;
         }
       },
@@ -602,7 +603,7 @@ export function useEventActions() {
           await repo.event.remove(id);
           return true;
         } catch (e) {
-          show(e instanceof Error ? e.message : 'Could not delete this event.');
+          show(deletionFailureMessage(e, 'event'));
           return false;
         }
       },
