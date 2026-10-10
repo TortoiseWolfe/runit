@@ -32,9 +32,11 @@ type Result = { data: unknown; error: unknown };
 
 /** One recorded operation, so a test can assert on WHAT was sent, not only the reply. */
 export interface Op {
-  kind: 'select' | 'insert' | 'update' | 'delete' | 'rpc' | 'upload' | 'sign';
+  kind: 'select' | 'insert' | 'update' | 'delete' | 'upsert' | 'rpc' | 'upload' | 'sign';
   table: string;
   payload?: unknown;
+  /** What `.upsert(rows, options)` was told, verbatim (#129). Absent for every other kind. */
+  options?: unknown;
   filters: [string, unknown][];
   selected: boolean;
   /**
@@ -192,14 +194,17 @@ export class FakeClient {
     return { data: [{ id: 'row' }], error: null };
   };
 
-  private op(kind: Op['kind'], table: string, payload?: unknown): Query {
-    return new Query({ kind, table, payload, filters: [], selected: false }, this.run);
+  private op(kind: Op['kind'], table: string, payload?: unknown, options?: unknown): Query {
+    const op: Op = { kind, table, payload, filters: [], selected: false };
+    if (options !== undefined) op.options = options;
+    return new Query(op, this.run);
   }
 
   from(table: string) {
     return {
       select: (columns?: string) => this.op('select', table).select(columns),
       insert: (payload: unknown) => this.op('insert', table, payload),
+      upsert: (payload: unknown, options?: unknown) => this.op('upsert', table, payload, options),
       update: (payload: unknown) => this.op('update', table, payload),
       delete: () => this.op('delete', table),
     };

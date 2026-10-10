@@ -1471,7 +1471,7 @@ describe('marking an announcement read (#24)', () => {
 
     // ONE INSERT, NOT TWO. The caller is a scroll handler and a screenful arrives at
     // once; a request per bubble is what makes this feature expensive on a venue's wifi.
-    const writes = c.find('insert', 'broadcast_reads');
+    const writes = c.find('upsert', 'broadcast_reads');
     expect(writes).toHaveLength(1);
     expect(writes[0]!.payload).toEqual([
       { broadcast_id: B1, guest_id: GUEST },
@@ -1487,7 +1487,7 @@ describe('marking an announcement read (#24)', () => {
     // The second call carries B1 again -- the screen re-sweeps whatever is on screen --
     // and only B2 should reach the wire. The database would absorb the rest as 23505,
     // which is precisely why this has to be asserted here rather than assumed there.
-    const writes = c.find('insert', 'broadcast_reads');
+    const writes = c.find('upsert', 'broadcast_reads');
     expect(writes).toHaveLength(2);
     expect(writes[1]!.payload).toEqual([{ broadcast_id: B2, guest_id: GUEST }]);
   });
@@ -1503,13 +1503,13 @@ describe('marking an announcement read (#24)', () => {
     // `fold_seen_count` excludes a seat held by a host of the event, so the row would be
     // stored and then not counted -- and "seen by 1" the moment its author looks at it is
     // a number the host would believe.
-    expect(c.find('insert', 'broadcast_reads')).toHaveLength(0);
+    expect(c.find('upsert', 'broadcast_reads')).toHaveLength(0);
   });
 
   it('swallows a duplicate, which is the desired state arriving twice', async () => {
     const c = ready();
     c.on((op) => (op.kind === 'rpc' && op.table === 'is_host' ? { data: false, error: null } : undefined));
-    c.on((op) => (op.kind === 'insert' && op.table === 'broadcast_reads' ? pgError('23505', 'duplicate key') : undefined));
+    c.on((op) => (op.kind === 'upsert' && op.table === 'broadcast_reads' ? pgError('23505', 'duplicate key') : undefined));
     const repo = await join(c);
 
     // The composite primary key (broadcast_id, guest_id) already says a read exists at
@@ -1522,7 +1522,7 @@ describe('marking an announcement read (#24)', () => {
     c.on((op) => (op.kind === 'rpc' && op.table === 'is_host' ? { data: false, error: null } : undefined));
     let fail = true;
     c.on((op) => {
-      if (op.kind !== 'insert' || op.table !== 'broadcast_reads') return undefined;
+      if (op.kind !== 'upsert' || op.table !== 'broadcast_reads') return undefined;
       if (!fail) return undefined;
       fail = false;
       return refusedLoudly();
@@ -1533,7 +1533,20 @@ describe('marking an announcement read (#24)', () => {
     // Without the un-mark, an announcement whose first write lost the network is "seen by
     // 0" for the rest of the night, and nothing anywhere retries it.
     await repo.chat.markRead([B1]);
-    expect(c.find('insert', 'broadcast_reads')).toHaveLength(2);
+    expect(c.find('upsert', 'broadcast_reads')).toHaveLength(2);
+  });
+
+  it('asks the database to ignore a read it already holds, so re-entering is not a 409 (#129)', async () => {
+    const { c, repo } = await asGuest();
+    await repo.chat.markRead([B1]);
+
+    // A guest coming back into a party starts with an empty readMarks set, so this exact
+    // row goes out again. As a plain INSERT the primary key answered 23505 -- a 409 in the
+    // console on every visit. `ignoreDuplicates` is PostgREST's `on conflict do nothing`.
+    const writes = c.find('upsert', 'broadcast_reads');
+    expect(writes).toHaveLength(1);
+    expect(writes[0]!.options).toEqual({ ignoreDuplicates: true });
+    expect(c.find('insert', 'broadcast_reads')).toHaveLength(0);
   });
 });
 

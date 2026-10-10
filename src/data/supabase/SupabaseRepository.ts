@@ -2442,14 +2442,21 @@ export class SupabaseRepository implements RunitRepository {
       // a scroll handler firing twice before the insert lands sends the same rows twice.
       for (const id of fresh) this.readMarks.add(id as unknown as string);
 
-      const { error } = await this.db.from('broadcast_reads').insert(
+      // ON CONFLICT DO NOTHING (#129). `readMarks` lives in memory, so a guest re-entering a
+      // party she has already read sends every visible announcement again. As a plain INSERT
+      // each repeat came back 23505, which PostgREST answers as a 409: a red line in the
+      // console on every visit, for the desired state arriving twice. `ignoreDuplicates`
+      // makes PostgREST write `on conflict do nothing`, and with no `onConflict` it resolves
+      // against the PRIMARY KEY (broadcast_id, guest_id), so no constraint name is written
+      // down here to drift from the schema. A skipped row fires no fold trigger, which is
+      // right: that read was already counted.
+      const { error } = await this.db.from('broadcast_reads').upsert(
         fresh.map((id) => ({ broadcast_id: id, guest_id: guestId })),
+        { ignoreDuplicates: true },
       );
       if (error) {
-        // 23505 IS THE IDEMPOTENCY, exactly as it is for song_votes and blocks: the
-        // primary key (broadcast_id, guest_id) already says a read exists at most once, so
-        // a duplicate is the desired state arriving twice. Reaching for upsert here would
-        // mean naming the constraint in a string that can drift from the schema.
+        // 23505 should no longer arrive. If a server ever answers the old way it is still the
+        // desired state arriving twice, so it stays a quiet return rather than a throw.
         if (isPgError(error) && error.code === '23505') return;
         // Anything else: forget the mark so the next sweep tries again. A read that never
         // records is a wrong number forever, and the sweep is already running.
