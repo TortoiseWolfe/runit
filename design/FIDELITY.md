@@ -559,6 +559,11 @@ diffing: 394 of 3.1M pixels differ (0.0125%), **max channel delta 7/255**, 296 o
 by 1–2 — sub-pixel antialiasing from rasterising text inside a scroll container, not a
 shift. A real move would be contiguous bands with deltas of 100+.
 
+**The footer is gone (#114).** "RunIt · Event plan" was canvas copy wired to nothing, and on
+the live site it read as a pricing tier to every visitor, including somebody with no event and
+no plan. It was deleted rather than reworded. `flexGrow: 1` stays: it costs nothing, and
+anything pinned to the bottom of the join screen again will need it.
+
 `paddingHorizontal` stays on `<Screen>` rather than moving to the content container: it
 is the containing block `<Toast>`'s `left/right: 20` resolves against, and moving it
 would widen the toast by 48pt.

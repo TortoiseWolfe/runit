@@ -219,10 +219,10 @@ export function JoinScreen() {
           keyboard and never reaches the button. Without it this change would make the
           reported symptom worse, not better.
 
-          contentContainerStyle carries flexGrow:1 because s.footer pins itself with
-          marginTop:'auto', and that only has free space to absorb if the content
-          container fills the scroll frame the way Screen's flex:1 filled it before.
-          If the footer creeps up under the CTA, this is what is missing.
+          contentContainerStyle carries flexGrow:1 so the content container fills the
+          scroll frame the way Screen's flex:1 filled it before. It used to let the
+          canvas footer pin itself to the bottom with marginTop:'auto'; that footer is
+          gone (#114), and anything pinned to the bottom here again will need it.
         */}
         <ScrollView
           contentContainerStyle={s.content}
@@ -624,12 +624,6 @@ export function JoinScreen() {
             label={joined ? "You're in ✓" : "Run it"}
           />
 
-          <Text
-            style={[s.footer, { color: alpha(tokens.baseContent, fade.faint) }]}
-          >
-            RunIt · Event plan
-          </Text>
-
           {/* join() reports both outcomes through the toast -- the welcome on the
               way to Chat, and "That code doesn't match an event." when it doesn't.
               The guest and host layouts each mount a <Toast>, but /join sits
@@ -725,5 +719,4 @@ const s = StyleSheet.create({
   codeInput: { fontSize: 18, letterSpacing: tracking(0.2, 18) },
   nickInput: { fontSize: 16 },
   fine: { fontSize: 12, lineHeight: 18 },
-  footer: { marginTop: "auto", textAlign: "center", fontSize: 12 },
 });

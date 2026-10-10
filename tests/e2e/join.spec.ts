@@ -89,6 +89,10 @@ test.describe('Join', () => {
     // And the count this file spends most of its time on is not on this screen
     // at all -- which is the whole reason there is no pre-join reading of it.
     await expect(page.getByText(HERE_PILL)).toHaveCount(0);
+
+    // #114: the canvas footer "RunIt · Event plan" was shown to every visitor, read as a
+    // pricing tier, and said nothing true about them. It is deleted, not reworded.
+    await expect(page.getByText('Event plan')).toHaveCount(0);
   });
 
   test('a code that matches no event is refused out loud, and does not leave the screen', async ({
