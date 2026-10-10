@@ -16,6 +16,10 @@
   phone, where no in-app tutorial can reach. So the browser route leads, because it skips all
   of that, and the TestFlight steps are spelled out once, here, for everyone.
 
+  THE IPHONE STEPS ARE THE PUBLIC TESTFLIGHT LINK SINCE #120. The App Store Connect invitation
+  described above is now the exception, not the rule; /beta/, /i/ and this page carry the same
+  link and code, and src/lib/installStory.test.ts fails if they stop agreeing.
+
   Same shape as web/i/index.html: one file, no build step, no framework, no analytics. The
   colours are that page's tokens. `id="help-guide"` is what lane G (tools/verify-links.mjs)
   reads back, because on this host a `_redirects` catch-all serves the app's HTML shell under
@@ -159,15 +163,13 @@
       <summary>iPhone<span class="lead">through Apple's TestFlight</span></summary>
       <div class="body">
       <ol class="steps">
-        <li>Send the host the email address on your Apple&nbsp;ID. They add you by hand.</li>
-        <li>Apple emails you an invitation from <b>App Store Connect</b>. It doesn't mention
-          parties, and it often lands in Junk or Spam. Search your email for
-          <b>App Store Connect</b>, not TestFlight.</li>
-        <li>Open it on your iPhone and tap <span class="btn">Accept</span>. The invitation runs
-          out after about three days. If it has, ask the host to send another.</li>
-        <li>Install <b>TestFlight</b> from the App Store. It's Apple's free app for testing.</li>
-        <li>Open TestFlight, signed in with the same Apple&nbsp;ID. RunIt is in the list. Tap
+        <li>Install <b>TestFlight</b> from the App Store. It's Apple's free app for trying apps
+          before they're in the App Store.</li>
+        <li>On your iPhone, open
+          <a href="https://testflight.apple.com/join/sjVRunHc">the RunIt beta link</a>.
+          TestFlight opens; tap <span class="btn">Accept</span>, then
           <span class="btn">Install</span>.</li>
+        <li>TestFlight asking for a code instead? Type <b>sjVRunHc</b>.</li>
       </ol>
       </div>
     </details>

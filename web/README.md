@@ -9,7 +9,7 @@ No build step, no framework, no backend.
 | `_headers` | Forces `Content-Type: application/json` on that file. **This is why the site is here.** |
 | `_redirects` | Rewrites `/i/ANYCODE` to the one page, without changing the URL. |
 | `i/index.html` | The page a stranger sees. Shows the code big enough to type, links to the App Store. |
-| `help/index.html` | How RunIt works: joining, getting the beta app (Apple's App Store Connect email, TestFlight), hosting. The one page anybody can be sent instead of hand-written steps. Lane G checks it is served, not the app shell. |
+| `help/index.html` | How RunIt works: joining, getting the beta app (the public TestFlight link), hosting. The one page anybody can be sent instead of hand-written steps. Lane G checks it is served, not the app shell. |
 
 ## Why not GitHub Pages, where the legal pages already live
 

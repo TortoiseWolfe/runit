@@ -36,8 +36,8 @@
 
   THE ANDROID LINK IS THE SAME ONE `web/i/index.html` CARRIES, with the same `data-expires`.
   Two pages, one download, and lane G fails if they ever disagree, so repointing one and
-  forgetting the other is caught rather than shipped. The public TestFlight link lives only
-  here.
+  forgetting the other is caught rather than shipped. The public TestFlight link and its code
+  are on /i/ and /help/ too (#120); src/lib/installStory.test.ts fails if the three disagree.
 
   THE SECTIONS FOLD, ALL CLOSED, ONE OPEN AT A TIME (`<details name="beta">`, no script), the
   same pattern as /help/. On a phone the other phone's section is still hidden, so an iPhone sees
@@ -128,6 +128,12 @@
        alt="A RunIt invitation card in an envelope: Chat. Pics. Dance.">
   <h1>Try the RunIt beta</h1>
   <p class="sub">RunIt is one screen for a party: announcements, a shared photo album and song requests.</p>
+
+  <!-- THE BROWSER ROUTE, FOR EVERY PHONE (#120). It lived only inside the Android fold, which an
+       iPhone never sees, so an iPhone visitor was offered the app or nothing. Outside the folds
+       so the platform detection below cannot hide it. -->
+  <a class="cta secondary" id="web" href="/join">Join in your browser &rarr;</a>
+  <p class="note" style="margin:6px 0 22px">No installing: RunIt works in any phone&rsquo;s browser. The app is optional.</p>
 
   <div class="folds">
   <details class="sec" name="beta" id="iphone">

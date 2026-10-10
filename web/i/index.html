@@ -201,8 +201,8 @@
        where they stopped.
 
        This is the one route that works for everybody tonight, on any phone, in one tap. It
-       matters most on iPhone, where the alternative below asks a guest to hand their Apple
-       ID to the host and wait for an email from Apple that does not mention parties.
+       matters most on iPhone, where the alternative below is a second app (TestFlight) to
+       install before RunIt.
 
        SO THE HIERARCHY INVERTED, deliberately, against this page's own earlier rule that
        one route is shown and not two. That rule was written when the second button was a
@@ -258,22 +258,22 @@
     </li>
   </ol>
 
-  <!-- THE IPHONE ROUTE, AND WHY IT IS NOT A mailto ANY MORE.
-       It used to be `mailto:` to a personal address asking a guest to paste their Apple ID and
-       wait -- asking somebody for their email, by email, before they can see the party they
-       were invited to. It also promised "a TestFlight invitation", which is not what Apple
-       sends: Apple sends an App Store Connect TEAM invitation asking a private person to join
-       a developer account, which reads like phishing to somebody expecting a party app.
-       Saying so plainly is the difference between an accepted invitation and a deleted one. -->
+  <!-- THE IPHONE ROUTE IS THE PUBLIC TESTFLIGHT LINK (#120).
+       It was a mailto to a personal address, then a paragraph asking the guest to send the host
+       their Apple ID and wait for an App Store Connect team invitation. Since the public link was
+       approved on 2026-10-05 that is the exception, not the rule. This is the same link and code
+       /beta/ carries, and src/lib/installStory.test.ts fails if this page, /beta/ and /help/ stop
+       agreeing. -->
   <div id="ask" hidden>
     <p class="rule">iPhone</p>
-    <p class="route">The browser route above works on iPhone today and needs none of this. For the app itself: Apple does not let a private app install itself. The host has to add your
-      Apple&nbsp;ID by hand first, and then Apple emails <em>you</em> an invitation to join a
-      developer team &mdash; that email is the real one, even though it does not mention
-      parties. Accept it, install <b>TestFlight</b> from the App&nbsp;Store, and RunIt appears
-      inside it.</p>
-    <p class="route"><b>Send the host the email address on your Apple&nbsp;ID</b> &mdash; reply
-      to whoever sent you this link. That is the only thing they need from you.</p>
+    <p class="route">The browser route above works on iPhone today and needs none of this. For
+      the app itself: install <b>TestFlight</b> from the App&nbsp;Store (Apple&rsquo;s free app
+      for trying apps before they&rsquo;re in the App&nbsp;Store), then tap the button below.
+      TestFlight opens; tap <b>Accept</b>, then <b>Install</b>.</p>
+    <p style="margin:10px 0 0">
+      <a class="cta secondary" id="testflight" href="https://testflight.apple.com/join/sjVRunHc">Join the RunIt beta</a>
+    </p>
+    <p class="route">TestFlight asking for a code? Type <b>sjVRunHc</b>.</p>
   </div>
 
   <!-- IF NONE OF THAT WORKED, SAY SO -- and this page had no way to, which is the gap that
@@ -365,7 +365,7 @@
     el('android').hidden = true;
     el('ask').hidden = false;
     el('ios').hidden = true;
-    el('installNote').textContent = 'On iPhone this takes a step from the host — see below.';
+    el('installNote').textContent = "On iPhone, RunIt comes through Apple's TestFlight — see below.";
   } else if (isAndroid) {
     el('ios').hidden = true;
     el('installNote').textContent = 'Tap Install, and allow it when Android asks. About 130 MB — use wi-fi.';
