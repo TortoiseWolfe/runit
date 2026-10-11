@@ -2,7 +2,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { useMusicActions } from '@/state/actions';
 import { useAccepted, useIncoming, useNowPlaying } from '@/state/hooks';
-import { playSong, serviceLabel } from '@/lib/music';
+import { handoffSentence, playSong } from '@/lib/music';
 import { useToast } from '@/state/ToastProvider';
 import { alpha, border, eyebrow, radius, useTheme, weight } from '@/theme';
 
@@ -39,11 +39,7 @@ export function DjQueuePanel() {
     if (!(await playNext())) return;
     if (!next) return;
     const used = await playSong(next.title, next.artist);
-    show(
-      used
-        ? `Opening in ${serviceLabel[used]}.`
-        : `Queued "${next.title}". No music app here — play it on whatever is on the speakers.`,
-    );
+    show(handoffSentence(used, next.title));
   };
 
   return (

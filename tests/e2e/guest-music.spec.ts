@@ -105,6 +105,25 @@ async function submitRequest(page: Page, text: string): Promise<void> {
 }
 
 test.describe('Guest · Music', () => {
+  /**
+   * #135 AND #136: "Playlists isn't playing music."
+   *
+   * WORKING AS DESIGNED, AND NOTHING ON THE TAB SAID SO. RunIt has no audio path and cannot have
+   * one without a catalogue licence (#8, `src/lib/music.ts`): the host's own music app plays the
+   * songs on the party's speakers. The tab's only words were "Requests" and "Queue", and its Now
+   * Playing card looks like a player, so a guest waited for sound from her own phone. The fix is
+   * the sentence, not fake playback. No package in this app can play audio at all.
+   */
+  test('says where the music plays, because it is not in this app (#135, #136)', async ({
+    page,
+  }, testInfo) => {
+    const scheme = testInfo.project.name as 'dark' | 'light';
+    await openMusic(page, scheme);
+    await expect(page.getByTestId('music-where')).toHaveText(
+      "Music plays on the party's speakers, not in this app. Request a song and vote for the ones you want next.",
+    );
+  });
+
   test('the queue ranks by votes, not by arrival', async ({ page }, testInfo) => {
     const scheme = testInfo.project.name as 'dark' | 'light';
     await openMusic(page, scheme);
@@ -498,6 +517,14 @@ test.describe('the song actually starts', () => {
     await expect(page.getByText('Nothing playing yet')).toBeVisible();
 
     await start.click();
+
+    // THE HANDOFF OPENS A SEARCH, NOT A SONG (#135, #136). It said "Opening in Spotify.", and a
+    // host who pressed ▶ and landed on a results list reported that the music was not playing.
+    // The toast now says the one step left. The service varies with what is installed, so it
+    // is matched, not named.
+    await expect(page.getByTestId('toast')).toHaveText(
+      /^Opened a (Spotify|Apple Music|YouTube Music) search for "Dancing Queen"\. Tap the song there to play it\.$/,
+    );
 
     // The label flipping is the proof the cursor MOVED, not that a string changed: it now
     // offers the NEXT one.
