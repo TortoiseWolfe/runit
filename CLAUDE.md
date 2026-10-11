@@ -1313,6 +1313,19 @@ laptop had ever committed one: `SUPABASE_SERVICE_ROLE_KEY` was never in `.env.lo
 holds. Every test artifact was deleted afterwards -- storage object first, then the row, THEN the
 issue, because deleting the issue while the row exists makes the next run re-file it.
 
+**THE HOURLY JOB FAILED FROM 2026-10-08 TO 2026-10-11 WITH TWO REPORTS UNFILED, OVER A `catch` THAT COULD
+NOT RUN.** Label creation is unconditional and the label has existed since 2026-09-21, so GitHub
+answers 422 `already_exists` -- but `gh()` in `app-feedback-to-issues.mjs` calls `process.exit(1)` on any
+non-2xx, so the `try`/`catch` round it was dead code, and the comment inside it ("already exists, carry on")
+described behaviour that could not happen. It stayed hidden because the label call only runs when a
+report is waiting: the first run to need it (2026-09-21, a test report) made the label, and any run that
+reached it afterwards would have failed, so every green run in between had nothing to file. The sibling
+`feedback-to-issues.mjs` throws a typed error from its `gh()` and was never affected -- the port changed the
+helper and kept the caller. `ensureLabel()` uses `ghSoft` (whose error now carries `status` and `body`) and
+tolerates exactly 422 + `Label` + `already_exists`; a 403, a 422 about a colour, or an unreadable body still
+fails the run. **The selftest drives the real `ghSoft` with only the socket faked**, and putting `gh()` back
+ends it with exit 1. Rule: a call you wrap to tolerate a failure must be a call that can throw.
+
 **A new-style secret key is not a JWT.** Measured before building: PostgREST and Storage both
 accept it as `apikey` alone and as `apikey` plus Bearer, so nothing needed a special case.
 

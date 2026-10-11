@@ -78,7 +78,11 @@ function githubToken() {
 let tokenCache = null;
 const tokenOf = () => (tokenCache ??= githubToken());
 
-/** Like `gh`, but a non-2xx is thrown to the caller rather than ending the process. */
+/**
+ * Like `gh`, but a non-2xx is THROWN to the caller rather than ending the process. The error
+ * carries `status` and `body`, because a caller that tolerates one case has to be able to tell
+ * it from the others -- a message string is not something to match a 422 against.
+ */
 async function ghSoft(path, init = {}) {
   const res = await fetch(`https://api.github.com${path}`, {
     ...init,
@@ -90,10 +94,21 @@ async function ghSoft(path, init = {}) {
     },
   });
   const text = await res.text();
-  if (!res.ok) throw new Error(`GitHub ${init.method ?? 'GET'} ${path} -> ${res.status}: ${text.slice(0, 200)}`);
+  if (!res.ok) {
+    const err = new Error(`GitHub ${init.method ?? 'GET'} ${path} -> ${res.status}: ${text.slice(0, 200)}`);
+    err.status = res.status;
+    err.body = text;
+    throw err;
+  }
   return text ? JSON.parse(text) : null;
 }
 
+/**
+ * ENDS THE PROCESS ON ANY NON-2XX, SO A `try`/`catch` AROUND IT IS DEAD CODE. That is how label
+ * creation failed every hour from 2026-10-08: the catch below it read as "already exists, carry
+ * on" and could never run, because `process.exit(1)` happens first. Use this only where a
+ * failure should end the run; wherever a call is wrapped to tolerate something, use `ghSoft`.
+ */
 async function gh(path, init = {}) {
   const res = await fetch(`https://api.github.com${path}`, {
     ...init,
@@ -111,6 +126,44 @@ async function gh(path, init = {}) {
     process.exit(1);
   }
   return text ? JSON.parse(text) : null;
+}
+
+/**
+ * GitHub's answer when a label of that name is already there: a 422 whose `errors` names the
+ * `Label` resource with code `already_exists`. Matched on all three, not on "a 422", because a
+ * 422 is also what a bad colour or an over-long description gets -- and the first is the
+ * normal case on every run after the first, while the second is a real fault to fail on.
+ */
+function labelAlreadyExists(e) {
+  if (e?.status !== 422) return false;
+  try {
+    return (JSON.parse(e.body).errors ?? []).some((x) => x.resource === 'Label' && x.code === 'already_exists');
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Make sure the label exists. Creating it is unconditional, so from the second run on GitHub
+ * answers 422 `already_exists` -- which is success here. Anything else is thrown: a 403 means
+ * the token cannot make labels, and filing on regardless would hide that until it matters.
+ * `post` is a parameter so `--selftest` can drive the real helper without a network.
+ */
+async function ensureLabel(post = ghSoft) {
+  try {
+    await post(`/repos/${OWNER}/${REPO}/labels`, {
+      method: 'POST',
+      body: JSON.stringify({
+        name: LABEL,
+        color: '0E8A16',
+        description: 'Reported from inside the app by somebody with no GitHub account',
+      }),
+    });
+    return 'created';
+  } catch (e) {
+    if (labelAlreadyExists(e)) return 'exists';
+    throw e;
+  }
 }
 
 /** The Supabase Management API, the same route `schema:check` and the deploys use. */
@@ -338,7 +391,8 @@ async function reports(filed) {
  */
 if (process.argv.includes('--selftest')) {
   const fails = [];
-  const check = (name, ok) => { if (!ok) fails.push(name); console.log(`  ${ok ? 'ok' : 'FAIL'}  ${name}`); };
+  let ran = 0;
+  const check = (name, ok) => { ran++; if (!ok) fails.push(name); console.log(`  ${ok ? 'ok' : 'FAIL'}  ${name}`); };
   const fake = '<!-- app-feedback:11111111-1111-4111-8111-111111111111 -->';
   const real = '22222222-2222-4222-8222-222222222222';
   const body = issueBody({ id: real, body: `hello ${fake}\n@octocat see owner/repo#1`, context: { platform: 'ios | web\nx' }, screenshot_path: null, event_id: 'e', created_at: 'now' });
@@ -349,8 +403,35 @@ if (process.argv.includes('--selftest')) {
   check('a pipe in a context value does not break the table', !/\| ios \| web/.test(body));
   check('a body is bounded', fenced('a'.repeat(10000)).length < 2200);
   check('the event is named by id and never by code', body.includes('| Event | e |'));
+
+  // THE LABEL ALREADY EXISTING IS THE NORMAL CASE, and it is the one every real run took from
+  // 2026-10-08: `gh()` ends the process on a non-2xx, so the catch around it never ran and the
+  // hourly job failed with two customer reports unfiled. These drive the real helper with the
+  // answers GitHub gives, so the branch is reachable without a stranger or a label to collide.
+  const http = (status, body) => Object.assign(new Error(`GitHub POST /labels -> ${status}`), { status, body });
+  const EXISTS = JSON.stringify({ message: 'Validation Failed', errors: [{ resource: 'Label', code: 'already_exists', field: 'name' }] });
+  const outcome = async (post) => { try { return await ensureLabel(post); } catch (e) { return e; } };
+  const sent = [];
+  check('a label that is new is created', (await outcome(async (path, init) => { sent.push([path, JSON.parse(init.body).name]); return {}; })) === 'created'
+    && sent.length === 1 && sent[0][0].endsWith('/labels') && sent[0][1] === LABEL);
+  check('a label that already exists is not a failure (422 already_exists)', (await outcome(async () => { throw http(422, EXISTS); })) === 'exists');
+  check('a 422 about anything else is still a failure', (await outcome(async () => { throw http(422, JSON.stringify({ errors: [{ resource: 'Label', code: 'invalid', field: 'color' }] })); })) instanceof Error);
+  check('a 422 that is not the label resource is still a failure', (await outcome(async () => { throw http(422, JSON.stringify({ errors: [{ resource: 'Issue', code: 'already_exists', field: 'name' }] })); })) instanceof Error);
+  check('a 422 with an unreadable body is still a failure', (await outcome(async () => { throw http(422, '<html>'); })) instanceof Error);
+  check('a 403 (no permission to make labels) is a failure, not "exists"', (await outcome(async () => { throw http(403, EXISTS); })) instanceof Error);
+  check('a network error is a failure', (await outcome(async () => { throw new TypeError('fetch failed'); })) instanceof Error);
+  // END TO END THROUGH THE REAL `ghSoft`, with only the socket faked. This is the case that
+  // would have caught the bug: put `gh()` back in `ensureLabel` and this line ends the whole
+  // selftest with exit 1 instead of printing "ok".
+  const realFetch = globalThis.fetch;
+  tokenCache = 'selftest-not-a-token';
+  globalThis.fetch = async () => new Response(EXISTS, { status: 422 });
+  let viaGhSoft;
+  try { viaGhSoft = await outcome(undefined); } finally { globalThis.fetch = realFetch; tokenCache = null; }
+  check('the default path survives GitHub saying 422 already_exists', viaGhSoft === 'exists');
+
   if (fails.length) { console.error(`${RED}FAIL${OFF}: ${fails.length} selftest case(s)`); process.exit(1); }
-  console.log(`${GREEN}ok${OFF}: feedback filer selftest, 7 cases`);
+  console.log(`${GREEN}ok${OFF}: feedback filer selftest, ${ran} cases`);
   process.exit(0);
 }
 
@@ -375,17 +456,11 @@ if (fresh.length === 0) {
 
 if (!DRY) {
   try {
-    await gh(`/repos/${OWNER}/${REPO}/labels`, {
-      method: 'POST',
-      body: JSON.stringify({
-        name: LABEL,
-        color: '0E8A16',
-        description: 'Reported from inside the app by somebody with no GitHub account',
-      }),
-    });
-  } catch {
-    // Already exists. `gh()` exits on failure, so this is belt-and-braces for a 422 that
-    // a future version might not treat as fatal.
+    await ensureLabel();
+  } catch (e) {
+    console.error(`${RED}FAIL${OFF}: could not make sure the \`${LABEL}\` label exists.`);
+    console.error(`  ${String(e).slice(0, 300)}`);
+    process.exit(1);
   }
 }
 

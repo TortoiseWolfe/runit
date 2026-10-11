@@ -153,9 +153,10 @@ step "tests"
 pnpm test
 
 step "feedback filer selftest  (hostile report text against a public issue tracker)"
-# No token, no network: the seven cases are the inputs only a stranger would send -- a forged
-# dedupe marker, an @mention, a pipe in a table cell, a 10k body -- and every real run takes
-# the happy path, so without this they are reachable only by that stranger.
+# No token, no network: the cases are the inputs only a stranger would send -- a forged
+# dedupe marker, an @mention, a pipe in a table cell, a 10k body -- and the answers only GitHub
+# gives (a label that already exists is a 422, and the normal case from the second report on).
+# Every real run takes the happy path, so without this they are reachable only by that stranger.
 node tools/app-feedback-to-issues.mjs --selftest
 
 step "SQL declare audit  (lane E cannot compile with a duplicate, and skips silently)"
