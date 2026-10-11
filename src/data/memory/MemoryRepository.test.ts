@@ -201,9 +201,9 @@ describe('photos', () => {
       transfer: flakyTransfer({ failAttempts: [1] }),
     });
     await r.session.joinAsGuest({ code: 'SR1017', nickname: 'Ada' });
-    // upload() is reached through useGuardedAction, which routes a throw to the
-    // PAYWALL. Throwing here would show a guest an upgrade prompt for a dropped
-    // connection.
+    // upload() is reached through useGuardedAction, which answers a throw with "That
+    // photo was not added" and no tile (#135). Throwing here would hide the Retry a
+    // dropped connection deserves.
     // It RESOLVES, and it resolves with the outcome rather than void -- a caller
     // that cannot tell delivered from failed announces success over a failure,
     // which is precisely what the toast used to do.

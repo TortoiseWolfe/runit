@@ -56,11 +56,28 @@ import { deletionFailureMessage } from './deletionFailure';
  *
  * The important property is unchanged and is the whole point of this function: a
  * gated action must never fail silently.
+ *
+ * AND NOW NO ACTION THROUGH HERE FAILS SILENTLY (#135, #136). It handled `EntitlementError`
+ * and RE-THREW everything else, and every caller is an `onPress` that nobody awaits -- so any
+ * other failure became an unhandled rejection: the guest tapped, nothing happened, nothing said
+ * why. On build 18 a guest who reopened her party from "Your events" held no guest id (#116),
+ * so `photos.upload` threw before any tile existed and the photo she had just taken vanished;
+ * her song request died the same way. #116 fixed that cause. This closes the class: the next
+ * cause gets a sentence too. `invite` and RoleSwitch had each patched it for themselves.
+ *
+ * A FIXED SENTENCE, NEVER `e.message`, by #115's rule: an adapter error can be supabase-js
+ * text or a note to a developer about policies. The real error goes to the log. A caller
+ * whose adapter speaks in sentences meant for people (`invite`) passes a function instead.
  */
+export const ACTION_FAILED = 'That did not go through. Try again.';
+
 export function useGuardedAction() {
   const { show } = useToast();
   return useCallback(
-    async (fn: () => Promise<unknown>): Promise<boolean> => {
+    async (
+      fn: () => Promise<unknown>,
+      failure: string | ((e: unknown) => string) = ACTION_FAILED,
+    ): Promise<boolean> => {
       try {
         await fn();
         return true;
@@ -69,7 +86,9 @@ export function useGuardedAction() {
           show(denialMessage(e.denial));
           return false;
         }
-        throw e;
+        console.warn('action failed', e);
+        show(typeof failure === 'function' ? failure(e) : failure);
+        return false;
       }
     },
     [show],
@@ -295,6 +314,11 @@ export function useMusicActions() {
   );
 }
 
+/** The camera or the resize failed: nothing was taken that the app is holding. #135. */
+export const CAMERA_FAILED = 'Could not take that photo. Try again.';
+/** The upload was refused before any tile existed, so the photo is nowhere on screen. #135. */
+export const PHOTO_NOT_ADDED = 'That photo was not added to the album. Try again.';
+
 export function usePhotoActions() {
   const repo = useRepository();
   const entitlements = useEntitlements();
@@ -320,7 +344,18 @@ export function usePhotoActions() {
           return;
         }
 
-        const shot = await capturePhoto();
+        // THE CAMERA, THE RESIZE AND THE COPY INTO OUR CACHE CAN ALL THROW, and this ran
+        // outside every catch (#135): the shutter's `onPress` swallowed the rejection and
+        // the shot was gone without a word. Its own sentence, because nothing was sent and
+        // there is no tile to retry from.
+        let shot: Awaited<ReturnType<typeof capturePhoto>>;
+        try {
+          shot = await capturePhoto();
+        } catch (e) {
+          console.warn('capture failed', e);
+          show(CAMERA_FAILED);
+          return;
+        }
         // null means the guest backed out of the camera. Not an error, and not
         // something to raise a toast about.
         if (!shot) return;
@@ -334,11 +369,16 @@ export function usePhotoActions() {
         // either way. Announcing success off that boolean is how the toast came
         // to read "Uploaded ... awaiting host approval" over a tile that was
         // simultaneously offering Retry. Found on a device, not in this lane.
+        //
+        // A THROW HERE MEANS NO TILE EXISTS: `upload()` refused before the overlay drew one
+        // (no seat, no event, no folder). That is exactly the photo a guest goes looking for,
+        // so the failure sentence says it is not in the album, rather than the generic one.
+        const { uri, thumbUri } = shot;
         let outcome: UploadOutcome | undefined;
         const ok = await guarded(async () => {
-          outcome = await repo.photos.upload({ localUri: shot.uri, thumbLocalUri: shot.thumbUri });
-        });
-        if (!ok) return; // routed to the paywall
+          outcome = await repo.photos.upload({ localUri: uri, thumbLocalUri: thumbUri });
+        }, PHOTO_NOT_ADDED);
+        if (!ok) return; // refused, and `guarded` has already said why
         if (outcome === 'failed') {
           // The failed tile carries the reason and the Retry button, so this
           // says the one thing the tile cannot: that nothing was sent.
@@ -656,9 +696,9 @@ export function useHostActions() {
        * field instead of vanishing it -- a duplicate is the common case and the host
        * wants to see what they typed.
        *
-       * A duplicate is not an EntitlementError, so `guarded` would rethrow it; the catch
-       * here surfaces the adapter's sentence, which is already human ("That address is
-       * already on the list.").
+       * A duplicate is not an EntitlementError, so `guarded` would answer it with its generic
+       * sentence; the catch here surfaces the adapter's own, which is already human ("That
+       * address is already on the list.").
        */
       /*
        * AN EMAIL OR A PHONE NUMBER, in one field. It sent whatever it was given to
@@ -931,25 +971,23 @@ export function useHostActions() {
        */
       invite: async (input: NewHost): Promise<InvitedHost | null> => {
         let minted: InvitedHost | null = null;
-        try {
-          const ok = await guarded(async () => {
+        // The adapter's own refusals here are sentences written for a host -- not a host, no
+        // name, a role the plan lacks -- so they are shown as they are. This used to be a
+        // try/catch around `guarded`, back when `guarded` re-threw everything that was not a
+        // denial; it no longer throws (#135), so the sentence travels as its failure text.
+        const ok = await guarded(
+          async () => {
             minted = await repo.hosts.invite(input);
-          });
-          if (!ok) return null;
-        } catch (e) {
-          // `guarded` handles EntitlementError and RE-THROWS everything else, so the
-          // adapter's own refusals -- not a host, no name, a schema mismatch -- would
-          // otherwise surface as an unhandled rejection with the sheet still open.
-          show(e instanceof Error ? e.message : 'Could not add that co-host.');
-          return null;
-        }
-        return minted;
+          },
+          (e) => (e instanceof Error ? e.message : 'Could not add that co-host.'),
+        );
+        return ok ? minted : null;
       },
       /**
        * Correct the event's name, date, venue or doors line.
        *
-       * Caught and toasted here rather than left to `guarded`, which re-throws
-       * anything that is not an EntitlementError. The failure that matters is a
+       * Caught and toasted here rather than left to `guarded`, whose sentence for anything
+       * that is not an EntitlementError is generic (#135). The failure that matters is a
        * non-host reaching this: against Supabase that update matches the policy on
        * nothing, affects zero rows and raises nothing at all, so `assertWrote` in the
        * adapter is what turns it into an error -- and an uncaught one would surface as

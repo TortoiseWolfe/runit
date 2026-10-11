@@ -27,12 +27,16 @@ export function DjQueuePanel() {
    * THE CURSOR MOVES FIRST and is never blocked on the handoff. A host whose phone has no
    * music app installed still gets a working queue; the room still sees what is on. The
    * reverse order would make a missing app break the feature that does work.
+   *
+   * A CURSOR THAT DID NOT MOVE STOPS HERE. `playNext` used to throw on a refusal and the throw
+   * ended this handler; since #135 `guarded` toasts the failure and answers false instead, so
+   * the boolean is what keeps a refused advance from opening a music app anyway.
    */
   const onStart = async () => {
     // What the cursor will land on: the next accepted song, or the first one if nothing has
     // started yet. Read BEFORE the advance, because after it the queue has moved.
     const next = accepted[0];
-    await playNext();
+    if (!(await playNext())) return;
     if (!next) return;
     const used = await playSong(next.title, next.artist);
     show(
