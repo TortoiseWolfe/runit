@@ -59,6 +59,20 @@ export function musicUrl(service: MusicService, title: string, artist: string): 
 }
 
 /**
+ * What the host is told after the handoff (#135, #136).
+ *
+ * EVERY URL ABOVE IS A SEARCH, so the music app opens on a results list and plays nothing until
+ * the host taps the song. This said "Opening in Spotify." and left that step out, and "the music
+ * isn't playing" is what a host reports after pressing ▶ and landing on a list. It names the
+ * search and the one tap left. It does not promise playback, because none happens.
+ */
+export function handoffSentence(used: MusicService | null, title: string): string {
+  return used
+    ? `Opened a ${serviceLabel[used]} search for "${title}". Tap the song there to play it.`
+    : `Queued "${title}". No music app here — play it on whatever is on the speakers.`;
+}
+
+/**
  * Opens the song in whichever service is actually available, preferring `preferred`.
  *
  * Returns the service used, or null if nothing could be opened -- so the caller can say

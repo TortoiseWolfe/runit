@@ -1,6 +1,27 @@
 import { Platform } from 'react-native';
 
-import { musicUrl, SERVICES, serviceLabel } from './music';
+import { handoffSentence, musicUrl, SERVICES, serviceLabel } from './music';
+
+/**
+ * #135 AND #136: "Playlists isn't playing music." Every URL `musicUrl` builds is a SEARCH, so
+ * the music app opens on a results list and plays nothing until the host picks the song. The
+ * toast said "Opening in Spotify." and left that step out.
+ */
+describe('handoffSentence', () => {
+  it('says the app opened a search and names the step left, for every service', () => {
+    for (const s of SERVICES) {
+      expect(handoffSentence(s, 'Dancing Queen')).toBe(
+        `Opened a ${serviceLabel[s]} search for "Dancing Queen". Tap the song there to play it.`,
+      );
+    }
+  });
+
+  it('still says to play it on the speakers when no music app could be opened', () => {
+    expect(handoffSentence(null, 'Dancing Queen')).toBe(
+      'Queued "Dancing Queen". No music app here — play it on whatever is on the speakers.',
+    );
+  });
+});
 
 /**
  * The half a device cannot test cheaply and the half that fails SILENTLY: a scheme the

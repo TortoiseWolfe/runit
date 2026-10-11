@@ -3151,3 +3151,25 @@ row), only the first open item draws a button, and the card goes when all three 
 the host hides it, remembered per event on that device. It is not an intro carousel: the
 trouble testers had was before the app, and the help page at `/help/` is that half.
 Wireframe: `design/wireframes/2026-10-05-host-getting-started.html`.
+
+## BG. The Music tab says where the music plays (#135, #136)
+
+**The canvas's Music tab has no sentence about sound.** `02-guest-music-nowplaying` draws an
+eyebrow ("Requests"), a Now Playing card with album art, the queue and a composer. RunIt has
+no audio path and cannot have one without a catalogue licence (#8, `src/lib/music.ts`): the
+host's own music app plays the songs on the party's speakers. Two in-app reports from one
+iPhone on build 18 said "Playlists isn't playing music". The word "playlist" appears nowhere
+in the app, so the guest's picture was a player, and the card that looks like one confirmed it.
+
+**One muted line under the queue heading** (`music-where`): *"Music plays on the party's
+speakers, not in this app. Request a song and vote for the ones you want next."* Same size and
+fade as the section line beside it, so it reads as a caption to the queue, not as an alert.
+It is the honest fix. Fake playback is not, and neither is a preview player, which would make
+a phone at a party play music at the guest's table.
+
+**The host side gets the same honesty.** The DJ queue's handoff opens a SEARCH in Spotify,
+Apple Music or YouTube Music, never the song itself, so the toast says *"Opened a Spotify
+search for "…". Tap the song there to play it."* where it said *"Opening in Spotify."*
+
+**What no lane here proves:** that the line wraps the same way in SF Pro on an iPhone. Lane B
+measures it in Roboto.

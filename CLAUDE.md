@@ -1654,6 +1654,22 @@ that lives in a button handler is bypassed by the second caller.
   will throw: `loadFetchOnce` did, and only creating an event exposed it. `loadBlocks` is
   the pattern to copy -- a null guest id is a real state with an empty answer, not a
   fallback.
+- **`useGuardedAction` NEVER THROWS NOW (#135, #136, 2026-10-11).** It toasted
+  `EntitlementError` and RE-THREW everything else, into `onPress` handlers nobody awaits, so
+  every other failure was silent. On build 18 a guest who reopened her party from "Your
+  events" (#116) took a photo, `photos.upload` threw at `requireGuest()` before any tile
+  existed, and the photo vanished with no word; her song request died the same way. Any
+  non-denial failure is now logged and toasted with a FIXED sentence (#115's rule, never
+  `e.message`) and `guarded` answers false. A caller whose adapter speaks in sentences meant
+  for people passes a function (`invite`); a caller that relied on the throw to stop must
+  check the boolean (`DjQueuePanel.onStart`). `capturePhoto()` gets its own catch, because
+  the camera runs before `guarded` does. `src/state/actions.test.tsx` holds it.
+- **RUNIT PLAYS NO AUDIO, AND THE MUSIC TAB SAYS SO (#135, #136).** "Playlists isn't playing
+  music" came twice from one phone. No package here can play sound (#8 is why), the guest tab
+  is a request queue, and the host's ▶ opens a SEARCH in the music app she already has. The
+  tab carries `music-where` and the handoff toast names the search; FIDELITY note BG. Do not
+  answer that report with a preview player: a phone playing music at a guest's table is not
+  the product.
 - **PHOTO APPROVAL IS OFF BY DEFAULT AGAIN SINCE 2026-10-02, BY THE OWNER'S CALL, and the
   paragraph below records the twelve days it was on and why.** The night before a real
   wedding beta the owner reversed it: a host mid-event has no hands free to approve, and until

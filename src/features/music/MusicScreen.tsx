@@ -299,6 +299,17 @@ export function MusicScreen() {
                 {queue.length} requests
               </Text>
             </View>
+
+            {/* WHERE THE MUSIC IS, BECAUSE IT IS NOT HERE (#135, #136). Two reports from one
+                phone said "Playlists isn't playing music". RunIt has no audio path and cannot
+                have one without a catalogue licence (#8, lib/music.ts): the host's own music
+                app plays the songs. This tab said "Requests" and "Queue" and drew a Now Playing
+                card that looks like a player, and nothing said the sound comes from the room.
+                Not in the canvas; FIDELITY note BG. */}
+            <Text testID="music-where" style={[s.where, { color: alpha(tokens.baseContent, fade.muted) }]}>
+              Music plays on the party&apos;s speakers, not in this app. Request a song and vote for
+              the ones you want next.
+            </Text>
           </View>
         }
         renderItem={({ item, index }) => (
@@ -460,6 +471,7 @@ const s = StyleSheet.create({
   sectionHead: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginTop: 4 },
   sectionTitle: { ...eyebrow.list },
   sectionCount: { fontSize: 12 },
+  where: { fontSize: 13, lineHeight: 18 },
 
   row: {
     flexDirection: 'row', alignItems: 'center', gap: 12,

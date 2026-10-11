@@ -530,9 +530,9 @@ export class MemoryRepository implements RunitRepository {
    * Run one transfer attempt and land the photo in its next resting state.
    *
    * Never throws. A failed upload is a state the guest can see and act on, not
-   * an exception the caller has to catch -- and `upload()` is already reached
-   * through `useGuardedAction`, which would route a throw to the PAYWALL. A
-   * flaky network is not a billing problem.
+   * an exception the caller has to catch -- and `upload()` is reached through
+   * `useGuardedAction`, which would answer a throw with "That photo was not added"
+   * and no tile (#135). A failed transfer HAS a tile, and Retry on it.
    */
   private async runTransfer(id: PhotoId): Promise<UploadOutcome> {
     const photo = this.photoList.find((p) => p.id === id);
