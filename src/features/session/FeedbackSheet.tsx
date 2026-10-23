@@ -1,12 +1,14 @@
+import { usePathname } from 'expo-router';
 import { useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { pickScreenshot } from '@/lib/pickScreenshot';
 import { useFeedbackActions } from '@/state/actions';
+import { useConnection, useHoldsHostSeat, useSession } from '@/state/hooks';
 import { Button } from '@/components/ui/Button';
 import { alpha, border, radius, useTheme, weight } from '@/theme';
 
-import { deviceFacts, factLine } from './deviceFacts';
+import { deviceFacts, factLine, reportContext } from './deviceFacts';
 
 /**
  * THE CHANNEL THAT REPLACES TESTFLIGHT'S THE DAY WE SHIP -- #77.
@@ -36,7 +38,18 @@ export function FeedbackSheet({ visible, onClose }: { visible: boolean; onClose:
   const [shot, setShot] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const facts = deviceFacts();
+  // WHERE THE REPORT WAS WRITTEN (#137): the screen, the seat and the connection, so a report
+  // can be read without guessing which tab or which kind of session it came from.
+  const pathname = usePathname();
+  const session = useSession();
+  const holdsHostSeat = useHoldsHostSeat();
+  const connection = useConnection();
+  const facts = reportContext(deviceFacts(), {
+    pathname,
+    sessionKind: session?.kind,
+    holdsHostSeat: holdsHostSeat ?? false,
+    connection,
+  });
 
   const submit = async () => {
     if (busy || !body.trim()) return;

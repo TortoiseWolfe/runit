@@ -404,6 +404,13 @@ if (process.argv.includes('--selftest')) {
   check('a body is bounded', fenced('a'.repeat(10000)).length < 2200);
   check('the event is named by id and never by code', body.includes('| Event | e |'));
 
+  // #137: the sheet sends route, seat and connection under exactly these keys.
+  const placed = issueBody({ id: real, body: 'x', context: { platform: 'ios', route: '/host/dj', seat: 'host-as-guest', connection: 'reconnecting' }, screenshot_path: null, event_id: 'e', created_at: 'now' });
+  check('a report that names its screen prints a Route row', placed.includes('| Route | /host/dj |'));
+  check('a report that names its seat prints a Seat row', placed.includes('| Seat | host-as-guest |'));
+  check('a report that names its connection prints a Connection row', placed.includes('| Connection | reconnecting |'));
+  check('an older report with none of them prints no such rows', !/\| (Route|Seat|Connection) \|/.test(body));
+
   // THE LABEL ALREADY EXISTING IS THE NORMAL CASE, and it is the one every real run took from
   // 2026-10-08: `gh()` ends the process on a non-2xx, so the catch around it never ran and the
   // hourly job failed with two customer reports unfiled. These drive the real helper with the
