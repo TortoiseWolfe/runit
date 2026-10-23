@@ -1,4 +1,4 @@
-import { factLine, factsFrom } from './deviceFacts';
+import { factLine, factsFrom, reportContext, routeFor, seatFor } from './deviceFacts';
 
 /**
  * WHAT A FEEDBACK REPORT SAYS ABOUT THE PHONE IT CAME FROM -- and the build number is the fact
@@ -111,5 +111,69 @@ describe('deviceFacts reads the installed package, not app config', () => {
     const f = deviceFacts();
     expect(f.build).toBe('14');
     expect(f.build).not.toBe('unknown');
+  });
+});
+
+/**
+ * WHERE IN THE APP A REPORT WAS WRITTEN (#137). `issueBody()` has printed Route, Seat and
+ * Connection rows since it was written and nothing ever filled them; #135 needed all three.
+ */
+describe('a report says which screen and which seat it came from', () => {
+  const facts = live({});
+  const env = { pathname: '/music', sessionKind: 'guest' as const, holdsHostSeat: false, connection: 'live' };
+
+  it('uses exactly the keys the filer reads', () => {
+    const ctx = reportContext(facts, env);
+    expect(ctx.route).toBe('/music');
+    expect(ctx.seat).toBe('guest');
+    expect(ctx.connection).toBe('live');
+    expect(ctx.build).toBe('14');
+  });
+
+  it.each([
+    ['anonymous', false, 'none'],
+    [null, false, 'none'],
+    ['guest', false, 'guest'],
+    ['guest', true, 'host-as-guest'],
+    ['host', true, 'host'],
+    ['host', false, 'host'],
+  ] as const)('seat for kind %s, holdsHostSeat %s is %s', (kind, holds, seat) => {
+    expect(seatFor(kind, holds)).toBe(seat);
+    expect(reportContext(facts, { ...env, sessionKind: kind, holdsHostSeat: holds }).seat).toBe(seat);
+  });
+
+  it('names every real screen as itself', () => {
+    for (const p of ['/music', '/photos', '/chat', '/host/dj', '/host/photos', '/join', '/signin', '/']) {
+      expect(routeFor(p)).toBe(p);
+    }
+  });
+
+  it('never carries the admission code from the invitation bridge', () => {
+    expect(routeFor('/i/S7Y9RX')).toBe('/i/[code]');
+    expect(routeFor('/i/S7Y9RX/')).toBe('/i/[code]');
+    expect(routeFor('/i')).toBe('/i');
+    expect(JSON.stringify(reportContext(facts, { ...env, pathname: '/i/S7Y9RX' }))).not.toContain('S7Y9RX');
+  });
+
+  it('does not repeat a path a stranger typed, or a query string', () => {
+    expect(routeFor('/not/a/route')).toBe('/other');
+    expect(routeFor('/music?code=S7Y9RX')).toBe('/music');
+    expect(routeFor(null)).toBe('/other');
+  });
+
+  it('omits connection when there is none rather than printing undefined', () => {
+    const ctx = reportContext(facts, { ...env, connection: undefined });
+    expect('connection' in ctx).toBe(false);
+  });
+
+  it('stays far under the column bound of 4096 bytes', () => {
+    const ctx = reportContext(facts, { ...env, pathname: '/host/reports', sessionKind: 'guest', holdsHostSeat: true, connection: 'reconnecting' });
+    expect(JSON.stringify(ctx).length).toBeLessThan(1024);
+  });
+
+  it('shows the person the screen and seat they are sending', () => {
+    const line = factLine(reportContext(facts, env));
+    expect(line).toContain('on /music');
+    expect(line).toContain('seat: guest');
   });
 });

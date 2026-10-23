@@ -84,12 +84,71 @@ export function deviceFacts(): Record<string, string> {
   });
 }
 
+export type ReportSeat = 'guest' | 'host' | 'host-as-guest' | 'none';
+
+export interface ReportEnv {
+  /** `usePathname()` -- the path only, never the query string. */
+  pathname: string | null | undefined;
+  /** `useSession().kind`. Null before the session has resolved. */
+  sessionKind: 'anonymous' | 'guest' | 'host' | null | undefined;
+  /** `session.holdsHostSeat`, which is not the same fact as `sessionKind` (see `repository.ts`). */
+  holdsHostSeat: boolean;
+  /** `useConnection()`. */
+  connection: string | null | undefined;
+}
+
+/**
+ * THE ROUTES A REPORT MAY NAME. Anything else is `/other`, because `+not-found` renders for ANY
+ * typed path and a path is free text a stranger wrote.
+ */
+const KNOWN_ROUTES = new Set([
+  '/', '/join', '/signin', '/create', '/chat', '/music', '/photos', '/blocked',
+  '/host/broadcast', '/host/dj', '/host/reports', '/host/photos', '/host/event',
+]);
+
+/**
+ * THE ADMISSION CODE NEVER TRAVELS IN A ROUTE. `/i/S7Y9RX` is the invitation bridge and its last
+ * segment IS the six-character code, which admits anyone to the party -- and the filer prints
+ * this value into a PUBLIC issue (`issueBody` keeps the event as a uuid for the same reason).
+ * So the dynamic segment is named, never read.
+ */
+export function routeFor(pathname: string | null | undefined): string {
+  if (!pathname) return '/other';
+  const path = (pathname.split(/[?#]/)[0] ?? '').replace(/(.)\/+$/, '$1');
+  if (/^\/i(\/[^/]*)?$/.test(path)) return path === '/i' ? '/i' : '/i/[code]';
+  return KNOWN_ROUTES.has(path) ? path : '/other';
+}
+
+/**
+ * WHICH SEAT THE REPORTER IS SITTING IN. `session.kind` is the VIEW and `holdsHostSeat` is the
+ * SEAT: a host who switched to the guest side reads `kind: 'guest'` and still holds hers, and
+ * that is the state #135 could only guess at (#116 reopened a guest as host-shaped).
+ */
+export function seatFor(kind: ReportEnv['sessionKind'], holdsHostSeat: boolean): ReportSeat {
+  if (kind === 'host') return 'host';
+  if (kind === 'guest') return holdsHostSeat ? 'host-as-guest' : 'guest';
+  return 'none';
+}
+
+/** The device facts plus where in the app the report was written. Pure. */
+export function reportContext(facts: Record<string, string>, env: ReportEnv): Record<string, string> {
+  const ctx: Record<string, string> = {
+    ...facts,
+    route: routeFor(env.pathname),
+    seat: seatFor(env.sessionKind, env.holdsHostSeat),
+  };
+  if (env.connection) ctx.connection = env.connection;
+  return ctx;
+}
+
 /** The same facts as one readable line, for the sentence above the Send button. */
 export function factLine(f: Record<string, string>): string {
   return [
     [f.platform, f.os].filter(Boolean).join(' '),
     `app ${f.app} (${f.build})`,
     f.timezone,
+    f.route && `on ${f.route}`,
+    f.seat && `seat: ${f.seat}`,
   ]
     .filter(Boolean)
     .join(' · ');
