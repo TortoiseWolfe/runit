@@ -19,7 +19,14 @@ async function asFounder(r: ReturnType<typeof MemoryRepository.create>, act: () 
   if (before.kind === 'guest') await r.session.becomeGuest();
 }
 
-const FIXED = '2026-10-17T20:00:00.000Z';
+// The injected clock has to read LATER than everything the seed stamps. The seed is anchored
+// to the real clock (wedding.ts: "yesterday" for the feed and run-of-show, `minutesAgo` for the
+// waiting photos), and both lists sort by `createdAt`. A hardcoded '2026-10-17T20:00Z' was
+// after the seed only until 2026-10-18; from then on every row a test created sorted BEFORE
+// the seeded ones and four tests here failed with no code changed. A fixed FUTURE date is the
+// same bug with a later fuse, so this is derived: an hour past the moment the seed loaded,
+// frozen for the whole file so each `now()` still returns one value.
+const FIXED = new Date(Date.now() + 60 * 60_000).toISOString();
 const make = (opts: Parameters<typeof MemoryRepository.create>[1] = {}) =>
   MemoryRepository.create(weddingSeed, { now: () => FIXED, ...opts });
 const makeFree = () => MemoryRepository.create(housePartySeed, { now: () => FIXED });
@@ -420,9 +427,9 @@ describe('schedule', () => {
 describe('chat', () => {
   // THE TEST THAT WAS MISSING, and the reason the bug survived.
   //
-  // Every other test here injects `now: () => FIXED` where FIXED is
-  // 2026-10-17T20:00Z -- which was AFTER the old hardcoded seed date, i.e. the one
-  // arrangement in which ordering happens to be correct. Using the REAL clock is
+  // Every other test here injects `now: () => FIXED` where FIXED is an hour after the seed
+  // loaded -- which is AFTER the seed, i.e. the one arrangement in which ordering happens to
+  // be correct. Using the REAL clock is
   // the whole point: it is what a host actually has.
   it('puts a newly sent broadcast last in the feed, using the real clock', async () => {
     const r = MemoryRepository.create(weddingSeed); // no `now` injection, deliberately
