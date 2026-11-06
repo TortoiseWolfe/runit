@@ -229,7 +229,7 @@
            build declares no https intent filter at all. So this must be repointed at a build
            that has one, in the same deploy as any change to the association file. -->
       <p style="margin:10px 0 0">
-        <a class="cta secondary" id="android" data-expires="2026-10-18T03:29:53Z" href="https://expo.dev/artifacts/eas/Tgl5xzZaev4_cUz12eGzVxGUzdjeu_CXv8Q8TMsivBs.apk">Android &middot; install now</a>
+        <a class="cta secondary" id="android" data-expires="2099-12-31T00:00:00Z" href="https://github.com/TortoiseWolfe/runit/releases/download/android-preview-2026-11-05/runit-preview.apk">Android &middot; install now</a>
       </p>
       <!-- THE DATE THE DOWNLOAD DIES, AND WHAT THE PAGE SAYS AFTER IT (#82, 2026-10-05).
            EAS deletes an internal build 14 days after it is made, and until this the button
@@ -237,7 +237,11 @@
            open, at the top of the funnel. `data-expires` is EAS's own `expirationDate` for the
            build the href points at, copied when the link is repointed -- both change together.
            After it, the button goes and this sentence takes its place, pointing at the browser
-           route, which never expires. Lane G reads the same attribute and warns days ahead. -->
+           route, which never expires. Lane G reads the same attribute and warns days ahead.
+           SINCE 2026-11-05 THE HREF IS A GITHUB RELEASE ASSET (TortoiseWolfe/runit), NOT AN EAS
+           ARTIFACT. Release assets do not expire, so `data-expires` is 2099-12-31 on purpose: the
+           attribute must exist and parse (lane G fails a link without one), and it only ever
+           fires if somebody swaps the href back to a link that dies. -->
       <p class="route" id="androidGone" hidden>The Android app is being updated. Tap
         <b>Join in your browser</b> above for now.</p>
       <p style="margin:10px 0 0">

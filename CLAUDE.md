@@ -1758,6 +1758,11 @@ the day it dies. **Since 2026-10-05 the button carries `data-expires`** -- EAS's
 with the href -- so the page swaps the button for a pointer to the browser route after that
 moment, and lane G prints a `todo:` four days ahead instead of only failing on the day.
 **So rebuild and repoint inside two weeks**, every two weeks, until #82's durable fix exists.
+**THE DURABLE FIX EXISTS SINCE 2026-11-05**: the APK is a GitHub release asset in
+`TortoiseWolfe/runit` (tag `android-preview-2026-11-05`), which does not expire, built with
+`eas build --local -p android --profile preview` (EAS-managed signing, so the certificate still
+matches `assetlinks.json`; no cloud build is spent). `data-expires` is `2099-12-31` because
+lane G requires the attribute. A new build means a new release tag and a repoint of both pages.
 
 **CHECKING AN APK WITHOUT A DEVICE, AND TWO TOOLS THAT LIE ABOUT IT** (2026-09-21, build
 `d8e22e85`). With adb unavailable, the APK was verified from its bytes -- and two checks
