@@ -28,6 +28,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { startWebServer } from './serve-web.mjs';
 
 const ROOT = join(import.meta.dirname, '..');
 const read = (p) => readFileSync(join(ROOT, p), 'utf8');
@@ -48,11 +49,39 @@ const eas = JSON.parse(read('eas.json'));
 const EXPECTED_APP_ID = `${eas.submit.production.ios.appleTeamId}.${appJson.expo.ios.bundleIdentifier}`;
 const ASC_APP_ID = eas.submit.production.ios.ascAppId;
 
+/**
+ * TWO TARGETS, ONE SET OF MEASUREMENTS (2026-11-06).
+ *
+ *   node tools/verify-links.mjs            the LIVE site (INVITE_ORIGIN). Runs after a deploy:
+ *                                          .github/workflows/live-links.yml, on push to main and daily.
+ *   node tools/verify-links.mjs --local    THIS BRANCH's web/, served by tools/serve-web.mjs.
+ *                                          Runs in every pull request through run-checks.sh.
+ *
+ * It used to read only the live site, so a pull request that fixed a live page could not pass
+ * before it merged -- the check looked at the page the PR was about to replace -- and main
+ * failed the same workflow from the day a page changed until someone deployed. The ASSERTIONS
+ * are identical in both modes; only the host they are asked of differs. Nothing was dropped,
+ * and what a local run cannot see is printed at the end rather than left out.
+ */
+const LOCAL = process.argv.includes('--local');
+let BASE = ORIGIN;
+let stopServer = async () => {};
+if (LOCAL) {
+  const server = await startWebServer(join(ROOT, 'web'));
+  BASE = server.url;
+  stopServer = server.close;
+  console.log(`  LOCAL MODE: serving this branch's web/ at ${BASE} (live host ${ORIGIN} is NOT asked)`);
+}
+const finish = async (code) => {
+  await stopServer();
+  process.exit(code);
+};
+
 const problems = [];
 const note = (m) => problems.push(m);
 
 async function get(path) {
-  const url = `${ORIGIN}${path}`;
+  const url = `${BASE}${path}`;
   const res = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(15_000) });
   return { url, res, body: await res.text() };
 }
@@ -63,6 +92,11 @@ try {
 } catch {
   // No DNS, no TLS, no answer. An unclaimed <name>.pages.dev does not resolve at all,
   // which is the ordinary state before anyone has connected the project.
+  if (LOCAL) {
+    // The local server is ours: failing to answer is a bug in tools/serve-web.mjs, never a skip.
+    console.error(red(`FAIL: the local server at ${BASE} did not answer, so NOTHING WAS CHECKED.`));
+    await finish(1);
+  }
   console.log(yellow('SKIPPED: invitation links (lane G)'));
   console.log(`  ${ORIGIN} does not answer, so NOTHING ABOUT THE INVITATION HOST WAS CHECKED.`);
   console.log('  Connect Cloudflare Pages to this repo (output dir `web`) and re-run.');
@@ -345,7 +379,7 @@ try {
       problems.push('/beta/ shows a TestFlight code that is not its own public link\'s: repoint the link and the copy box together.');
     } else {
       // The link-preview image, which the catch-all would answer with HTML if `_redirects` let it.
-      const img = await fetch(`${ORIGIN}/beta/runit-card-v2.jpg`, { signal: AbortSignal.timeout(15_000) });
+      const img = await fetch(`${BASE}/beta/runit-card-v2.jpg`, { signal: AbortSignal.timeout(15_000) });
       const imgType = img.headers.get('content-type') ?? '';
       if (!img.ok || !imgType.startsWith('image/')) {
         problems.push(`/beta/runit-card-v2.jpg answered ${img.status} ${imgType} -- a pasted link would preview with no picture.`);
@@ -355,7 +389,7 @@ try {
         // and breaks from `/beta`, where it lands on the root and the catch-all serves HTML.
         const broken = [];
         for (const m of beta.body.matchAll(/<img\b[^>]*\bsrc="([^"]+)"/g)) {
-          const u = new URL(m[1], `${ORIGIN}/beta`);
+          const u = new URL(m[1], `${BASE}/beta`);
           const r = await fetch(u, { signal: AbortSignal.timeout(15_000) });
           if (!r.ok || !(r.headers.get('content-type') ?? '').startsWith('image/')) broken.push(`${m[1]} -> ${u.pathname} (${r.status} ${r.headers.get('content-type')})`);
         }
@@ -402,12 +436,23 @@ try {
 /* ------------------------------------------------------------------ report */
 
 if (problems.length) {
-  console.error(red(`\nFAIL: ${problems.length} problem(s) with ${ORIGIN}\n`));
+  console.error(red(`\nFAIL: ${problems.length} problem(s) with ${LOCAL ? "this branch's web/ (local)" : ORIGIN}\n`));
   for (const p of problems) console.error(`  ${p}\n`);
   console.error('  web/README.md has the deploy steps and what each file is for.\n');
-  process.exit(1);
+  await finish(1);
 }
 
-console.log(green(`ok: ${ORIGIN} serves our association file and our invitation page`));
-console.log(`  appID ${EXPECTED_APP_ID} · Content-Type ${ct}`);
+if (LOCAL) {
+  console.log(green("ok: this branch's web/ serves our association file, our invitation pages and the Android link"));
+  console.log(`  appID ${EXPECTED_APP_ID} · Content-Type ${ct}`);
+  // Said out loud so a green pull request is not read as a green site (CLAUDE.md, lane G).
+  console.log(yellow('  LIVE ONLY, NOT MEASURED HERE (the post-deploy job .github/workflows/live-links.yml asks the live host):'));
+  console.log(yellow(`    - that ${ORIGIN} is OURS and serves these files (ownership, deploy state)`));
+  console.log(yellow('    - Cloudflare behaviour: the app shell at the root, the 308 off index.html, node_modules paths, edge caching'));
+  console.log(yellow("    - /api/music through Cloudflare rather than in-process"));
+} else {
+  console.log(green(`ok: ${ORIGIN} serves our association file and our invitation page`));
+  console.log(`  appID ${EXPECTED_APP_ID} · Content-Type ${ct}`);
+}
 console.log(yellow('  Still UNVERIFIED on a device: only an iPhone proves iOS accepts it.'));
+await finish(0);

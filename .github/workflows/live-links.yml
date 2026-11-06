@@ -1,0 +1,49 @@
+# Lane G against the LIVE site, after a deploy.
+#
+# WHY THIS IS A SEPARATE WORKFLOW. Lane G used to run inside `checks` and ask the live host, so a
+# pull request that fixed a live page could not pass before it merged: the check looked at the
+# page the PR was about to replace. Pull requests now check the branch's own `web/` (`node
+# tools/verify-links.mjs --local`, run by docker/run-checks.sh) and THIS workflow asks the live
+# host. Nothing was dropped: ownership of the host, the deployed files, and the Android download
+# on the page people actually see are all measured here, and they fail loudly.
+#
+# WHEN IT RUNS.
+#   - push to main: a deploy is done by hand (`pnpm deploy:web`), so this can run BEFORE the
+#     deploy and be red for a while after a page change. That is accurate -- the live site does
+#     not match main yet -- and it goes green by itself: the schedule below re-checks daily, and
+#     "Re-run all jobs" after the deploy clears it at once.
+#   - every day at 11:23 UTC: catches an Android download that expired, a host that stopped being
+#     ours, and a deploy that dropped a file, none of which any push would notice.
+#   - on demand, for after a deploy.
+name: live-links
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - "tools/verify-links.mjs"
+      - "tools/serve-web.mjs"
+      - "src/lib/invite.ts"
+      - "app.json"
+      - "eas.json"
+      - ".github/workflows/live-links.yml"
+  schedule:
+    - cron: "23 11 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # `.nvmrc` is the one Node version this repo runs on (CLAUDE.md). The script uses only
+      # Node built-ins, so there is no install step.
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: Lane G against the live host
+        run: node tools/verify-links.mjs

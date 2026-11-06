@@ -58,6 +58,7 @@
     "test:e2e:ui": "playwright test --ui",
     "typecheck": "tsc --noEmit",
     "verify:links": "node tools/verify-links.mjs",
+    "verify:links:local": "node tools/verify-links.mjs --local",
     "verify:policies": "node tools/verify-policies.mjs",
     "audit:sql": "node tools/audit-sql-declare.mjs",
     "schema:fingerprint": "node tools/schema-fingerprint.mjs",

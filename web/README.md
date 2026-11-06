@@ -36,6 +36,23 @@ redirects does not serve. The first deploy spelled the filename out and every `/
 returned **404**, while the association file was already perfect. Measured on the live host,
 not guessed.
 
+## Two ways lane G asks (2026-11-06)
+
+`pnpm verify:links` asks the **live** host. `pnpm verify:links:local` (`--local`) asks **this
+branch's `web/`**, served by `tools/serve-web.mjs`, which honours `_redirects` (first match wins,
+a rewrite beats a real file, as on Cloudflare Pages), `_headers` and the Pages Function in
+`functions/api/`. The assertions are the same.
+
+- **Pull requests** run `--local` (inside `docker/run-checks.sh`). A PR that fixes a live page can
+  therefore pass before it merges; it used to fail because the check looked at the page it was
+  replacing.
+- **The live host** is asked by `.github/workflows/live-links.yml`: on push to `main` that
+  touches `web/`, every day, and on demand. Deploys are by hand, so the run on a merge can be red
+  until `pnpm deploy:web` has run; re-run it after the deploy.
+- A local run prints what it **cannot** see: that the live host is ours, Cloudflare's own
+  behaviour (the app shell at the root, the 308, `node_modules` paths) and `/api/music` through
+  Cloudflare.
+
 ## Deploying it (first time, or to a new host)
 
 One-time, in the Cloudflare dashboard:
