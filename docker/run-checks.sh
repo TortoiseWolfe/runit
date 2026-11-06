@@ -7,9 +7,12 @@ step() { printf '\n\033[1m── %s\033[0m\n' "$1"; }
 # A LANE THAT SKIPPED MEASURED NOTHING, AND THE LAST LINE USED TO SAY "All checks passed"
 # EITHER WAY.
 #
-# Two lanes skip by design rather than fail: lane E needs a database password and lane G
-# needed a host that did not exist. Skipping is right -- a gate that fails for want of a
-# credential gets switched off within a week, which is written down in both tools. What was
+# Lanes skip by design rather than fail (a laptop with no database URL, a mail domain that
+# does not exist yet). Skipping is right on a laptop -- a gate that fails for want of a
+# credential gets switched off within a week, which is written down in both tools. In CI none
+# should skip: lane E gets a local Supabase from checks.yml, and the auth-drift live read
+# moved to .github/workflows/auth-drift.yml. A skipped lane on CI's board is a defect to fix,
+# not a state to accept. What was
 # wrong is that the SUMMARY did not distinguish them. Lane E skipped on every run for the
 # life of this repo while the board said everything passed, and a duplicate variable
 # declaration meant it had not compiled for a day underneath that green line.
@@ -162,7 +165,7 @@ node tools/app-feedback-to-issues.mjs --selftest
 step "SQL declare audit  (lane E cannot compile with a duplicate, and skips silently)"
 pnpm audit:sql
 
-step "policy verification  (lane E -- skips LOUDLY without SUPABASE_DB_URL)"
+step "policy verification  (lane E -- CI hands it a local Supabase; a laptop passes SUPABASE_DB_URL)"
 lane "lane E -- row-level security behaviour (needs SUPABASE_DB_URL, or a local stack: docs/lane-e.md)" \
   node tools/verify-policies.mjs
 
@@ -234,9 +237,12 @@ node tools/audit-cli-pin.mjs
 step "auth config selftest  (the diff logic, on synthetic inputs)"
 node tools/check-auth-config.mjs --selftest
 
-step "auth config drift  ([remotes.production] vs the live project)"
-lane "auth config drift -- no SUPABASE_ACCESS_TOKEN, or never applied" \
-  node tools/check-auth-config.mjs
+# THE LIVE HALF IS NOT ON THIS BOARD, and that is a decision rather than an omission: it reads the
+# project's auth settings through the Management API, which needs a token CI does not hold, so on
+# every board it printed SKIPPED and measured nothing (#148). A lane that can only ever skip here
+# is a skip counted forever, so it lives where a credential can reach it: .github/workflows/
+# auth-drift.yml (daily, on a config change, on demand) and `pnpm audit:auth-config` on a laptop.
+# What this board CAN prove stays: the diff logic above, on synthetic inputs.
 
 step "auth settings  (anonymous sign-in and friends, on the live project)"
 lane "live auth settings -- no project URL or publishable key" \
