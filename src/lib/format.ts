@@ -202,3 +202,8 @@ export function formatRelative(iso: string, timeZone: string, now: Date = new Da
   if (mins < 60) return `${mins} min ago`;
   return formatClock(iso, timeZone);
 }
+
+/** '1 host', '2 hosts'. A count that reads "1 hosts" looks like nobody checked. */
+export function count(n: number, singular: string, plural: string = `${singular}s`): string {
+  return `${n} ${n === 1 ? singular : plural}`;
+}

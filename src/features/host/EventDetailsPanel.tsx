@@ -4,7 +4,7 @@ import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } fr
 
 import { useEvent, useGuestLists, useHosts, useInvitees, useLoadMyEvents } from '@/state/hooks';
 import { useEventActions, useHostActions } from '@/state/actions';
-import { formatClock, formatEventDate, instantToWallClock } from '@/lib/format';
+import { count, formatClock, formatEventDate, instantToWallClock } from '@/lib/format';
 import { instantFrom, zoneChoices } from '@/lib/eventForm';
 import { TIERS } from '@/domain/tiers';
 import type { EventDeletionImpact, GuestList, HostRole } from '@/data/types';
@@ -152,7 +152,6 @@ export function EventDetailsPanel() {
    */
   const tier = TIERS[event?.tier ?? 'house_party'];
   const atHostCap = hosts.length >= tier.limits.maxHosts;
-  const hostCap = Number.isFinite(tier.limits.maxHosts) ? String(tier.limits.maxHosts) : null;
 
 
   /**
@@ -382,9 +381,9 @@ export function EventDetailsPanel() {
               {tier.name}
             </Text>
             <Text style={[s.helper, { color: alpha(tokens.baseContent, fade.muted) }]} testID="plan-caps">
-              {Number.isFinite(tier.limits.maxGuests) ? `${tier.limits.maxGuests} guests` : 'Unlimited guests'}
+              {Number.isFinite(tier.limits.maxGuests) ? count(tier.limits.maxGuests, 'guest') : 'Unlimited guests'}
               {' · '}
-              {Number.isFinite(tier.limits.maxPhotos) ? `${tier.limits.maxPhotos} photos` : 'unlimited photos'}
+              {Number.isFinite(tier.limits.maxPhotos) ? count(tier.limits.maxPhotos, 'photo') : 'unlimited photos'}
             </Text>
           </View>
           <Pressable
@@ -509,7 +508,7 @@ export function EventDetailsPanel() {
               collapsed section is not somewhere it may ever be. */}
           <Disclosure
             title="Add someone"
-            summary={atHostCap ? `${hostCap} hosts on this plan` : 'DJ, planner or co-host'}
+            summary={atHostCap ? `${count(tier.limits.maxHosts, 'host')} on this plan` : 'DJ, planner or co-host'}
             testID="cohost-add"
           >
           <TextInput
@@ -557,10 +556,10 @@ export function EventDetailsPanel() {
               variant="secondary"
               size="sm"
               onPress={onInvite}
-              accessibilityHint={atHostCap ? `This plan includes ${hostCap} hosts.` : undefined}
+              accessibilityHint={atHostCap ? `This plan includes ${count(tier.limits.maxHosts, 'host')}.` : undefined}
               testID="cohost-invite"
               quiet={atHostCap}
-              label={atHostCap ? `${hostCap} hosts on this plan` : 'Add a co-host'}
+              label={atHostCap ? `${count(tier.limits.maxHosts, 'host')} on this plan` : 'Add a co-host'}
             />
           </Disclosure>
         </View>

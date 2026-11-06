@@ -6,6 +6,7 @@ import {
   wallClockToInstant,
   instantToWallClock,
   whenAndWhere,
+  count,
 } from './format';
 
 describe('formatClock', () => {
@@ -188,5 +189,19 @@ describe('whenAndWhere', () => {
     // So this never returns '' -- which is what lets the chat line key its own rendering
     // on the event existing rather than on this string being non-empty.
     expect(whenAndWhere({ ...EVENT, doorsLabel: '', venue: '' })).not.toBe('');
+  });
+});
+
+describe('count', () => {
+  it('says one thing in the singular and everything else in the plural', () => {
+    expect(count(1, 'host')).toBe('1 host');
+    expect(count(0, 'host')).toBe('0 hosts');
+    expect(count(2, 'host')).toBe('2 hosts');
+    expect(count(1, 'photo')).toBe('1 photo');
+  });
+
+  it('takes an irregular plural when one is given', () => {
+    expect(count(1, 'person', 'people')).toBe('1 person');
+    expect(count(3, 'person', 'people')).toBe('3 people');
   });
 });

@@ -12,7 +12,7 @@ import { icsFilename, icsFor, shareMessage } from '@/lib/invite';
 import { shareIcs, shareText } from '@/lib/share';
 import { useToast } from '@/state/ToastProvider';
 
-import { formatClock } from '@/lib/format';
+import { count, formatClock } from '@/lib/format';
 import { useHostActions } from '@/state/actions';
 import { useEvent, useFeed, useNowNext, useSchedule } from '@/state/hooks';
 import { alpha, border, eyebrow, radius, useTheme, weight } from '@/theme';
@@ -262,7 +262,7 @@ export function BroadcastPanel() {
         value={draft}
         onChangeText={setDraft}
         multiline
-        placeholder={`Announce something to all ${invited} guests…`}
+        placeholder={`Announce something to all ${count(invited, 'guest')}…`}
         placeholderTextColor={alpha(tokens.baseContent, fade.faint)}
         accessibilityLabel="Announcement"
         testID="broadcast-draft"
@@ -306,7 +306,7 @@ export function BroadcastPanel() {
         testID="broadcast-send"
         style={[s.send, { backgroundColor: tokens.primary }]}
       >
-        <Text style={[s.sendText, { color: tokens.primaryContent }]}>Send to {invited} guests</Text>
+        <Text style={[s.sendText, { color: tokens.primaryContent }]}>Send to {count(invited, 'guest')}</Text>
       </Pressable>
 
       <View style={s.sectionHead}>
@@ -384,8 +384,8 @@ export function BroadcastPanel() {
               // that it cannot be taken back. The hint is where that belongs.
               accessibilityHint={
                 past
-                  ? `Already ran. Double tap and hold to restart it and move the run of show back for all ${invited} guests.`
-                  : `Announces to all ${invited} guests. This cannot be undone.`
+                  ? `Already ran. Double tap and hold to restart it and move the run of show back for all ${count(invited, 'guest')}.`
+                  : `Announces to all ${count(invited, 'guest')}. This cannot be undone.`
               }
               testID={`schedule-${item.id}`}
               style={[
