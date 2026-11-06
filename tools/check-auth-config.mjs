@@ -154,30 +154,6 @@ if (!remote) {
 }
 const ref = remote.project_id;
 
-if (!token) {
-  console.log(yellow('SKIPPED: auth config drift'));
-  console.log(yellow('  SUPABASE_ACCESS_TOKEN is not set, so NOTHING about the live'));
-  console.log(yellow(`  project's auth configuration was compared. Declared ref: ${ref}`));
-  process.exit(0);
-}
-
-let live;
-try {
-  const res = await fetch(`https://api.supabase.com/v1/projects/${ref}/config/auth`, {
-    headers: { Authorization: `Bearer ${token}` },
-    // `lane()` buffers a lane's output, so a hung fetch hangs the run behind a blank screen.
-    signal: AbortSignal.timeout(20_000),
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status} ${(await res.text()).slice(0, 160)}`);
-  live = await res.json();
-} catch (e) {
-  // LOUD SKIP on an unreachable API, the same call lane G and the mail policy make. A gate
-  // that fails closed because somebody else's endpoint blipped is a gate that gets deleted.
-  console.log(yellow('SKIPPED: auth config drift -- the Management API could not be read'));
-  console.log(yellow(`  ${e.message}`));
-  process.exit(0);
-}
-
 const read = (o, path) => path.reduce((a, k) => (a == null ? undefined : a[k]), o);
 
 /**
@@ -323,6 +299,33 @@ function selftest() {
 }
 
 if (process.argv.includes('--selftest')) selftest();
+
+// The token is needed ONLY from here down. The selftest above is pure and takes no credential,
+// so it must run before this check: it used to sit behind it, and CI (which has no token) exited
+// here every time, so the selftest never ran anywhere but a laptop (#143).
+let live;
+if (!token) {
+  console.log(yellow('SKIPPED: auth config drift'));
+  console.log(yellow('  SUPABASE_ACCESS_TOKEN is not set, so NOTHING about the live'));
+  console.log(yellow(`  project's auth configuration was compared. Declared ref: ${ref}`));
+  process.exit(0);
+}
+
+try {
+  const res = await fetch(`https://api.supabase.com/v1/projects/${ref}/config/auth`, {
+    headers: { Authorization: `Bearer ${token}` },
+    // `lane()` buffers a lane's output, so a hung fetch hangs the run behind a blank screen.
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status} ${(await res.text()).slice(0, 160)}`);
+  live = await res.json();
+} catch (e) {
+  // LOUD SKIP on an unreachable API, the same call lane G and the mail policy make. A gate
+  // that fails closed because somebody else's endpoint blipped is a gate that gets deleted.
+  console.log(yellow('SKIPPED: auth config drift -- the Management API could not be read'));
+  console.log(yellow(`  ${e.message}`));
+  process.exit(0);
+}
 
 const { missing, drift, everApplied } = diffAuthConfig(remote, live);
 
