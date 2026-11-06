@@ -26,6 +26,46 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # LANE E RUNS ON THE BOARD, AGAINST A DATABASE THIS JOB BUILDS, SO IT CANNOT SKIP.
+      # It used to wait for a `SUPABASE_DB_URL` secret that was never added, so every board
+      # ended "Every check that RAN passed -- 1 lane skipped" and the one lane that watches
+      # row-level security behave measured nothing. `policies.yml` already proved the
+      # credential-free way (a local Supabase stack, the committed migration rebuilt on it);
+      # this does the same here so the board itself carries the answer, on every push, not
+      # only when `supabase/**` changes.
+      #
+      # BEFORE THE chown BELOW, on purpose: the Supabase CLI writes `supabase/.temp/`, and once
+      # the tree belongs to uid 1000 the runner's own user (1001) cannot.
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Pin the Supabase CLI
+        run: echo "SUPABASE_CLI=supabase@$(cat supabase/.cli-version)" >> "$GITHUB_ENV"
+
+      # Same three containers as policies.yml: db, auth and storage own the schemas the
+      # migration references.
+      - name: Start a local Supabase
+        run: |
+          npx --yes "$SUPABASE_CLI" start \
+            -x imgproxy,kong,mailpit,postgrest,postgres-meta,studio,edge-runtime,logflare,vector,supavisor,realtime
+
+      # `db reset` so the schema is a FROM-SCRATCH apply of the committed migration, which
+      # fails loudly if the migration cannot build a database (see policies.yml).
+      - name: Rebuild the database from the committed migration
+        run: npx --yes "$SUPABASE_CLI" db reset
+
+      # The port is asked for, never typed (config.toml moved it once and a hardcoded URL
+      # broke a job). Loopback, which is what verify-policies.mjs needs to skip TLS -- and
+      # why the checks container joins the host network in docker/compose.ci.yaml: from a
+      # bridge network `127.0.0.1` is the container itself.
+      - name: Resolve the local database URL
+        run: |
+          url=$(npx --yes "$SUPABASE_CLI" status -o json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin)["DB_URL"])')
+          test -n "$url" || { echo "supabase status reported no DB_URL"; exit 1; }
+          echo "::add-mask::$url"
+          echo "LOCAL_DB_URL=$url" >> "$GITHUB_ENV"
+
       # The image runs as uid 1000 so that locally, dist/ and
       # design/screenshots/ come back owned by the developer rather than root.
       # GitHub runners check out as uid 1001, so the bind-mounted workspace is
@@ -37,26 +77,14 @@ jobs:
       - name: Build the check image
         run: docker compose build checks
 
-      # LANE E RUNS HERE NOW, IF THE SECRET EXISTS -- and the reason it did not is
-      # that three files said this was "one public-repo job with no secret store".
-      # The repository is PUBLIC -- it always was, and this comment said "private" for a
-      # while -- and visibility has nothing to do with having a secret store: public
-      # repositories have encrypted Actions secrets like any other. The stated blocker
-      # was never true under either premise, and it kept the
-      # one lane that can see row-level security out of CI for the life of the repo.
-      #
-      # Until somebody adds SUPABASE_DB_URL under Settings -> Secrets and variables
-      # -> Actions, this expands to an empty string and the lane skips LOUDLY, exactly
-      # as it does on a laptop. So this change is a no-op until the secret exists, and
-      # never a red gate for want of a credential.
-      #
-      # Secrets are not exposed to workflows triggered by a fork's pull request. That
-      # is correct and wanted: the lane would skip there and say so, rather than hand
-      # a database password to anything a stranger can trigger.
+      # SUPABASE_DB_URL IS THE LOCAL STACK ABOVE, not a secret, so lane E runs for a fork's
+      # pull request too and hands no database password to anything a stranger can trigger.
+      # Drift between the migration and the LIVE project is a different question that only a
+      # production URL answers; ask it by hand: SUPABASE_DB_URL=<url> pnpm verify:policies.
       - name: Run every gate
-        run: docker compose run --rm checks
+        run: docker compose -f compose.yaml -f docker/compose.ci.yaml run --rm checks
         env:
-          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          SUPABASE_DB_URL: ${{ env.LOCAL_DB_URL }}
           # `vars`, NOT `secrets`, and that is the honest classification: both are
           # `EXPO_PUBLIC_` and are therefore compiled into every shipped bundle. Filing a
           # public value as a secret teaches everyone that the secret store holds things

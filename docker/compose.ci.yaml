@@ -1,0 +1,10 @@
+# CI-only addition to compose.yaml (`docker compose -f compose.yaml -f docker/compose.ci.yaml ...`).
+#
+# The checks container joins the HOST network so `127.0.0.1` reaches the local Supabase stack
+# the workflow started on the runner. Lane E's TLS rule matches a loopback host in the URL
+# (tools/verify-policies.mjs), and from a bridge network 127.0.0.1 is the container itself, so
+# the lane could not connect. A laptop run does not need this: there the lane takes a URL you
+# pass, or skips with the reason and the command that runs it.
+services:
+  checks:
+    network_mode: host
