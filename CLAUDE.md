@@ -117,6 +117,7 @@ pnpm export:web && pnpm shots   # Lane B: screenshots at 402x874 + colour gate
 pnpm test:e2e                   # Lane B: 442 Playwright journeys, dark + light
 pnpm deploy:web                 # push web/ + the guest app to Cloudflare Pages (direct upload)
 pnpm verify:links               # Lane G: is the invitation host OURS, and does it serve JSON
+pnpm verify:links:local         # Lane G against THIS BRANCH's web/ (what pull requests run)
 pnpm qr:poster                  # regenerate the scan target from the app's own EventQr
 pnpm scan:device                # Lane C: witness expo-camera reading that QR off a real lens
 pnpm export:web:live            # Lane H: build the export against SUPABASE, not the fixture
@@ -1752,7 +1753,17 @@ profile is `distribution: internal`: no Play Store, no review, anyone with the l
 it, and `web/i/index.html`'s `id="android"` button is how a guest gets it. **EAS internal
 artifacts expire 14 days after they are built** -- measured: the APK built 2026-09-11 expires
 2026-09-25. When it does, that button answers **400** and the page says nothing: a door that
-will not open, at the top of the funnel. Lane G HEADs the link on every board now and fails
+**LANE G ASKS THE BRANCH IN A PULL REQUEST AND THE LIVE HOST AFTER A DEPLOY (2026-11-06).** It
+read only the live site, so a PR that repointed a live page could not pass (it measured the page
+it was replacing) and main stayed red from every page change until a hand deploy.
+`docker/run-checks.sh` runs `node tools/verify-links.mjs --local`: `tools/serve-web.mjs` serves
+`web/` honouring `_redirects` (a rewrite beats a real file, first match wins), `_headers` and the
+`/api/music` function, and the SAME assertions run against it (mutation-checked: deleting the
+`/help` lines, or pointing the Android link at a dead URL, turns it red). The live host is asked
+by `.github/workflows/live-links.yml` (push to main touching `web/`, daily, on demand) and by
+`pnpm verify:links`. A local run prints what only the live host can show: ownership of the host,
+Cloudflare's own behaviour, `/api/music` through Cloudflare. Never skips locally: the server is
+ours. will not open, at the top of the funnel. Lane G HEADs the link on every board now and fails
 the day it dies. **Since 2026-10-05 the button carries `data-expires`** -- EAS's own
 `expirationDate` for that build (`eas build:list --platform android --json`), changed together
 with the href -- so the page swaps the button for a pointer to the browser route after that

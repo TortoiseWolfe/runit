@@ -187,9 +187,16 @@ node tools/verify-qr.mjs
 # It reads the BODY back, not the status. `runit.pages.dev` was in INVITE_ORIGIN for one
 # commit and answers 200 on every path with a stranger's OAuth callback page, so a status
 # check would have passed while every QR pointed at somebody else's website.
-step "invitation host  (lane G -- skips LOUDLY until Cloudflare Pages is connected)"
+#
+# AGAINST THIS BRANCH'S web/, NOT THE LIVE SITE (2026-11-06). It used to ask the live host, so
+# a pull request that fixed a live page failed until it was merged and deployed, and main
+# failed from every page change until somebody deployed. `--local` serves web/ through
+# tools/serve-web.mjs and makes the same assertions; the live host is asked after a deploy by
+# .github/workflows/live-links.yml (push to main, daily, on demand) and by `pnpm verify:links`.
+# The lane prints what a local run cannot see. It never skips: the server is ours.
+step "invitation host  (lane G -- this branch's web/; the live host is asked after deploy)"
 lane "lane G -- the invitation host serves OUR association file" \
-  node tools/verify-links.mjs
+  node tools/verify-links.mjs --local
 
 # Mail DNS, beside lane G because it is the other check that needs the network and the other
 # one whose subject lives in a dashboard. Two claims in one: that RunIt's sending domain

@@ -193,4 +193,4 @@ execFileSync('npx', ['--yes', 'wrangler@latest', 'pages', 'deploy', '.',
   { stdio: 'inherit', cwd: stage, env: { ...process.env, ...cf } });
 
 rmSync(stage, { recursive: true, force: true });
-console.log(green('\nOK: deployed. Verify with `pnpm verify:links` (lane G).'));
+console.log(green('\nOK: deployed. Verify the LIVE host with `pnpm verify:links` (lane G; pull requests use `--local`).'));
