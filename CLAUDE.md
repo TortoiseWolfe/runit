@@ -1753,17 +1753,7 @@ profile is `distribution: internal`: no Play Store, no review, anyone with the l
 it, and `web/i/index.html`'s `id="android"` button is how a guest gets it. **EAS internal
 artifacts expire 14 days after they are built** -- measured: the APK built 2026-09-11 expires
 2026-09-25. When it does, that button answers **400** and the page says nothing: a door that
-**LANE G ASKS THE BRANCH IN A PULL REQUEST AND THE LIVE HOST AFTER A DEPLOY (2026-11-06).** It
-read only the live site, so a PR that repointed a live page could not pass (it measured the page
-it was replacing) and main stayed red from every page change until a hand deploy.
-`docker/run-checks.sh` runs `node tools/verify-links.mjs --local`: `tools/serve-web.mjs` serves
-`web/` honouring `_redirects` (a rewrite beats a real file, first match wins), `_headers` and the
-`/api/music` function, and the SAME assertions run against it (mutation-checked: deleting the
-`/help` lines, or pointing the Android link at a dead URL, turns it red). The live host is asked
-by `.github/workflows/live-links.yml` (push to main touching `web/`, daily, on demand) and by
-`pnpm verify:links`. A local run prints what only the live host can show: ownership of the host,
-Cloudflare's own behaviour, `/api/music` through Cloudflare. Never skips locally: the server is
-ours. will not open, at the top of the funnel. Lane G HEADs the link on every board now and fails
+will not open, at the top of the funnel. Lane G HEADs the link on every board now and fails
 the day it dies. **Since 2026-10-05 the button carries `data-expires`** -- EAS's own
 `expirationDate` for that build (`eas build:list --platform android --json`), changed together
 with the href -- so the page swaps the button for a pointer to the browser route after that
@@ -1774,6 +1764,18 @@ moment, and lane G prints a `todo:` four days ahead instead of only failing on t
 `eas build --local -p android --profile preview` (EAS-managed signing, so the certificate still
 matches `assetlinks.json`; no cloud build is spent). `data-expires` is `2099-12-31` because
 lane G requires the attribute. A new build means a new release tag and a repoint of both pages.
+
+**LANE G ASKS THE BRANCH IN A PULL REQUEST AND THE LIVE HOST AFTER A DEPLOY (2026-11-06).** It
+read only the live site, so a PR that repointed a live page could not pass (it measured the page
+it was replacing) and main stayed red from every page change until a hand deploy.
+`docker/run-checks.sh` runs `node tools/verify-links.mjs --local`: `tools/serve-web.mjs` serves
+`web/` honouring `_redirects` (a rewrite beats a real file, first match wins), `_headers` and the
+`/api/music` function, and the SAME assertions run against it (mutation-checked: deleting the
+`/help` lines, or pointing the Android link at a dead URL, turns it red). The live host is asked
+by `.github/workflows/live-links.yml` (push to main touching `web/`, daily, on demand) and by
+`pnpm verify:links`. A local run prints what only the live host can show: ownership of the host,
+Cloudflare's own behaviour, `/api/music` through Cloudflare. Never skips locally: the server is
+ours.
 
 **CHECKING AN APK WITHOUT A DEVICE, AND TWO TOOLS THAT LIE ABOUT IT** (2026-09-21, build
 `d8e22e85`). With adb unavailable, the APK was verified from its bytes -- and two checks
