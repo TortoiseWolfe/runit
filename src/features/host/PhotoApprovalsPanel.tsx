@@ -1,10 +1,9 @@
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { formatRelative } from '@/lib/format';
+import { count, formatRelative } from '@/lib/format';
 import { usePhotoActions } from '@/state/actions';
 import { useActiveFolder, useEvent, useFolders, usePendingPhotos } from '@/state/hooks';
 import { TIERS } from '@/domain/tiers';
-import { capLabel } from '@/domain/entitlements';
 import { alpha, border, eyebrow, pendingPhotoColor, radius, useTheme, weight } from '@/theme';
 
 /** Artboard 03, Photos segment. */
@@ -17,10 +16,6 @@ export function PhotoApprovalsPanel() {
   const { approve, hide, addFolder, selectFolder, approveAll } = usePhotoActions();
 
   const tier = TIERS[event?.tier ?? 'house_party'];
-  const folderCap = capLabel(
-    { tier, usage: { guests: event?.guestCount ?? 0, hosts: 0, photosStored: 0, folders: folders.length } },
-    'folders',
-  );
   const atFolderCap = folders.length >= tier.limits.maxFolders;
 
   return (
@@ -36,7 +31,7 @@ export function PhotoApprovalsPanel() {
           <Pressable
             onPress={() => approveAll()}
             accessibilityRole="button"
-            accessibilityLabel={`Approve all ${pending.length} waiting photos`}
+            accessibilityLabel={`Approve all ${count(pending.length, 'waiting photo')}`}
             testID="approve-all"
             style={[s.approveAll, { backgroundColor: tokens.success }]}
           >
@@ -112,7 +107,7 @@ export function PhotoApprovalsPanel() {
           accessibilityRole="button"
           accessibilityHint={
             atFolderCap
-              ? `This event allows ${folderCap} folders. Explains the limit.`
+              ? `This event allows ${count(tier.limits.maxFolders, 'folder')}. Explains the limit.`
               : undefined
           }
           // ~15pt of text, under SC 2.5.8's 24x24 AA minimum. Isolated control,
@@ -121,7 +116,7 @@ export function PhotoApprovalsPanel() {
           testID="add-folder"
         >
           <Text style={[s.link, { color: atFolderCap ? alpha(tokens.baseContent, fade.faint) : tokens.accent }]}>
-            {atFolderCap ? `${folderCap} folders max` : '+ New folder'}
+            {atFolderCap ? `${count(tier.limits.maxFolders, 'folder')} max` : '+ New folder'}
           </Text>
         </Pressable>
       </View>
@@ -157,8 +152,8 @@ export function PhotoApprovalsPanel() {
 
       <Text style={[s.helper, { color: alpha(tokens.baseContent, fade.faint) }]}>
         Guest uploads land in the active folder. {tier.name} plan:{' '}
-        {Number.isFinite(tier.limits.maxFolders) ? `${tier.limits.maxFolders} folders` : 'unlimited folders'},{' '}
-        {Number.isFinite(tier.limits.maxPhotos) ? `${tier.limits.maxPhotos} photos` : 'unlimited photos'}.
+        {Number.isFinite(tier.limits.maxFolders) ? count(tier.limits.maxFolders, 'folder') : 'unlimited folders'},{' '}
+        {Number.isFinite(tier.limits.maxPhotos) ? count(tier.limits.maxPhotos, 'photo') : 'unlimited photos'}.
       </Text>
     </ScrollView>
   );
