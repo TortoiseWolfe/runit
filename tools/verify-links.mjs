@@ -16,16 +16,17 @@
  * else's is what comes back in the BODY: an association file naming OUR appID, and a
  * landing page carrying OUR App Store id. That is what this reads.
  *
- * IT SKIPS LOUDLY when the host does not resolve, exactly like Lane E. Cloudflare Pages
- * has to be connected by a human in a browser, so failing closed would make this a gate
- * nobody can turn green -- and a gate that cannot be satisfied gets deleted. Skipping and
- * naming what went unchecked is the honest middle.
+ * IT FAILS when the host does not resolve (issue 149). It used to skip loudly, because
+ * Cloudflare Pages had to be connected by a human before the host existed. The project is
+ * deployed now, so a host that does not answer is an outage, and printing SKIPPED let a dead
+ * install page pass the daily job and the post-deploy run. `--local` never skipped either.
  *
  * WHAT IT STILL CANNOT PROVE: that iOS accepts the file. Apple's CDN fetches it
  * separately and caches for days, and a misconfigured universal link fails SILENTLY by
  * opening Safari. Only a device settles that -- Settings > Developer > Universal Links >
  * Diagnostics. See web/README.md.
  */
+import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { startWebServer } from './serve-web.mjs';
@@ -37,11 +38,38 @@ const yellow = (s) => `\x1b[33m${s}\x1b[0m`;
 const red = (s) => `\x1b[31m${s}\x1b[0m`;
 const green = (s) => `\x1b[32m${s}\x1b[0m`;
 
-/** Read the origin from source rather than keeping a second copy that can drift. */
-const ORIGIN = /INVITE_ORIGIN = '([^']+)'/.exec(read('src/lib/invite.ts'))?.[1];
+/**
+ * Read the origin from source rather than keeping a second copy that can drift.
+ * VERIFY_LINKS_ORIGIN replaces it for `--selftest` only (a host that cannot resolve).
+ */
+const ORIGIN = process.env.VERIFY_LINKS_ORIGIN ?? /INVITE_ORIGIN = '([^']+)'/.exec(read('src/lib/invite.ts'))?.[1];
 if (!ORIGIN) {
   console.error(red('FAIL: could not read INVITE_ORIGIN out of src/lib/invite.ts'));
   process.exit(1);
+}
+
+/**
+ * `--selftest`: run this very check, live mode, against a host that cannot resolve (.invalid is
+ * reserved and never does), and require exit 1 with the failure printed. A site that does not
+ * answer must never look like a pass (issue 149).
+ */
+if (process.argv.includes('--selftest')) {
+  const run = spawnSync(process.execPath, [join(import.meta.dirname, 'verify-links.mjs')], {
+    env: { ...process.env, VERIFY_LINKS_ORIGIN: 'https://verify-links-selftest.invalid' },
+    encoding: 'utf8',
+    timeout: 60_000,
+  });
+  const out = `${run.stdout}${run.stderr}`;
+  const failed = [];
+  if (run.status !== 1) failed.push(`exit code ${run.status}, wanted 1`);
+  if (!out.includes('does not answer')) failed.push('the failure message is missing');
+  if (/SKIPPED|ok:/.test(out)) failed.push('it printed SKIPPED or ok for a host that never answered');
+  if (failed.length) {
+    console.error(red(`FAIL: verify-links selftest: ${failed.join('; ')}`));
+    process.exit(1);
+  }
+  console.log(green('ok: verify-links selftest: a host that does not answer fails live mode (exit 1)'));
+  process.exit(0);
 }
 
 const appJson = JSON.parse(read('app.json'));
@@ -90,19 +118,18 @@ let aasa;
 try {
   aasa = await get('/.well-known/apple-app-site-association');
 } catch {
-  // No DNS, no TLS, no answer. An unclaimed <name>.pages.dev does not resolve at all,
-  // which is the ordinary state before anyone has connected the project.
+  // No DNS, no TLS, no answer. In live mode that is an outage, not "not set up yet": the project
+  // is deployed, and a site that is down must not look like a pass (issue 149).
   if (LOCAL) {
-    // The local server is ours: failing to answer is a bug in tools/serve-web.mjs, never a skip.
+    // The local server is ours: failing to answer is a bug in tools/serve-web.mjs.
     console.error(red(`FAIL: the local server at ${BASE} did not answer, so NOTHING WAS CHECKED.`));
     await finish(1);
   }
-  console.log(yellow('SKIPPED: invitation links (lane G)'));
-  console.log(`  ${ORIGIN} does not answer, so NOTHING ABOUT THE INVITATION HOST WAS CHECKED.`);
-  console.log('  Connect Cloudflare Pages to this repo (output dir `web`) and re-run.');
-  console.log('  Until then a scanned QR is a dead end, and the universal link cannot work.');
-  console.log('  Steps: web/README.md');
-  process.exit(0);
+  console.error(red(`FAIL: ${ORIGIN} does not answer, so NOTHING ABOUT THE INVITATION HOST WAS CHECKED.`));
+  console.error('  If the project is not deployed, connect Cloudflare Pages to this repo (output dir `web`).');
+  console.error('  A scanned QR is a dead end, and the universal link cannot work, while the host is down.');
+  console.error('  Steps: web/README.md');
+  await finish(1);
 }
 
 /* ------------------------------------------------ the association file */
