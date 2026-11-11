@@ -201,6 +201,9 @@ step "invitation host  (lane G -- this branch's web/; the live host is asked aft
 lane "lane G -- the invitation host serves OUR association file" \
   node tools/verify-links.mjs --local
 
+step "invitation host selftest  (live mode against a host that cannot resolve must exit 1)"
+node tools/verify-links.mjs --selftest
+
 # Mail DNS, beside lane G because it is the other check that needs the network and the other
 # one whose subject lives in a dashboard. Two claims in one: that RunIt's sending domain
 # signs, and -- the half no other repo checks -- that ScriptHammer's INBOUND mail is
